@@ -1,9 +1,12 @@
 package com.opendatasoft.elasticsearch.plugin.geo;
 
 import com.opendatasoft.elasticsearch.action.geo.GeoAction;
+import com.opendatasoft.elasticsearch.action.geo.GeoSimpleAction;
 import com.opendatasoft.elasticsearch.action.geo.TransportGeoAction;
+import com.opendatasoft.elasticsearch.action.geo.TransportGeoSimpleAction;
 import com.opendatasoft.elasticsearch.rest.action.geo.GeoService;
 import com.opendatasoft.elasticsearch.rest.action.geo.RestGeoAction;
+import com.opendatasoft.elasticsearch.rest.action.geo.RestGeoAction2;
 import org.elasticsearch.action.ActionModule;
 import org.elasticsearch.common.component.LifecycleComponent;
 import org.elasticsearch.common.inject.Module;
@@ -44,9 +47,11 @@ public class GeoPlugin extends AbstractPlugin{
 
     public void onModule(RestModule module) {
         module.addRestAction(RestGeoAction.class);
+        module.addRestAction(RestGeoAction2.class);
     }
 
     public void onModule(ActionModule module) {
         module.registerAction(GeoAction.INSTANCE, TransportGeoAction.class);
+        module.registerAction(GeoSimpleAction.INSTANCE, TransportGeoSimpleAction.class);
     }
 }

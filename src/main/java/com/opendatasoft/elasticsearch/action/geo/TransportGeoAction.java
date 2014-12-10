@@ -184,7 +184,6 @@ public class TransportGeoAction extends TransportBroadcastOperationAction<GeoReq
             BytesReference source = request.source();
             geoParser.parseSource(context, source);
             GeoCollector geoCollector = new GeoCollector(context);
-//            exportParser.parseSource(context, source);
             context.preProcess();
             try {
 //                if (context.explain()) {

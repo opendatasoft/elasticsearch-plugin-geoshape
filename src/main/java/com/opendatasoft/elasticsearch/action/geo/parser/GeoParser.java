@@ -12,6 +12,7 @@ import org.elasticsearch.search.SearchParseException;
 import org.elasticsearch.search.fetch.FetchPhase;
 import org.elasticsearch.search.fetch.FieldsParseElement;
 import org.elasticsearch.search.fetch.explain.ExplainParseElement;
+import org.elasticsearch.search.fetch.fielddata.FieldDataFieldsParseElement;
 import org.elasticsearch.search.query.QueryPhase;
 
 import java.util.HashMap;
@@ -26,6 +27,7 @@ public class GeoParser {
         Map<String, SearchParseElement> elementParsers = new HashMap<String, SearchParseElement>();
         elementParsers.putAll(queryPhase.parseElements());
         elementParsers.put("fields", new FieldsParseElement());
+        elementParsers.put("field", new FieldDataFieldsParseElement());
         elementParsers.put("explain", new ExplainParseElement());
         elementParsers.put("simplify", new SimplifyParser());
         elementParsers.put("output_format", new OutputFormatParser());
