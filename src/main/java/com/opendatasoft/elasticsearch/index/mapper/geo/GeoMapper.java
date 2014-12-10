@@ -3,38 +3,24 @@ package com.opendatasoft.elasticsearch.index.mapper.geo;
 import com.spatial4j.core.context.jts.JtsSpatialContextFactory;
 import com.spatial4j.core.io.jts.JtsBinaryCodec;
 import com.spatial4j.core.shape.Shape;
-import com.vividsolutions.jts.io.WKBWriter;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.FieldType;
 import org.apache.lucene.index.FieldInfo;
-import org.apache.lucene.spatial.prefix.PrefixTreeStrategy;
-import org.apache.lucene.spatial.prefix.RecursivePrefixTreeStrategy;
-import org.apache.lucene.spatial.prefix.TermQueryPrefixTreeStrategy;
-import org.apache.lucene.spatial.prefix.tree.GeohashPrefixTree;
-import org.apache.lucene.spatial.prefix.tree.QuadPrefixTree;
-import org.apache.lucene.spatial.prefix.tree.SpatialPrefixTree;
-import org.elasticsearch.ElasticsearchIllegalArgumentException;
-import org.elasticsearch.common.Base64;
 import org.elasticsearch.common.Nullable;
-import org.elasticsearch.common.Strings;
-import org.elasticsearch.common.geo.GeoUtils;
-import org.elasticsearch.common.geo.SpatialStrategy;
 import org.elasticsearch.common.geo.builders.ShapeBuilder;
-import org.elasticsearch.common.io.stream.DataOutputStreamOutput;
 import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.common.unit.DistanceUnit;
-import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.index.codec.docvaluesformat.DocValuesFormatProvider;
 import org.elasticsearch.index.codec.postingsformat.PostingsFormatProvider;
 import org.elasticsearch.index.fielddata.FieldDataType;
 import org.elasticsearch.index.mapper.*;
 import org.elasticsearch.index.mapper.core.AbstractFieldMapper;
 import org.elasticsearch.index.mapper.core.BinaryFieldMapper;
+import org.elasticsearch.index.mapper.core.StringFieldMapper;
+import org.elasticsearch.index.mapper.core.TypeParsers;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -45,27 +31,17 @@ public class GeoMapper extends AbstractFieldMapper<Object>{
     public static final String CONTENT_TYPE = "geo";
 
     public static class Names {
-        public static final String TREE = "tree";
-        public static final String TREE_GEOHASH = "geohash";
-        public static final String TREE_QUADTREE = "quadtree";
-        public static final String TREE_LEVELS = "tree_levels";
-        public static final String TREE_PRESISION = "precision";
-        public static final String DISTANCE_ERROR_PCT = "distance_error_pct";
-        public static final String STRATEGY = "strategy";
         public static final String WKB = "wkb";
+        public static final String TYPE = "type";
+
     }
 
     public static class Defaults {
-        public static final String TREE = Names.TREE_GEOHASH;
-        public static final String STRATEGY = SpatialStrategy.RECURSIVE.getStrategyName();
-        public static final int GEOHASH_LEVELS = GeoUtils.geoHashLevelsForPrecision("50m");
-        public static final int QUADTREE_LEVELS = GeoUtils.quadTreeLevelsForPrecision("50m");
-        public static final double DISTANCE_ERROR_PCT = 0.025d;
 
         public static final FieldType FIELD_TYPE = new FieldType();
 
         static {
-            FIELD_TYPE.setIndexed(true);
+            FIELD_TYPE.setIndexed(false);
             FIELD_TYPE.setTokenized(false);
             FIELD_TYPE.setStored(false);
             FIELD_TYPE.setStoreTermVectors(false);
@@ -78,47 +54,12 @@ public class GeoMapper extends AbstractFieldMapper<Object>{
 
     public static class Builder extends AbstractFieldMapper.Builder<Builder, GeoMapper> {
 
-        private String tree = Defaults.TREE;
-        private String strategyName = Defaults.STRATEGY;
-        private int treeLevels = 0;
-        private double precisionInMeters = -1;
-        private double distanceErrorPct = Defaults.DISTANCE_ERROR_PCT;
-        private boolean storeWkb = true;
 
-        private SpatialPrefixTree prefixTree;
+        private BinaryFieldMapper.Builder wkbBuilder = new BinaryFieldMapper.Builder(Names.WKB);
+        private StringFieldMapper.Builder typeBuilder = new StringFieldMapper.Builder(Names.TYPE);
 
         protected Builder(String name) {
-            super(name, new FieldType(AbstractFieldMapper.Defaults.FIELD_TYPE));
-        }
-
-        public Builder tree(String tree) {
-            this.tree = tree;
-            return this;
-        }
-
-        public Builder strategy(String strategy) {
-            this.strategyName = strategy;
-            return this;
-        }
-
-        public Builder treeLevelsByDistance(double meters) {
-            this.precisionInMeters = meters;
-            return this;
-        }
-
-        public Builder treeLevels(int treeLevels) {
-            this.treeLevels = treeLevels;
-            return this;
-        }
-
-        public Builder distanceErrorPct(double distanceErrorPct) {
-            this.distanceErrorPct = distanceErrorPct;
-            return this;
-        }
-
-        public Builder storeWkb(boolean storeWkb) {
-            this.storeWkb = storeWkb;
-            return this;
+            super(name, new FieldType(Defaults.FIELD_TYPE));
         }
 
         public Builder fieldDataSettings(Settings settings) {
@@ -129,27 +70,22 @@ public class GeoMapper extends AbstractFieldMapper<Object>{
         @Override
         public GeoMapper build(BuilderContext context) {
             final FieldMapper.Names names = buildNames(context);
-            if (Names.TREE_GEOHASH.equals(tree)) {
-                prefixTree = new GeohashPrefixTree(ShapeBuilder.SPATIAL_CONTEXT, getLevels(treeLevels, precisionInMeters, Defaults.GEOHASH_LEVELS, true));
-            } else if (Names.TREE_QUADTREE.equals(tree)) {
-                prefixTree = new QuadPrefixTree(ShapeBuilder.SPATIAL_CONTEXT, getLevels(treeLevels, precisionInMeters, Defaults.QUADTREE_LEVELS, false));
-            } else {
-                throw new ElasticsearchIllegalArgumentException("Unknown prefix tree type [" + tree + "]");
-            }
 
-            BinaryFieldMapper wkbMapper = new BinaryFieldMapper.Builder(Names.WKB).index(true).docValues(true).build(context);
+            ContentPath.Type origPathType = context.path().pathType();
+            context.path().pathType(ContentPath.Type.FULL);
 
-            return new GeoMapper(names, prefixTree, strategyName, distanceErrorPct, wkbMapper, fieldDataSettings, docValues, fieldType, postingsProvider,
+            context.path().add(name);
+
+            BinaryFieldMapper wkbMapper = wkbBuilder.index(true).docValues(true).build(context);
+            StringFieldMapper typeMapper = typeBuilder.tokenized(false).docValues(true).includeInAll(false).omitNorms(true).index(true).build(context);
+
+            context.path().remove();
+            context.path().pathType(origPathType);
+
+
+            return new GeoMapper(names, wkbMapper, typeMapper, fieldDataSettings, docValues, fieldType, postingsProvider,
                     docValuesProvider, multiFieldsBuilder.build(this, context), copyTo);
         }
-    }
-
-    private static final int getLevels(int treeLevels, double precisionInMeters, int defaultLevels, boolean geoHash) {
-        if (treeLevels > 0 || precisionInMeters >= 0) {
-            return Math.max(treeLevels, precisionInMeters >= 0 ? (geoHash ? GeoUtils.geoHashLevelsForPrecision(precisionInMeters)
-                    : GeoUtils.quadTreeLevelsForPrecision(precisionInMeters)) : 0);
-        }
-        return defaultLevels;
     }
 
     public static class TypeParser implements Mapper.TypeParser {
@@ -157,51 +93,22 @@ public class GeoMapper extends AbstractFieldMapper<Object>{
         @Override
         public Mapper.Builder parse(String name, Map<String, Object> node, ParserContext parserContext) throws MapperParsingException {
             Builder builder = new GeoMapper.Builder(name);
-
-            for (Iterator<Map.Entry<String, Object>> iterator = node.entrySet().iterator(); iterator.hasNext();) {
-                Map.Entry<String, Object> entry = iterator.next();
-                String fieldName = Strings.toUnderscoreCase(entry.getKey());
-                Object fieldNode = entry.getValue();
-                if (Names.TREE.equals(fieldName)) {
-                    builder.tree(fieldNode.toString());
-                    iterator.remove();
-                } else if (Names.TREE_LEVELS.equals(fieldName)) {
-                    builder.treeLevels(Integer.parseInt(fieldNode.toString()));
-                    iterator.remove();
-                } else if (Names.TREE_PRESISION.equals(fieldName)) {
-                    builder.treeLevelsByDistance(DistanceUnit.parse(fieldNode.toString(), DistanceUnit.DEFAULT, DistanceUnit.DEFAULT));
-                    iterator.remove();
-                } else if (Names.DISTANCE_ERROR_PCT.equals(fieldName)) {
-                    builder.distanceErrorPct(Double.parseDouble(fieldNode.toString()));
-                    iterator.remove();
-                } else if (Names.STRATEGY.equals(fieldName)) {
-                    builder.strategy(fieldNode.toString());
-                    iterator.remove();
-                } else if (Names.WKB.equals(fieldName)) {
-                    builder.storeWkb(Boolean.parseBoolean(fieldNode.toString()));
-                    iterator.remove();
-                }
-            }
+            TypeParsers.parseField(builder, name, node, parserContext);
             return builder;
         }
     }
 
-    private final PrefixTreeStrategy defaultStrategy;
-    private final RecursivePrefixTreeStrategy recursiveStrategy;
-    private final TermQueryPrefixTreeStrategy termStrategy;
     private final BinaryFieldMapper wkbMapper;
+    private final StringFieldMapper typeMapper;
 
 
-    public GeoMapper(FieldMapper.Names names, SpatialPrefixTree tree, String defaultStrategyName, double distanceErrorPct, BinaryFieldMapper wkbMapper,
-                     @Nullable Settings fieldDataSettings, Boolean docValues, FieldType fieldType, PostingsFormatProvider postingsProvider, DocValuesFormatProvider docValuesProvider,
-                               MultiFields multiFields, CopyTo copyTo) {
+    public GeoMapper(FieldMapper.Names names, BinaryFieldMapper wkbMapper, StringFieldMapper typeMapper,
+                     @Nullable Settings fieldDataSettings, Boolean docValues, FieldType fieldType,
+                     PostingsFormatProvider postingsProvider, DocValuesFormatProvider docValuesProvider,
+                     MultiFields multiFields, CopyTo copyTo) {
         super(names, 1, fieldType, docValues, null, null, postingsProvider, docValuesProvider, null, null, fieldDataSettings , null, multiFields, copyTo);
-        this.recursiveStrategy = new RecursivePrefixTreeStrategy(tree, names.indexName());
-        this.recursiveStrategy.setDistErrPct(distanceErrorPct);
-        this.termStrategy = new TermQueryPrefixTreeStrategy(tree, names.indexName());
-        this.termStrategy.setDistErrPct(distanceErrorPct);
-        this.defaultStrategy = resolveStrategy(defaultStrategyName);
         this.wkbMapper = wkbMapper;
+        this.typeMapper = typeMapper;
     }
 
     @Override
@@ -211,44 +118,30 @@ public class GeoMapper extends AbstractFieldMapper<Object>{
 
     @Override
     public FieldDataType defaultFieldDataType() {
-        return new FieldDataType("binary");
+        return null;
     }
 
     @Override
     public boolean hasDocValues() {
-        return true;
+        return false;
     }
-
-    public BinaryFieldMapper getWkbMapper() {
-        return this.wkbMapper;
-    }
-
 
     @Override
     public void parse(ParseContext context) throws IOException {
         try {
-            Shape shape = context.parseExternalValue(Shape.class);
-            if (shape == null) {
-                ShapeBuilder shapeBuilder = ShapeBuilder.parse(context.parser());
+            ShapeBuilder shapeBuilder = context.parseExternalValue(ShapeBuilder.class);
+
+            if (shapeBuilder == null) {
+                shapeBuilder = ShapeBuilder.parse(context.parser());
                 if (shapeBuilder == null) {
                     return;
                 }
-                shape = shapeBuilder.build();
             }
-            parseWkb(context, shape);
 
-            Field[] fields = defaultStrategy.createIndexableFields(shape);
-            if (fields == null || fields.length == 0) {
-                return;
-            }
-            for (Field field : fields) {
-                if (!customBoost()) {
-                    field.setBoost(boost);
-                }
-                if (context.listener().beforeFieldAdded(this, field, context)) {
-                    context.doc().add(field);
-                }
-            }
+            typeMapper.parse(context.createExternalValueContext(shapeBuilder.type().toString().toLowerCase()));
+
+            parseWkb(context, shapeBuilder.build());
+
         } catch (Exception e) {
             throw new MapperParsingException("failed to parse [" + names.fullName() + "]", e);
         }
@@ -259,12 +152,10 @@ public class GeoMapper extends AbstractFieldMapper<Object>{
      * as an external value.
      */
     private void parseWkb(ParseContext context, Shape shape) throws IOException {
-        WKBWriter serializer = new WKBWriter();
         JtsBinaryCodec jtsBinaryCodec = new JtsBinaryCodec(ShapeBuilder.SPATIAL_CONTEXT, new JtsSpatialContextFactory());
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DataOutputStream dataOutputStream = new DataOutputStream(baos);
         jtsBinaryCodec.writeJtsGeom(dataOutputStream, shape);
-//        byte[] wkb = serializer.write(ShapeBuilder.SPATIAL_CONTEXT.getGeometryFrom(shape));
         byte[] wkb = baos.toByteArray();
         wkbMapper.parse(context.createExternalValueContext(wkb));
 
@@ -284,29 +175,6 @@ public class GeoMapper extends AbstractFieldMapper<Object>{
     protected void parseCreateField(ParseContext context, List<Field> fields) throws IOException {
     }
 
-    @Override
-    protected void doXContentBody(XContentBuilder builder, boolean includeDefaults, Params params) throws IOException {
-        builder.field("type", contentType());
-
-        // TODO: Come up with a better way to get the name, maybe pass it from builder
-        if (defaultStrategy.getGrid() instanceof GeohashPrefixTree) {
-            // Don't emit the tree name since GeohashPrefixTree is the default
-            // Only emit the tree levels if it isn't the default value
-            if (includeDefaults || defaultStrategy.getGrid().getMaxLevels() != Defaults.GEOHASH_LEVELS) {
-                builder.field(Names.TREE_LEVELS, defaultStrategy.getGrid().getMaxLevels());
-            }
-        } else {
-            builder.field(Names.TREE, Names.TREE_QUADTREE);
-            if (includeDefaults || defaultStrategy.getGrid().getMaxLevels() != Defaults.QUADTREE_LEVELS) {
-                builder.field(Names.TREE_LEVELS, defaultStrategy.getGrid().getMaxLevels());
-            }
-        }
-
-        if (includeDefaults || defaultStrategy.getDistErrPct() != Defaults.DISTANCE_ERROR_PCT) {
-            builder.field(Names.DISTANCE_ERROR_PCT, defaultStrategy.getDistErrPct());
-        }
-    }
-
 
     @Override
     protected String contentType() {
@@ -318,6 +186,7 @@ public class GeoMapper extends AbstractFieldMapper<Object>{
     public void traverse(FieldMapperListener fieldMapperListener) {
         super.traverse(fieldMapperListener);
         wkbMapper.traverse(fieldMapperListener);
+        typeMapper.traverse(fieldMapperListener);
     }
 
 
@@ -325,33 +194,11 @@ public class GeoMapper extends AbstractFieldMapper<Object>{
     public void close() {
         super.close();
         wkbMapper.close();
+        typeMapper.close();
     }
 
     @Override
     public Object value(Object value) {
         throw new UnsupportedOperationException("GeoShape fields cannot be converted to String values");
     }
-
-    public PrefixTreeStrategy defaultStrategy() {
-        return this.defaultStrategy;
-    }
-
-    public PrefixTreeStrategy recursiveStrategy() {
-        return this.recursiveStrategy;
-    }
-
-    public PrefixTreeStrategy termStrategy() {
-        return this.termStrategy;
-    }
-
-    public PrefixTreeStrategy resolveStrategy(String strategyName) {
-        if (SpatialStrategy.RECURSIVE.getStrategyName().equals(strategyName)) {
-            return recursiveStrategy;
-        }
-        if (SpatialStrategy.TERM.getStrategyName().equals(strategyName)) {
-            return termStrategy;
-        }
-        throw new ElasticsearchIllegalArgumentException("Unknown prefix tree strategy [" + strategyName + "]");
-    }
-
 }
