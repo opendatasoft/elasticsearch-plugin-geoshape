@@ -33,6 +33,8 @@ import org.elasticsearch.index.shard.service.InternalIndexShard;
 import org.elasticsearch.indices.IndicesService;
 import org.elasticsearch.script.ScriptService;
 import org.elasticsearch.search.SearchShardTarget;
+import org.elasticsearch.search.fetch.FetchPhase;
+import org.elasticsearch.search.internal.ContextIndexSearcher;
 import org.elasticsearch.search.internal.SearchContext;
 import org.elasticsearch.search.internal.ShardSearchLocalRequest;
 import org.elasticsearch.search.query.QueryPhaseExecutionException;
@@ -59,6 +61,7 @@ public class TransportGeoAction extends TransportBroadcastOperationAction<GeoReq
     private final PageCacheRecycler pageCacheRecycler;
     private final BigArrays bigArrays;
     private final GeoParser geoParser;
+    private final FetchPhase fetchPhase;
 
 //    TransportSearchDfsQueryThenFetchAction;
 
@@ -67,7 +70,7 @@ public class TransportGeoAction extends TransportBroadcastOperationAction<GeoReq
                               TransportService transportService,
                               IndicesService indicesService, ScriptService scriptService, CacheRecycler cacheRecycler,
                               PageCacheRecycler pageCacheRecycler, BigArrays bigArrays, ActionFilters actionFilters,
-                              GeoParser geoParser) {
+                              GeoParser geoParser, FetchPhase fetchPhase) {
 
         super(settings, GeoAction.NAME, threadPool, clusterService, transportService, actionFilters);
         this.indicesService = indicesService;
@@ -76,6 +79,7 @@ public class TransportGeoAction extends TransportBroadcastOperationAction<GeoReq
         this.pageCacheRecycler = pageCacheRecycler;
         this.bigArrays = bigArrays;
         this.geoParser = geoParser;
+        this.fetchPhase = fetchPhase;
     }
 
     @Override

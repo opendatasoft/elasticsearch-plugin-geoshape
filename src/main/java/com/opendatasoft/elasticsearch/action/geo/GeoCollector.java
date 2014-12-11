@@ -112,14 +112,17 @@ public class GeoCollector extends Collector {
 
     @Override
     public void collect(int docId) throws IOException {
-//        currentReader.document(doc, fieldsVisitor);
+//        fieldsVisitor.reset();
+//        currentReader.document(docId, fieldsVisitor);
+//
 //        Map<String, SearchHitField> searchFields = null;
-//        if (!fieldsVisitor.fields().isEmpty()) {
+//        if (fieldsVisitor.fields() != null) {
 //            searchFields = new HashMap<String, SearchHitField>(fieldsVisitor.fields().size());
 //            for (Map.Entry<String, List<Object>> entry : fieldsVisitor.fields().entrySet()) {
 //                searchFields.put(entry.getKey(), new InternalSearchHitField(entry.getKey(), entry.getValue()));
 //            }
 //        }
+//
 //        DocumentMapper documentMapper = context.mapperService()
 //                .documentMapper(fieldsVisitor.uid().type());
 //        Text typeText;
@@ -128,11 +131,18 @@ public class GeoCollector extends Collector {
 //        } else {
 //            typeText = documentMapper.typeText();
 //        }
+//
+//        InternalSearchHit searchHit = new InternalSearchHit(docId,
+//                fieldsVisitor.uid().id(), typeText,
+//                searchFields);
 
-//        InternalSearchHit[] hits = new InternalSearchHit[context.docIdsToLoadSize()];
-//        FetchSubPhase.HitContext hitContext = new FetchSubPhase.HitContext();
-//        for (int index = 0; index < context.docIdsToLoadSize(); index++) {
-//            int docId = context.docIdsToLoad()[context.docIdsToLoadFrom() + index];
+//        for (FetchSubPhase fetchSubPhase : fetchSubPhases) {
+//            FetchSubPhase.HitContext hitContext = new FetchSubPhase.HitContext();
+//            if (fetchSubPhase.hitExecutionNeeded(context)) {
+//                hitContext.reset(searchHit, arc, docId, context.searcher().getIndexReader(), docId, fieldsVisitor);
+//                fetchSubPhase.hitExecute(context, hitContext);
+//            }
+//        }
 
             currentReader.document(docId, fieldsVisitor);
 //            loadStoredFields(context, fieldsVisitor, docId);

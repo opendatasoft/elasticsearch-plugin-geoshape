@@ -3,6 +3,8 @@ package com.opendatasoft.elasticsearch.index.mapper.geo;
 import com.spatial4j.core.context.jts.JtsSpatialContextFactory;
 import com.spatial4j.core.io.jts.JtsBinaryCodec;
 import com.spatial4j.core.shape.Shape;
+import com.vividsolutions.jts.geom.Geometry;
+import com.vividsolutions.jts.io.WKBWriter;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.FieldType;
 import org.apache.lucene.index.FieldInfo;
@@ -17,10 +19,13 @@ import org.elasticsearch.index.mapper.core.AbstractFieldMapper;
 import org.elasticsearch.index.mapper.core.BinaryFieldMapper;
 import org.elasticsearch.index.mapper.core.StringFieldMapper;
 import org.elasticsearch.index.mapper.core.TypeParsers;
+import org.geotools.geojson.GeoJSON;
+import org.geotools.geojson.geom.GeometryJSON;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.StringReader;
 import java.util.List;
 import java.util.Map;
 
@@ -76,7 +81,7 @@ public class GeoMapper extends AbstractFieldMapper<Object>{
 
             context.path().add(name);
 
-            BinaryFieldMapper wkbMapper = wkbBuilder.index(true).docValues(true).build(context);
+            BinaryFieldMapper wkbMapper = wkbBuilder.docValues(true).build(context);
             StringFieldMapper typeMapper = typeBuilder.tokenized(false).docValues(true).includeInAll(false).omitNorms(true).index(true).build(context);
 
             context.path().remove();
@@ -100,6 +105,7 @@ public class GeoMapper extends AbstractFieldMapper<Object>{
 
     private final BinaryFieldMapper wkbMapper;
     private final StringFieldMapper typeMapper;
+    private final WKBWriter wkbWriter;
 
 
     public GeoMapper(FieldMapper.Names names, BinaryFieldMapper wkbMapper, StringFieldMapper typeMapper,
@@ -109,6 +115,7 @@ public class GeoMapper extends AbstractFieldMapper<Object>{
         super(names, 1, fieldType, docValues, null, null, postingsProvider, docValuesProvider, null, null, fieldDataSettings , null, multiFields, copyTo);
         this.wkbMapper = wkbMapper;
         this.typeMapper = typeMapper;
+        this.wkbWriter = new WKBWriter();
     }
 
     @Override
@@ -119,11 +126,6 @@ public class GeoMapper extends AbstractFieldMapper<Object>{
     @Override
     public FieldDataType defaultFieldDataType() {
         return null;
-    }
-
-    @Override
-    public boolean hasDocValues() {
-        return false;
     }
 
     @Override
@@ -140,7 +142,7 @@ public class GeoMapper extends AbstractFieldMapper<Object>{
 
             typeMapper.parse(context.createExternalValueContext(shapeBuilder.type().toString().toLowerCase()));
 
-            parseWkb(context, shapeBuilder.build());
+            parseWkb(context, shapeBuilder);
 
         } catch (Exception e) {
             throw new MapperParsingException("failed to parse [" + names.fullName() + "]", e);
@@ -151,12 +153,10 @@ public class GeoMapper extends AbstractFieldMapper<Object>{
      * Writes the WKB serialization of the <tt>shape</tt> to the given ParseContext
      * as an external value.
      */
-    private void parseWkb(ParseContext context, Shape shape) throws IOException {
-        JtsBinaryCodec jtsBinaryCodec = new JtsBinaryCodec(ShapeBuilder.SPATIAL_CONTEXT, new JtsSpatialContextFactory());
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        DataOutputStream dataOutputStream = new DataOutputStream(baos);
-        jtsBinaryCodec.writeJtsGeom(dataOutputStream, shape);
-        byte[] wkb = baos.toByteArray();
+    private void parseWkb(ParseContext context, ShapeBuilder shapeBuilder) throws IOException {
+        Geometry geom = ShapeBuilder.SPATIAL_CONTEXT.getGeometryFrom(shapeBuilder.build());
+        byte[] wkb = wkbWriter.write(geom);
+
         wkbMapper.parse(context.createExternalValueContext(wkb));
 
         BinaryFieldMapper.CustomBinaryDocValuesField f = (BinaryFieldMapper.CustomBinaryDocValuesField) context.doc().getByKey(names().indexName());

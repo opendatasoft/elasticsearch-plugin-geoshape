@@ -48,9 +48,7 @@ public class RestGeoAction2 extends BaseRestHandler {
 
 //        List< arbres_remarquables_20113-geo_shape-geo_shape-wkb
         final String geoField = request.param("field");
-        final String geoFieldWKB = geoField + "-wkb";
-        final String geoFieldString = geoField + "-string";
-        final String geoFieldHash = geoField + "-hash";
+        final String geoFieldWKB = geoField + ".wkb";
 
         final String zoom = request.param("zoom");
         final String outputFormat = request.param("output_format", "wkt");
@@ -92,13 +90,11 @@ public class RestGeoAction2 extends BaseRestHandler {
                         
                         builder.field("geo-type", hit.field("geo-type"));
 
-
                         if (getSource) {
                             builder.startObject("properties");
 
                             for (String key: source.keySet()) {
-                                if (!key.equals(geoField) && ! key.equals(geoFieldWKB) &&
-                                        ! key.equals(geoFieldString) && !key.equals(geoFieldHash)) {
+                                if (!key.equals(geoField) && ! key.equals(geoFieldWKB)) {
                                     builder.field(key, source.get(key));
                                 }
                             }

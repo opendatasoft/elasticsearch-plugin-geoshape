@@ -20,18 +20,20 @@ import java.util.Map;
 
 public class GeoParser {
 
-    private final ImmutableMap<String, SearchParseElement> elementParsers;
+    private final ImmutableMap<String, ? extends SearchParseElement> elementParsers;
 
     @Inject
     public GeoParser(QueryPhase queryPhase, FetchPhase fetchPhase) {
-        Map<String, SearchParseElement> elementParsers = new HashMap<String, SearchParseElement>();
+        ImmutableMap.Builder<String, SearchParseElement> elementParsers = ImmutableMap.builder();
         elementParsers.putAll(queryPhase.parseElements());
         elementParsers.put("fields", new FieldsParseElement());
         elementParsers.put("field", new FieldDataFieldsParseElement());
         elementParsers.put("explain", new ExplainParseElement());
         elementParsers.put("simplify", new SimplifyParser());
         elementParsers.put("output_format", new OutputFormatParser());
-        this.elementParsers = ImmutableMap.copyOf(elementParsers);
+        elementParsers.put("fielddata_fields", new FieldDataFieldsParseElement())
+                .put("fielddataFields", new FieldDataFieldsParseElement());
+        this.elementParsers = elementParsers.build();
     }
 
 

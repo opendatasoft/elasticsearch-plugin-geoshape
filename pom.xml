@@ -16,6 +16,7 @@
 
     <properties>
         <elasticsearch.version>1.4.1</elasticsearch.version>
+        <geotools.version>10.2</geotools.version>
     </properties>
 
     <dependencies>
@@ -37,6 +38,11 @@
             <version>${elasticsearch.version}</version>
             <type>test-jar</type>
             <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.geotools</groupId>
+            <artifactId>gt-geojson</artifactId>
+            <version>${geotools.version}</version>
         </dependency>
 
     </dependencies>

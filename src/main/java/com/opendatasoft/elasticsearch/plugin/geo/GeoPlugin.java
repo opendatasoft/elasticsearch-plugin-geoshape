@@ -7,11 +7,14 @@ import com.opendatasoft.elasticsearch.action.geo.TransportGeoSimpleAction;
 import com.opendatasoft.elasticsearch.rest.action.geo.GeoService;
 import com.opendatasoft.elasticsearch.rest.action.geo.RestGeoAction;
 import com.opendatasoft.elasticsearch.rest.action.geo.RestGeoAction2;
+import com.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.GeoShapeParser;
+import com.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.InternalGeoShape;
 import org.elasticsearch.action.ActionModule;
 import org.elasticsearch.common.component.LifecycleComponent;
 import org.elasticsearch.common.inject.Module;
 import org.elasticsearch.plugins.AbstractPlugin;
 import org.elasticsearch.rest.RestModule;
+import org.elasticsearch.search.aggregations.AggregationModule;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -53,5 +56,10 @@ public class GeoPlugin extends AbstractPlugin{
     public void onModule(ActionModule module) {
         module.registerAction(GeoAction.INSTANCE, TransportGeoAction.class);
         module.registerAction(GeoSimpleAction.INSTANCE, TransportGeoSimpleAction.class);
+    }
+
+    public void onModule(AggregationModule aggModule) {
+        aggModule.addAggregatorParser(GeoShapeParser.class);
+        InternalGeoShape.registerStreams();
     }
 }
