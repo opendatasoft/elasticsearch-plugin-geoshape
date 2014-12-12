@@ -1,5 +1,6 @@
 package com.opendatasoft.elasticsearch.index.mapper.geo;
 
+import com.spatial4j.core.context.jts.JtsSpatialContext;
 import com.spatial4j.core.context.jts.JtsSpatialContextFactory;
 import com.spatial4j.core.io.jts.JtsBinaryCodec;
 import com.spatial4j.core.shape.Shape;
@@ -22,12 +23,11 @@ import org.elasticsearch.index.mapper.core.TypeParsers;
 import org.geotools.geojson.GeoJSON;
 import org.geotools.geojson.geom.GeometryJSON;
 
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.io.StringReader;
+import java.io.*;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 
 public class GeoMapper extends AbstractFieldMapper<Object>{
@@ -149,12 +149,52 @@ public class GeoMapper extends AbstractFieldMapper<Object>{
         }
     }
 
+    private String getGeoJsonType(String geoType) throws IOException {
+        if (geoType.equals("point")) {
+            return "Point";
+        }
+        if (geoType.equals("multipoint")) {
+            return "MultiPoint";
+        }
+        if (geoType.equals("linestring")) {
+            return "LineString";
+        }
+        if (geoType.equals("multilinestring")) {
+            return "MultiLineString";
+        }
+        if (geoType.equals("polygon")) {
+            return "Polygon";
+        }
+        if (geoType.equals("multipolygon")) {
+            return "MultiPolygon";
+        }
+        if (geoType.equals("geometrycollection")) {
+            return "GeometryCollection";
+        }
+
+        throw new IOException("Geo Type unknown");
+    }
+
     /**
      * Writes the WKB serialization of the <tt>shape</tt> to the given ParseContext
      * as an external value.
      */
     private void parseWkb(ParseContext context, ShapeBuilder shapeBuilder) throws IOException {
-        Geometry geom = ShapeBuilder.SPATIAL_CONTEXT.getGeometryFrom(shapeBuilder.build());
+        String geoJson = shapeBuilder.toString();
+
+
+        Matcher matcher = Pattern.compile("^.*type\":\"([^\"]+).*").matcher(geoJson);
+
+        matcher.find();
+
+        String type = matcher.group(1);
+
+        geoJson = geoJson.replaceFirst(type, getGeoJsonType(type));
+        GeometryJSON geometryJSON = new GeometryJSON();
+
+        Geometry geom = geometryJSON.read(geoJson);
+
+//        Geometry geom = ShapeBuilder.SPATIAL_CONTEXT.getGeometryFrom(shapeBuilder.build());
         byte[] wkb = wkbWriter.write(geom);
 
         wkbMapper.parse(context.createExternalValueContext(wkb));
