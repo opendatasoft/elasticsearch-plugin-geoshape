@@ -23,13 +23,6 @@ import org.geotools.geojson.geom.GeometryJSON;
 import java.io.IOException;
 import java.util.*;
 
-/**
- * Created with IntelliJ IDEA.
- * User: clement
- * Date: 11/12/14
- * Time: 10:20
- * To change this template use File | Settings | File Templates.
- */
 public class InternalGeoShape extends InternalAggregation implements GeoShape {
 
     public static final Type TYPE = new Type("geoshape", "gshape");
@@ -167,7 +160,6 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
         return bucketMap.get(key);
     }
 
-
     @Override
     public InternalAggregation reduce(ReduceContext reduceContext) {
         List<InternalAggregation> aggregations = reduceContext.aggregations();
@@ -193,12 +185,14 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
         BucketPriorityQueue ordered = new BucketPriorityQueue(size);
         for (LongObjectPagedHashMap.Cursor<List<Bucket>> cursor : buckets) {
             List<Bucket> sameCellBuckets = cursor.value;
+//            System.out.println(outputGeoShape(sameCellBuckets.get(0).wkb));
             ordered.insertWithOverflow(sameCellBuckets.get(0).reduce(sameCellBuckets, reduceContext));
         }
         buckets.close();
         Bucket[] list = new Bucket[ordered.size()];
         for (int i = ordered.size() - 1; i >= 0; i--) {
             list[i] = ordered.pop();
+//            System.out.println(outputGeoShape(list[i].wkb));
         }
 
         return new InternalGeoShape(name, requiredSize, outputFormat, Arrays.asList(list));
@@ -232,15 +226,15 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
     public String outputGeoShape(BytesRef wkb) {
         Geometry geo = null;
         try {
-            geo = wkbReader.read(wkb.bytes);
+            geo = new WKBReader().read(wkb.bytes);
         } catch (ParseException e) {
             e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
         }
         switch (outputFormat) {
             case WKT:
-                return wktWriter.write(geo);
+                return new WKTWriter().write(geo);
             case WKB:
-                return Base64.encodeBytes(wkbWriter.write(geo));
+                return Base64.encodeBytes(new WKBWriter().write(geo));
             default:
                 return geometryJSON.toString(geo);
         }

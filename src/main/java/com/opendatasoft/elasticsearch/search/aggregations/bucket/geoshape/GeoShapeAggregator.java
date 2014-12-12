@@ -28,39 +28,38 @@ public class GeoShapeAggregator extends BucketsAggregator {
 
     private final int requiredSize;
     private final int shardSize;
-    private final ValuesSource valuesSource;
+    private final ValuesSource.Bytes valuesSource;
     private final BytesRefHash bucketOrds;
     private SortedBinaryDocValues values;
     private final BytesRefBuilder previous;
     private final InternalGeoShape.OutputFormat outputFormat;
-    private WKBReader wkbReader;
-    private WKBWriter wkbWriter;
+    private final WKBReader wkbReader;
+    private final WKBWriter wkbWriter;
     private double tolerance;
-    private int nbDecimals;
+    private boolean simplifyShape;
+//    private int zoom;
 
-    public GeoShapeAggregator(String name, AggregatorFactories factories, ValuesSource valuesSource,
+    public GeoShapeAggregator(String name, AggregatorFactories factories, ValuesSource.Bytes valuesSource,
                                  int requiredSize, int shardSize, InternalGeoShape.OutputFormat outputFormat,
-                                 AggregationContext aggregationContext, Aggregator parent) {
+                                 boolean simplifyShape, int zoom, AggregationContext aggregationContext, Aggregator parent) {
 
         super(name, BucketAggregationMode.PER_BUCKET, factories, INITIAL_CAPACITY, aggregationContext, parent);
         this.valuesSource = valuesSource;
         this.requiredSize = requiredSize;
         this.shardSize = shardSize;
         this.outputFormat = outputFormat;
+        this.simplifyShape = simplifyShape;
         bucketOrds = new BytesRefHash(estimatedBucketCount, aggregationContext.bigArrays());
         previous = new BytesRefBuilder();
         this.wkbReader = new WKBReader();
         this.wkbWriter = new WKBWriter();
 
-
-        int zoom = 10;
-
         tolerance = 360 / (256 * Math.pow(zoom, 3));
 
-        nbDecimals = zoom / 2;
-        if (zoom >= 20) {
-            nbDecimals = 12;
-        }
+//        nbDecimals = zoom / 2;
+//        if (zoom >= 20) {
+//            nbDecimals = 12;
+//        }
     }
 
 
@@ -75,7 +74,6 @@ public class GeoShapeAggregator extends BucketsAggregator {
     }
 
     private BytesRef simplifyGeoShape(BytesRef wkb) {
-        BytesRef res = null;
         try {
            Geometry geom = wkbReader.read(wkb.bytes);
            Geometry polygonSimplified = TopologyPreservingSimplifier.simplify(geom, tolerance);
@@ -96,7 +94,9 @@ public class GeoShapeAggregator extends BucketsAggregator {
         for (int i = 0; i < valuesCount; ++i) {
             BytesRef bytes = values.valueAt(i);
 
-            bytes = simplifyGeoShape(bytes);
+            if (simplifyShape) {
+                bytes = simplifyGeoShape(bytes);
+            }
 
             if (previous.get().equals(bytes)) {
                 continue;
@@ -109,6 +109,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
             } else {
                 collectBucket(doc, bucketOrdinal);
             }
+
             previous.copyBytes(bytes);
         }
     }
@@ -134,8 +135,11 @@ public class GeoShapeAggregator extends BucketsAggregator {
             }
 
             bucketOrds.get(i, spare.wkb);
+
+            spare.wkb = BytesRef.deepCopyOf(spare.wkb);
             spare.docCount = bucketDocCount(i);
             spare.bucketOrd = i;
+
             spare = ordered.insertWithOverflow(spare);
         }
 
@@ -153,6 +157,6 @@ public class GeoShapeAggregator extends BucketsAggregator {
 
     @Override
     protected void doClose() {
-        Releasables.close();
+        Releasables.close(bucketOrds);
     }
 }

@@ -1,6 +1,10 @@
 package com.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape;
 
+import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.BytesRefBuilder;
 import org.elasticsearch.common.xcontent.XContentParser;
+import org.elasticsearch.index.fielddata.SortedBinaryDocValues;
+import org.elasticsearch.index.fielddata.SortingBinaryDocValues;
 import org.elasticsearch.search.aggregations.Aggregator;
 import org.elasticsearch.search.aggregations.AggregatorFactory;
 import org.elasticsearch.search.aggregations.InternalAggregation;
@@ -20,14 +24,20 @@ public class GeoShapeParser implements Aggregator.Parser{
         return InternalGeoShape.TYPE.name();
     }
 
+    public static final int DEFAULT_ZOOM = 0;
+    public static final int DEFAULT_MAX_NUM_CELLS = 0;
+    public static final InternalGeoShape.OutputFormat DEFAULT_OUTPUT_FORMAT = InternalGeoShape.OutputFormat.GEOJSON;
+
     @Override
     public AggregatorFactory parse(String aggregationName, XContentParser parser, SearchContext context) throws IOException {
 
         ValuesSourceParser vsParser = ValuesSourceParser.any(aggregationName, InternalGeoShape.TYPE, context).build();
 
-        int requiredSize = 10000;
+        int requiredSize = DEFAULT_MAX_NUM_CELLS;
         int shardSize = -1;
-        InternalGeoShape.OutputFormat outputFormat = InternalGeoShape.OutputFormat.GEOJSON;
+        int zoom = DEFAULT_ZOOM;
+        boolean simplifyShape = false;
+        InternalGeoShape.OutputFormat outputFormat = DEFAULT_OUTPUT_FORMAT;
 
         XContentParser.Token token;
         String currentFieldName = null;
@@ -50,6 +60,19 @@ public class GeoShapeParser implements Aggregator.Parser{
                         // Do nothing : les GeoJson as default format
                     }
                 }
+            } else if (token == XContentParser.Token.START_OBJECT) {
+                if ("simplify".equals(currentFieldName)) {
+                    simplifyShape = true;
+                    while ((token = parser.nextToken()) != XContentParser.Token.END_OBJECT) {
+                        if (token == XContentParser.Token.FIELD_NAME) {
+                            currentFieldName = parser.currentName();
+                        } else if (token == XContentParser.Token.VALUE_NUMBER) {
+                            if ("zoom".equals(currentFieldName)) {
+                                zoom = parser.intValue();
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -70,22 +93,30 @@ public class GeoShapeParser implements Aggregator.Parser{
             shardSize = requiredSize;
         }
 
-        return new GeoShapeFactory(aggregationName, vsParser.config(), requiredSize, shardSize, outputFormat);
+        if (zoom < 0) {
+            zoom = DEFAULT_ZOOM;
+        }
+
+        return new GeoShapeFactory(aggregationName, vsParser.config(), requiredSize, shardSize, outputFormat, simplifyShape, zoom);
 
     }
 
 
-    private static class GeoShapeFactory extends ValuesSourceAggregatorFactory {
+    private static class GeoShapeFactory extends ValuesSourceAggregatorFactory<ValuesSource.Bytes> {
 
         private int requiredSize;
         private int shardSize;
         private InternalGeoShape.OutputFormat outputFormat;
+        boolean simplifyShape;
+        int zoom;
 
-        public GeoShapeFactory(String name, ValuesSourceConfig config, int requiredSize, int shardSize, InternalGeoShape.OutputFormat outputFormat) {
+        public GeoShapeFactory(String name, ValuesSourceConfig config, int requiredSize, int shardSize, InternalGeoShape.OutputFormat outputFormat, boolean simplifyShape, int zoom) {
             super(name, InternalGeoHashGrid.TYPE.name(), config);
             this.requiredSize = requiredSize;
             this.shardSize = shardSize;
             this.outputFormat = outputFormat;
+            this.simplifyShape = simplifyShape;
+            this.zoom = zoom;
         }
 
         @Override
@@ -100,8 +131,61 @@ public class GeoShapeParser implements Aggregator.Parser{
         }
 
         @Override
-        protected Aggregator create(ValuesSource valuesSource, long expectedBucketsCount, AggregationContext aggregationContext, Aggregator parent) {
-            return new GeoShapeAggregator(name, factories, valuesSource, requiredSize, shardSize, outputFormat, aggregationContext, parent);
+        protected Aggregator create(ValuesSource.Bytes valuesSource, long expectedBucketsCount, AggregationContext aggregationContext, Aggregator parent) {
+
+            final ShapeValues shapeValues = new ShapeValues(valuesSource);
+
+            ValuesSource.Bytes shapeIdSource = new GeoShapeIdSource(shapeValues, valuesSource.metaData());
+
+            return new GeoShapeAggregator(name, factories, shapeIdSource, requiredSize, shardSize, outputFormat, simplifyShape, zoom, aggregationContext, parent);
+        }
+
+
+        private static class ShapeValues extends SortingBinaryDocValues {
+
+            private ValuesSource.Bytes geoShapeValues;
+            private SortedBinaryDocValues geoValue;
+
+            protected ShapeValues(ValuesSource.Bytes geoShapeValues){
+                this.geoShapeValues = geoShapeValues;
+            }
+
+            @Override
+            public void setDocument(int docId) {
+                geoValue = geoShapeValues.bytesValues();
+                geoValue.setDocument(docId);
+                count = geoValue.count();
+                grow();
+                for (int i = 0; i < count(); ++i) {
+                    BytesRef target = geoValue.valueAt(i);
+                    BytesRefBuilder b = new BytesRefBuilder();
+                    b.copyBytes(target);
+                    values[i] = b;
+                }
+                sort();
+            }
+        }
+
+
+        private static class GeoShapeIdSource extends ValuesSource.Bytes {
+
+            private final SortingBinaryDocValues value;
+            private MetaData metaData;
+
+            public GeoShapeIdSource(SortingBinaryDocValues value, MetaData delegate) {
+                this.value = value;
+                this.metaData = MetaData.builder(delegate).uniqueness(MetaData.Uniqueness.UNKNOWN).build();
+            }
+
+            @Override
+            public SortedBinaryDocValues bytesValues() {
+                return value;
+            }
+
+            @Override
+            public MetaData metaData() {
+                return metaData;
+            }
         }
     }
 }
