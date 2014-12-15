@@ -1,5 +1,6 @@
 package com.opendatasoft.elasticsearch.index.mapper.geo;
 
+import com.vividsolutions.jts.geom.Coordinate;
 import com.vividsolutions.jts.geom.Geometry;
 import com.vividsolutions.jts.io.WKBWriter;
 import org.apache.lucene.document.Field;
@@ -14,6 +15,7 @@ import org.apache.lucene.spatial.prefix.tree.SpatialPrefixTree;
 import org.elasticsearch.ElasticsearchIllegalArgumentException;
 import org.elasticsearch.common.Nullable;
 import org.elasticsearch.common.Strings;
+import org.elasticsearch.common.geo.GeoPoint;
 import org.elasticsearch.common.geo.GeoUtils;
 import org.elasticsearch.common.geo.SpatialStrategy;
 import org.elasticsearch.common.geo.builders.ShapeBuilder;
@@ -24,10 +26,8 @@ import org.elasticsearch.index.codec.docvaluesformat.DocValuesFormatProvider;
 import org.elasticsearch.index.codec.postingsformat.PostingsFormatProvider;
 import org.elasticsearch.index.fielddata.FieldDataType;
 import org.elasticsearch.index.mapper.*;
-import org.elasticsearch.index.mapper.core.AbstractFieldMapper;
-import org.elasticsearch.index.mapper.core.BinaryFieldMapper;
-import org.elasticsearch.index.mapper.core.StringFieldMapper;
-import org.elasticsearch.index.mapper.core.TypeParsers;
+import org.elasticsearch.index.mapper.core.*;
+import org.elasticsearch.index.mapper.geo.GeoPointFieldMapper;
 import org.elasticsearch.index.mapper.geo.GeoShapeFieldMapper;
 import org.geotools.geojson.geom.GeometryJSON;
 
@@ -53,6 +53,8 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
         public static final String STRATEGY = "strategy";
         public static final String WKB = "wkb";
         public static final String TYPE = "type";
+        public static final String AREA = "area";
+        public static final String BBOX = "bbox";
 
     }
 
@@ -83,6 +85,8 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
 
         private BinaryFieldMapper.Builder wkbBuilder = new BinaryFieldMapper.Builder(Names.WKB);
         private StringFieldMapper.Builder typeBuilder = new StringFieldMapper.Builder(Names.TYPE);
+        private DoubleFieldMapper.Builder areaBuilder = new DoubleFieldMapper.Builder(Names.AREA);
+        private GeoPointFieldMapper.Builder bboxBuilder = new GeoPointFieldMapper.Builder(Names.BBOX);
 
         private String tree = Defaults.TREE;
         private String strategyName = Defaults.STRATEGY;
@@ -145,12 +149,14 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
 
             BinaryFieldMapper wkbMapper = wkbBuilder.docValues(true).build(context);
             StringFieldMapper typeMapper = typeBuilder.tokenized(false).docValues(true).includeInAll(false).omitNorms(true).index(true).build(context);
+            DoubleFieldMapper doubleMapper = areaBuilder.tokenized(false).docValues(true).includeInAll(false).index(true).build(context);
+            GeoPointFieldMapper bboxMapper = bboxBuilder.enableGeoHash(false).tokenized(false).docValues(true).build(context);
 
             context.path().remove();
             context.path().pathType(origPathType);
 
 
-            return new GeoMapper2(names, prefixTree, strategyName, distanceErrorPct, wkbMapper, typeMapper, fieldDataSettings, docValues, fieldType, postingsProvider,
+            return new GeoMapper2(names, prefixTree, strategyName, distanceErrorPct, wkbMapper, typeMapper, doubleMapper, bboxMapper, fieldDataSettings, docValues, fieldType, postingsProvider,
                     docValuesProvider, multiFieldsBuilder.build(this, context), copyTo);
         }
     }
@@ -192,6 +198,8 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
 
     private final BinaryFieldMapper wkbMapper;
     private final StringFieldMapper typeMapper;
+    private final DoubleFieldMapper areaMapper;
+    private final GeoPointFieldMapper bboxMapper;
     private final Pattern pattern;
 
     private final PrefixTreeStrategy defaultStrategy;
@@ -201,7 +209,7 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
 
     public GeoMapper2(FieldMapper.Names names,
                       SpatialPrefixTree tree, String defaultStrategyName, double distanceErrorPct,
-                      BinaryFieldMapper wkbMapper, StringFieldMapper typeMapper,
+                      BinaryFieldMapper wkbMapper, StringFieldMapper typeMapper, DoubleFieldMapper areaMapper, GeoPointFieldMapper bboxMapper,
                       @Nullable Settings fieldDataSettings, Boolean docValues, FieldType fieldType,
                       PostingsFormatProvider postingsProvider, DocValuesFormatProvider docValuesProvider,
                       MultiFields multiFields, CopyTo copyTo) {
@@ -209,6 +217,8 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
 //        super(names, 1, fieldType, docValues, null, null, postingsProvider, docValuesProvider, null, null, fieldDataSettings , null, multiFields, copyTo);
         this.wkbMapper = wkbMapper;
         this.typeMapper = typeMapper;
+        this.areaMapper = areaMapper;
+        this.bboxMapper = bboxMapper;
         this.pattern = Pattern.compile("^.*type\":\"([^\"]+).*");
 
         this.recursiveStrategy = new RecursivePrefixTreeStrategy(tree, names.indexName());
@@ -257,7 +267,6 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
 
             String geoJson = shapeBuilder.toString();
 
-
             Matcher matcher = this.pattern.matcher(geoJson);
 
             matcher.find();
@@ -265,8 +274,6 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
             String type = matcher.group(1);
 
             geoJson = geoJson.replaceFirst(type, getGeoJsonType(type));
-
-            typeMapper.parse(context.createExternalValueContext(getGeoJsonType(type)));
 
             parseWkb(context, geoJson);
 
@@ -326,6 +333,20 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
             f.add(wkb);
         }
 
+        areaMapper.parse(context.createExternalValueContext(geom.getArea()));
+
+        typeMapper.parse(context.createExternalValueContext(geom.getGeometryType()));
+
+        Geometry bbox = geom.getEnvelope();
+
+        Coordinate[] coords = bbox.getCoordinates();
+
+        GeoPoint topLeft = new GeoPoint(coords[0].y, coords[0].x);
+        GeoPoint bottomRight = new GeoPoint(coords[2].y, coords[2].x);
+
+        bboxMapper.parse(context.createExternalValueContext(topLeft));
+        bboxMapper.parse(context.createExternalValueContext(bottomRight));
+
     }
 
 
@@ -368,6 +389,8 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
         super.traverse(fieldMapperListener);
         wkbMapper.traverse(fieldMapperListener);
         typeMapper.traverse(fieldMapperListener);
+        areaMapper.traverse(fieldMapperListener);
+        bboxMapper.traverse(fieldMapperListener);
     }
 
 
@@ -376,6 +399,8 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
         super.close();
         wkbMapper.close();
         typeMapper.close();
+        areaMapper.close();
+        bboxMapper.close();
     }
 
 //    @Override

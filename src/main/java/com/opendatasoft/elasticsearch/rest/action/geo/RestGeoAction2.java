@@ -81,17 +81,23 @@ public class RestGeoAction2 extends BaseRestHandler {
         final int zoom = request.paramAsInt("zoom", 0);
         final int nbGeom = request.paramAsInt("nb_geom", 1000);
         final String stringOutputFormat = request.param("output_format", "wkt");
+        final boolean getSource = request.paramAsBoolean("get_source", true);
+
 
 
         final InternalGeoShape.OutputFormat outputFormat = InternalGeoShape.OutputFormat.valueOf(stringOutputFormat.toUpperCase());
 
         SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
 
-        searchSourceBuilder.aggregation(
-                new GeoShapeBuilder("shape").field(geoFieldWKB).size(nbGeom).zoom(zoom).simplifyShape(true).outputFormat(outputFormat).subAggregation(
-                        new TopHitsBuilder("top_shape").setSize(1).setFetchSource("*", geoField).addScriptField("geo-type", "doc['" + geoFieldType + "'].value")
-                ));
 
+        GeoShapeBuilder geoShapeBuilder = new GeoShapeBuilder("shape").field(geoFieldWKB).size(nbGeom).zoom(zoom).simplifyShape(true).outputFormat(outputFormat);
+        if (getSource) {
+            geoShapeBuilder.subAggregation(
+                    new TopHitsBuilder("top_shape").setSize(1).setFetchSource("*", geoField).addScriptField("geo-type", "doc['" + geoFieldType + "'].value")
+            );
+        }
+
+        searchSourceBuilder.aggregation(geoShapeBuilder);
 
         searchSourceBuilder.size(0);
         
@@ -112,39 +118,37 @@ public class RestGeoAction2 extends BaseRestHandler {
                         BytesRef wkb = bucket.getShapeAsByte();
 
                         String geoString;
+                        Geometry geo = new WKBReader().read(wkb.bytes);
                         switch (outputFormat) {
                             case WKT:
-                                Geometry geo = new WKBReader().read(wkb.bytes);
                                 geoString = new WKTWriter().write(geo); break;
                             case WKB:
                                 geoString =  Base64.encodeBytes(wkb.bytes); break;
                             default:
-                                try {
-                                geo = new WKBReader().read(wkb.bytes);
                                 geoString = geometryJSON.toString(geo);
-                                } catch (ParseException e) {
-                                    continue;
-                                }
                         }
 
                         builder.startObject();
 
                         builder.field("shape", geoString);
-                        
-                        TopHits topHitsAggregation = (TopHits) bucket.getAggregations().getAsMap().get("top_shape");
 
-                        SearchHit hit = topHitsAggregation.getHits().getHits()[0];
-                        builder.field("geo-type", hit.getFields().get("geo-type"));
+                        builder.field("geo-type", geo.getGeometryType());
 
-                        Map<String, Object> source = hit.sourceAsMap();
+                        if (getSource) {
+                            TopHits topHitsAggregation = (TopHits) bucket.getAggregations().getAsMap().get("top_shape");
 
-                        builder.startObject("properties");
-                        for (String key: source.keySet()) {
-                            if (!key.equals(geoField) && ! key.equals(geoFieldWKB)) {
-                                builder.field(key, source.get(key));
+                            SearchHit hit = topHitsAggregation.getHits().getHits()[0];
+
+                            Map<String, Object> source = hit.sourceAsMap();
+
+                            builder.startObject("properties");
+                            for (String key: source.keySet()) {
+                                if (!key.equals(geoField) && ! key.equals(geoFieldWKB)) {
+                                    builder.field(key, source.get(key));
+                                }
                             }
+                            builder.endObject();
                         }
-                        builder.endObject();
 
                         builder.endObject();
                     }
