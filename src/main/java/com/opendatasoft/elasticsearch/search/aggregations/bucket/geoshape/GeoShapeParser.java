@@ -132,60 +132,8 @@ public class GeoShapeParser implements Aggregator.Parser{
 
         @Override
         protected Aggregator create(ValuesSource.Bytes valuesSource, long expectedBucketsCount, AggregationContext aggregationContext, Aggregator parent) {
-
-            final ShapeValues shapeValues = new ShapeValues(valuesSource);
-
-            ValuesSource.Bytes shapeIdSource = new GeoShapeIdSource(shapeValues, valuesSource.metaData());
-
-            return new GeoShapeAggregator(name, factories, shapeIdSource, requiredSize, shardSize, outputFormat, simplifyShape, zoom, aggregationContext, parent);
+            return new GeoShapeAggregator(name, factories, valuesSource, requiredSize, shardSize, outputFormat, simplifyShape, zoom, aggregationContext, parent);
         }
 
-
-        private static class ShapeValues extends SortingBinaryDocValues {
-
-            private ValuesSource.Bytes geoShapeValues;
-            private SortedBinaryDocValues geoValue;
-
-            protected ShapeValues(ValuesSource.Bytes geoShapeValues){
-                this.geoShapeValues = geoShapeValues;
-            }
-
-            @Override
-            public void setDocument(int docId) {
-                geoValue = geoShapeValues.bytesValues();
-                geoValue.setDocument(docId);
-                count = geoValue.count();
-                grow();
-                for (int i = 0; i < count(); ++i) {
-                    BytesRef target = geoValue.valueAt(i);
-                    BytesRefBuilder b = new BytesRefBuilder();
-                    b.copyBytes(target);
-                    values[i] = b;
-                }
-                sort();
-            }
-        }
-
-
-        private static class GeoShapeIdSource extends ValuesSource.Bytes {
-
-            private final SortingBinaryDocValues value;
-            private MetaData metaData;
-
-            public GeoShapeIdSource(SortingBinaryDocValues value, MetaData delegate) {
-                this.value = value;
-                this.metaData = MetaData.builder(delegate).uniqueness(MetaData.Uniqueness.UNKNOWN).build();
-            }
-
-            @Override
-            public SortedBinaryDocValues bytesValues() {
-                return value;
-            }
-
-            @Override
-            public MetaData metaData() {
-                return metaData;
-            }
-        }
     }
 }

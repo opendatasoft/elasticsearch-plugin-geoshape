@@ -106,6 +106,7 @@ public class GeoMapper extends AbstractFieldMapper<Object>{
     private final BinaryFieldMapper wkbMapper;
     private final StringFieldMapper typeMapper;
     private final WKBWriter wkbWriter;
+    private final Pattern pattern;
 
 
     public GeoMapper(FieldMapper.Names names, BinaryFieldMapper wkbMapper, StringFieldMapper typeMapper,
@@ -116,6 +117,8 @@ public class GeoMapper extends AbstractFieldMapper<Object>{
         this.wkbMapper = wkbMapper;
         this.typeMapper = typeMapper;
         this.wkbWriter = new WKBWriter();
+        this.pattern = Pattern.compile("^.*type\":\"([^\"]+).*");
+
     }
 
     @Override
@@ -140,9 +143,20 @@ public class GeoMapper extends AbstractFieldMapper<Object>{
                 }
             }
 
-            typeMapper.parse(context.createExternalValueContext(shapeBuilder.type().toString().toLowerCase()));
+            String geoJson = shapeBuilder.toString();
 
-            parseWkb(context, shapeBuilder);
+
+            Matcher matcher = this.pattern.matcher(geoJson);
+
+            matcher.find();
+
+            String type = matcher.group(1);
+
+            geoJson = geoJson.replaceFirst(type, getGeoJsonType(type));
+
+            typeMapper.parse(context.createExternalValueContext(getGeoJsonType(type)));
+
+            parseWkb(context, geoJson);
 
         } catch (Exception e) {
             throw new MapperParsingException("failed to parse [" + names.fullName() + "]", e);
@@ -179,23 +193,15 @@ public class GeoMapper extends AbstractFieldMapper<Object>{
      * Writes the WKB serialization of the <tt>shape</tt> to the given ParseContext
      * as an external value.
      */
-    private void parseWkb(ParseContext context, ShapeBuilder shapeBuilder) throws IOException {
-        String geoJson = shapeBuilder.toString();
+    private void parseWkb(ParseContext context, String geoJson) throws IOException {
 
 
-        Matcher matcher = Pattern.compile("^.*type\":\"([^\"]+).*").matcher(geoJson);
-
-        matcher.find();
-
-        String type = matcher.group(1);
-
-        geoJson = geoJson.replaceFirst(type, getGeoJsonType(type));
         GeometryJSON geometryJSON = new GeometryJSON();
 
         Geometry geom = geometryJSON.read(geoJson);
 
 //        Geometry geom = ShapeBuilder.SPATIAL_CONTEXT.getGeometryFrom(shapeBuilder.build());
-        byte[] wkb = wkbWriter.write(geom);
+        byte[] wkb = new WKBWriter().write(geom);
 
         wkbMapper.parse(context.createExternalValueContext(wkb));
 

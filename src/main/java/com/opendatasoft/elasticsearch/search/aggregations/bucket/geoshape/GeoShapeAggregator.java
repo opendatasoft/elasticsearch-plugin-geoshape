@@ -75,9 +75,12 @@ public class GeoShapeAggregator extends BucketsAggregator {
 
     private BytesRef simplifyGeoShape(BytesRef wkb) {
         try {
-           Geometry geom = wkbReader.read(wkb.bytes);
-           Geometry polygonSimplified = TopologyPreservingSimplifier.simplify(geom, tolerance);
-           return new BytesRef(wkbWriter.write(polygonSimplified));
+            Geometry geom = new WKBReader().read(wkb.bytes);
+            if (geom.getGeometryType().equals("Point")) {
+                return wkb;
+            }
+            Geometry polygonSimplified = TopologyPreservingSimplifier.simplify(geom, tolerance);
+            return new BytesRef(wkbWriter.write(polygonSimplified));
         } catch (ParseException e) {
             return wkb;
         }
@@ -93,10 +96,6 @@ public class GeoShapeAggregator extends BucketsAggregator {
         previous.clear();
         for (int i = 0; i < valuesCount; ++i) {
             BytesRef bytes = values.valueAt(i);
-
-            if (simplifyShape) {
-                bytes = simplifyGeoShape(bytes);
-            }
 
             if (previous.get().equals(bytes)) {
                 continue;
@@ -137,6 +136,11 @@ public class GeoShapeAggregator extends BucketsAggregator {
             bucketOrds.get(i, spare.wkb);
 
             spare.wkb = BytesRef.deepCopyOf(spare.wkb);
+
+            if (simplifyShape) {
+                spare.wkb = simplifyGeoShape(spare.wkb);
+            }
+
             spare.docCount = bucketDocCount(i);
             spare.bucketOrd = i;
 

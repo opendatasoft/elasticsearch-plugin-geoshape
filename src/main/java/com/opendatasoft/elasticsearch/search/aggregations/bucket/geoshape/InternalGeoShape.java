@@ -223,19 +223,15 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
         }
     }
 
-    public String outputGeoShape(BytesRef wkb) {
-        Geometry geo = null;
-        try {
-            geo = new WKBReader().read(wkb.bytes);
-        } catch (ParseException e) {
-            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-        }
+    public String outputGeoShape(BytesRef wkb) throws ParseException {
         switch (outputFormat) {
             case WKT:
+                Geometry geo = new WKBReader().read(wkb.bytes);
                 return new WKTWriter().write(geo);
             case WKB:
-                return Base64.encodeBytes(new WKBWriter().write(geo));
+                return Base64.encodeBytes(wkb.bytes);
             default:
+                geo = new WKBReader().read(wkb.bytes);
                 return geometryJSON.toString(geo);
         }
     }
@@ -246,7 +242,11 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
         for (Bucket bucket : buckets) {
             builder.startObject();
 //            builder.field(CommonFields.KEY, bucket.getKeyAsText());
-            builder.field(CommonFields.KEY, outputGeoShape(bucket.wkb));
+            try {
+                builder.field(CommonFields.KEY, outputGeoShape(bucket.wkb));
+            } catch (ParseException e) {
+                e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+            }
             builder.field(CommonFields.DOC_COUNT, bucket.getDocCount());
             ((InternalAggregations) bucket.getAggregations()).toXContentInternal(builder, params);
             builder.endObject();

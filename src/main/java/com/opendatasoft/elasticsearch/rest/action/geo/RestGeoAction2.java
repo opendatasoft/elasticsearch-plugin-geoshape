@@ -35,6 +35,7 @@ import org.elasticsearch.search.aggregations.bucket.terms.TermsBuilder;
 import org.elasticsearch.search.aggregations.metrics.tophits.TopHits;
 import org.elasticsearch.search.aggregations.metrics.tophits.TopHitsBuilder;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
+import org.elasticsearch.search.fetch.source.FetchSourceContext;
 import org.geotools.geojson.geom.GeometryJSON;
 
 import java.io.IOException;
@@ -63,11 +64,9 @@ public class RestGeoAction2 extends BaseRestHandler {
     @Override
     protected void handleRequest(final RestRequest request, final RestChannel channel, Client client) throws Exception {
         SearchRequest searchRequest = RestSearchAction.parseSearchRequest(request);
+        searchRequest.listenerThreaded(false);
         final GeoSimpleRequest geoSimpleRequest = new GeoSimpleRequest();
 
-        final WKBReader wkbReader = new WKBReader();
-        final WKBWriter wkbWriter = new WKBWriter();
-        final WKTWriter wktWriter = new WKTWriter();
         final GeometryJSON geometryJSON = new GeometryJSON(20);
 
 
@@ -80,8 +79,8 @@ public class RestGeoAction2 extends BaseRestHandler {
         final String geoFieldType = geoField + "." + GeoMapper.Names.TYPE;
 
         final int zoom = request.paramAsInt("zoom", 0);
+        final int nbGeom = request.paramAsInt("nb_geom", 1000);
         final String stringOutputFormat = request.param("output_format", "wkt");
-        final boolean getSource = request.paramAsBoolean("source", true);
 
 
         final InternalGeoShape.OutputFormat outputFormat = InternalGeoShape.OutputFormat.valueOf(stringOutputFormat.toUpperCase());
@@ -89,11 +88,13 @@ public class RestGeoAction2 extends BaseRestHandler {
         SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
 
         searchSourceBuilder.aggregation(
-                new GeoShapeBuilder("shape").field(geoFieldWKB).zoom(zoom).simplifyShape(true).outputFormat(outputFormat).subAggregation(
-                        new TopHitsBuilder("top_shape").setSize(1).setFetchSource(true).addScriptField("geo-type", "doc['"+ geoFieldType +"'].value")
+                new GeoShapeBuilder("shape").field(geoFieldWKB).size(nbGeom).zoom(zoom).simplifyShape(true).outputFormat(outputFormat).subAggregation(
+                        new TopHitsBuilder("top_shape").setSize(1).setFetchSource("*", geoField).addScriptField("geo-type", "doc['" + geoFieldType + "'].value")
                 ));
 
 
+        searchSourceBuilder.size(0);
+        
         searchRequest.extraSource(searchSourceBuilder);
 
         geoSimpleRequest.setSearchRequest(searchRequest);
@@ -108,19 +109,25 @@ public class RestGeoAction2 extends BaseRestHandler {
                     builder.startArray();
 
                     for (GeoShape.Bucket bucket : shapeAggregation.getBuckets()) {
-                        builder.startObject();
                         BytesRef wkb = bucket.getShapeAsByte();
 
-                        Geometry geo = wkbReader.read(wkb.bytes);
                         String geoString;
                         switch (outputFormat) {
                             case WKT:
-                                geoString = wktWriter.write(geo); break;
+                                Geometry geo = new WKBReader().read(wkb.bytes);
+                                geoString = new WKTWriter().write(geo); break;
                             case WKB:
-                                geoString =  Base64.encodeBytes(wkbWriter.write(geo)); break;
+                                geoString =  Base64.encodeBytes(wkb.bytes); break;
                             default:
+                                try {
+                                geo = new WKBReader().read(wkb.bytes);
                                 geoString = geometryJSON.toString(geo);
+                                } catch (ParseException e) {
+                                    continue;
+                                }
                         }
+
+                        builder.startObject();
 
                         builder.field("shape", geoString);
                         
