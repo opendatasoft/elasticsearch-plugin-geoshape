@@ -13,6 +13,7 @@ import org.apache.lucene.spatial.prefix.tree.GeohashPrefixTree;
 import org.apache.lucene.spatial.prefix.tree.QuadPrefixTree;
 import org.apache.lucene.spatial.prefix.tree.SpatialPrefixTree;
 import org.elasticsearch.ElasticsearchIllegalArgumentException;
+import org.elasticsearch.common.Base64;
 import org.elasticsearch.common.Nullable;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.geo.GeoPoint;
@@ -32,6 +33,8 @@ import org.elasticsearch.index.mapper.geo.GeoShapeFieldMapper;
 import org.geotools.geojson.geom.GeometryJSON;
 
 import java.io.*;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -52,9 +55,11 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
         public static final String DISTANCE_ERROR_PCT = "distance_error_pct";
         public static final String STRATEGY = "strategy";
         public static final String WKB = "wkb";
+        public static final String WKB_TEXT = "wkbtext";
         public static final String TYPE = "type";
         public static final String AREA = "area";
         public static final String BBOX = "bbox";
+        public static final String HASH = "hash";
 
     }
 
@@ -87,6 +92,8 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
         private StringFieldMapper.Builder typeBuilder = new StringFieldMapper.Builder(Names.TYPE);
         private DoubleFieldMapper.Builder areaBuilder = new DoubleFieldMapper.Builder(Names.AREA);
         private GeoPointFieldMapper.Builder bboxBuilder = new GeoPointFieldMapper.Builder(Names.BBOX);
+        private StringFieldMapper.Builder hashBuilder = new StringFieldMapper.Builder(Names.HASH);
+        private StringFieldMapper.Builder wkbTextBuilder = new StringFieldMapper.Builder(Names.WKB_TEXT);
 
         private String tree = Defaults.TREE;
         private String strategyName = Defaults.STRATEGY;
@@ -151,12 +158,14 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
             StringFieldMapper typeMapper = typeBuilder.tokenized(false).docValues(true).includeInAll(false).omitNorms(true).index(true).build(context);
             DoubleFieldMapper doubleMapper = areaBuilder.tokenized(false).docValues(true).includeInAll(false).index(true).build(context);
             GeoPointFieldMapper bboxMapper = bboxBuilder.enableGeoHash(false).tokenized(false).docValues(true).build(context);
+            StringFieldMapper hashMapper = hashBuilder.tokenized(false).includeInAll(false).omitNorms(true).index(true).docValues(true).build(context);
+            StringFieldMapper wkbTextMapper = wkbTextBuilder.tokenized(false).includeInAll(false).omitNorms(true).index(true).docValues(true).build(context);
 
             context.path().remove();
             context.path().pathType(origPathType);
 
 
-            return new GeoMapper2(names, prefixTree, strategyName, distanceErrorPct, wkbMapper, typeMapper, doubleMapper, bboxMapper, fieldDataSettings, docValues, fieldType, postingsProvider,
+            return new GeoMapper2(names, prefixTree, strategyName, distanceErrorPct, wkbMapper, typeMapper, doubleMapper, bboxMapper, hashMapper, wkbTextMapper, fieldDataSettings, docValues, fieldType, postingsProvider,
                     docValuesProvider, multiFieldsBuilder.build(this, context), copyTo);
         }
     }
@@ -200,6 +209,8 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
     private final StringFieldMapper typeMapper;
     private final DoubleFieldMapper areaMapper;
     private final GeoPointFieldMapper bboxMapper;
+    private final StringFieldMapper hashMapper;
+    private final StringFieldMapper wkbTextMapper;
     private final Pattern pattern;
 
     private final PrefixTreeStrategy defaultStrategy;
@@ -210,7 +221,7 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
     public GeoMapper2(FieldMapper.Names names,
                       SpatialPrefixTree tree, String defaultStrategyName, double distanceErrorPct,
                       BinaryFieldMapper wkbMapper, StringFieldMapper typeMapper, DoubleFieldMapper areaMapper, GeoPointFieldMapper bboxMapper,
-                      @Nullable Settings fieldDataSettings, Boolean docValues, FieldType fieldType,
+                      StringFieldMapper hashMapper, StringFieldMapper wkbTextMapper, @Nullable Settings fieldDataSettings, Boolean docValues, FieldType fieldType,
                       PostingsFormatProvider postingsProvider, DocValuesFormatProvider docValuesProvider,
                       MultiFields multiFields, CopyTo copyTo) {
         super(names, tree, defaultStrategyName, distanceErrorPct, fieldType, postingsProvider, docValuesProvider, multiFields, copyTo);
@@ -219,6 +230,8 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
         this.typeMapper = typeMapper;
         this.areaMapper = areaMapper;
         this.bboxMapper = bboxMapper;
+        this.hashMapper = hashMapper;
+        this.wkbTextMapper = wkbTextMapper;
         this.pattern = Pattern.compile("^.*type\":\"([^\"]+).*");
 
         this.recursiveStrategy = new RecursivePrefixTreeStrategy(tree, names.indexName());
@@ -266,6 +279,7 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
             }
 
             String geoJson = shapeBuilder.toString();
+
 
             Matcher matcher = this.pattern.matcher(geoJson);
 
@@ -342,10 +356,28 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
         Coordinate[] coords = bbox.getCoordinates();
 
         GeoPoint topLeft = new GeoPoint(coords[0].y, coords[0].x);
-        GeoPoint bottomRight = new GeoPoint(coords[2].y, coords[2].x);
-
         bboxMapper.parse(context.createExternalValueContext(topLeft));
-        bboxMapper.parse(context.createExternalValueContext(bottomRight));
+
+        if (coords.length == 5) {
+            GeoPoint bottomRight = new GeoPoint(coords[2].y, coords[2].x);
+            bboxMapper.parse(context.createExternalValueContext(bottomRight));
+        }
+
+        try {
+
+            byte[] mdBytes = MessageDigest.getInstance("md5").digest(wkb);
+
+            StringBuffer sb = new StringBuffer();
+
+            for (int i = 0; i < mdBytes.length; i++) {
+                sb.append(Integer.toString((mdBytes[i] & 0xff) + 0x100, 16).substring(1));
+            }
+
+            hashMapper.parse(context.createExternalValueContext(sb.toString()));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IOException(e);
+        }
+        wkbTextMapper.parse(context.createExternalValueContext(Base64.encodeBytes(wkb)));
 
     }
 
@@ -391,6 +423,8 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
         typeMapper.traverse(fieldMapperListener);
         areaMapper.traverse(fieldMapperListener);
         bboxMapper.traverse(fieldMapperListener);
+        hashMapper.traverse(fieldMapperListener);
+        wkbTextMapper.traverse(fieldMapperListener);
     }
 
 
@@ -401,6 +435,8 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
         typeMapper.close();
         areaMapper.close();
         bboxMapper.close();
+        hashMapper.close();
+        wkbTextMapper.close();
     }
 
 //    @Override

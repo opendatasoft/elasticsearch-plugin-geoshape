@@ -31,7 +31,7 @@ public class GeoShapeParser implements Aggregator.Parser{
     @Override
     public AggregatorFactory parse(String aggregationName, XContentParser parser, SearchContext context) throws IOException {
 
-        ValuesSourceParser vsParser = ValuesSourceParser.any(aggregationName, InternalGeoShape.TYPE, context).build();
+        ValuesSourceParser vsParser = ValuesSourceParser.any(aggregationName, InternalGeoShape.TYPE, context).scriptable(false).build();
 
         int requiredSize = DEFAULT_MAX_NUM_CELLS;
         int shardSize = -1;

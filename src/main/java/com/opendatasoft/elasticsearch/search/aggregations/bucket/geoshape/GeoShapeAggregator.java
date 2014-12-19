@@ -1,9 +1,13 @@
 package com.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape;
 
+import com.vividsolutions.jts.geom.Coordinate;
 import com.vividsolutions.jts.geom.Geometry;
+import com.vividsolutions.jts.geom.GeometryFactory;
+import com.vividsolutions.jts.geom.Point;
 import com.vividsolutions.jts.io.ParseException;
 import com.vividsolutions.jts.io.WKBReader;
 import com.vividsolutions.jts.io.WKBWriter;
+import com.vividsolutions.jts.simplify.DouglasPeuckerSimplifier;
 import com.vividsolutions.jts.simplify.TopologyPreservingSimplifier;
 import org.apache.lucene.index.AtomicReaderContext;
 import org.apache.lucene.util.BytesRef;
@@ -35,6 +39,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
     private final InternalGeoShape.OutputFormat outputFormat;
     private final WKBReader wkbReader;
     private final WKBWriter wkbWriter;
+    private final GeometryFactory geometryFactory;
     private double tolerance;
     private boolean simplifyShape;
 //    private int zoom;
@@ -53,8 +58,11 @@ public class GeoShapeAggregator extends BucketsAggregator {
         previous = new BytesRefBuilder();
         this.wkbReader = new WKBReader();
         this.wkbWriter = new WKBWriter();
+        this.geometryFactory = new GeometryFactory();
 
-        tolerance = 360 / (256 * Math.pow(zoom, 3));
+        if (simplifyShape) {
+            tolerance = 360 / (256 * Math.pow(zoom, 3));
+        }
 
 //        nbDecimals = zoom / 2;
 //        if (zoom >= 20) {
@@ -79,8 +87,12 @@ public class GeoShapeAggregator extends BucketsAggregator {
             if (geom.getGeometryType().equals("Point")) {
                 return wkb;
             }
-            Geometry polygonSimplified = TopologyPreservingSimplifier.simplify(geom, tolerance);
-            return new BytesRef(wkbWriter.write(polygonSimplified));
+//            Geometry polygonSimplified = TopologyPreservingSimplifier.simplify(geom, tolerance);
+            Geometry polygonSimplified = DouglasPeuckerSimplifier.simplify(geom, tolerance);
+            if (polygonSimplified.isEmpty()) {
+                polygonSimplified = this.geometryFactory.createPoint(geom.getCoordinate());
+            }
+            return new BytesRef(new WKBWriter().write(polygonSimplified));
         } catch (ParseException e) {
             return wkb;
         }

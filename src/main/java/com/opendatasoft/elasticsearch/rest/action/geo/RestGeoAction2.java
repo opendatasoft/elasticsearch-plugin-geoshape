@@ -2,6 +2,7 @@ package com.opendatasoft.elasticsearch.rest.action.geo;
 
 import com.opendatasoft.elasticsearch.action.geo.*;
 import com.opendatasoft.elasticsearch.index.mapper.geo.GeoMapper;
+import com.opendatasoft.elasticsearch.index.mapper.geo.GeoMapper2;
 import com.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.GeoShape;
 import com.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.GeoShapeBuilder;
 import com.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.GeoShapeParser;
@@ -64,7 +65,7 @@ public class RestGeoAction2 extends BaseRestHandler {
     @Override
     protected void handleRequest(final RestRequest request, final RestChannel channel, Client client) throws Exception {
         SearchRequest searchRequest = RestSearchAction.parseSearchRequest(request);
-        searchRequest.listenerThreaded(false);
+        searchRequest.listenerThreaded(true);
         final GeoSimpleRequest geoSimpleRequest = new GeoSimpleRequest();
 
         final GeometryJSON geometryJSON = new GeometryJSON(20);
@@ -75,8 +76,9 @@ public class RestGeoAction2 extends BaseRestHandler {
         if (geoField == null) {
             throw new Exception("Field parameter is mandatory");
         }
-        final String geoFieldWKB = geoField + "." + GeoMapper.Names.WKB;
-        final String geoFieldType = geoField + "." + GeoMapper.Names.TYPE;
+        final String geoFieldWKB = geoField + "." + GeoMapper2.Names.WKB;
+        final String geoFieldType = geoField + "." + GeoMapper2.Names.TYPE;
+        final String geoFieldHash = geoField + "." + GeoMapper2.Names.HASH;
 
         final int zoom = request.paramAsInt("zoom", 0);
         final int nbGeom = request.paramAsInt("nb_geom", 1000);
@@ -93,7 +95,7 @@ public class RestGeoAction2 extends BaseRestHandler {
         GeoShapeBuilder geoShapeBuilder = new GeoShapeBuilder("shape").field(geoFieldWKB).size(nbGeom).zoom(zoom).simplifyShape(true).outputFormat(outputFormat);
         if (getSource) {
             geoShapeBuilder.subAggregation(
-                    new TopHitsBuilder("top_shape").setSize(1).setFetchSource("*", geoField).addScriptField("geo-type", "doc['" + geoFieldType + "'].value")
+                    new TopHitsBuilder("top_shape").setSize(1).setFetchSource(false).addScriptField("geo-hash", "doc['" + geoFieldHash + "'].value")
             );
         }
 
@@ -111,6 +113,10 @@ public class RestGeoAction2 extends BaseRestHandler {
                 try {
                     XContentBuilder builder = channel.newBuilder();
                     GeoShape shapeAggregation = (GeoShape) response.getAggregations().getAsMap().get("shape");
+                    builder.startObject();
+                    builder.field("time", response.getTookInMillis());
+
+                    builder.field("res");
 
                     builder.startArray();
 
@@ -139,12 +145,15 @@ public class RestGeoAction2 extends BaseRestHandler {
 
                             SearchHit hit = topHitsAggregation.getHits().getHits()[0];
 
+                            builder.field("geo-hash", hit.field("geo-hash").getValue());
+                            builder.startObject("properties");
                             Map<String, Object> source = hit.sourceAsMap();
 
-                            builder.startObject("properties");
-                            for (String key: source.keySet()) {
-                                if (!key.equals(geoField) && ! key.equals(geoFieldWKB)) {
-                                    builder.field(key, source.get(key));
+                            if (source != null) {
+                                for (String key: source.keySet()) {
+                                    if (!key.equals(geoField) && ! key.equals(geoFieldWKB)) {
+                                        builder.field(key, source.get(key));
+                                    }
                                 }
                             }
                             builder.endObject();
@@ -154,6 +163,7 @@ public class RestGeoAction2 extends BaseRestHandler {
                     }
 
                     builder.endArray();
+                    builder.endObject();
 
                     channel.sendResponse(new BytesRestResponse(OK, builder));
                 } catch (Exception e) {
