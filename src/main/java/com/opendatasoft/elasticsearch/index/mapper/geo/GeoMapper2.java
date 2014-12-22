@@ -1,8 +1,9 @@
 package com.opendatasoft.elasticsearch.index.mapper.geo;
 
+import com.spatial4j.core.shape.Point;
+import com.spatial4j.core.shape.Shape;
 import com.vividsolutions.jts.geom.Coordinate;
 import com.vividsolutions.jts.geom.Geometry;
-import com.vividsolutions.jts.geom.Point;
 import com.vividsolutions.jts.io.WKBWriter;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.FieldType;
@@ -216,11 +217,12 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
     private final StringFieldMapper hashMapper;
     private final StringFieldMapper wkbTextMapper;
     private final GeoPointFieldMapper centroidMapper;
-    private final Pattern pattern;
 
     private final PrefixTreeStrategy defaultStrategy;
     private final RecursivePrefixTreeStrategy recursiveStrategy;
     private final TermQueryPrefixTreeStrategy termStrategy;
+
+    private final GeometryJSON geometryJSON;
 
 
     public GeoMapper2(FieldMapper.Names names,
@@ -238,13 +240,14 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
         this.hashMapper = hashMapper;
         this.wkbTextMapper = wkbTextMapper;
         this.centroidMapper = centroidMapper;
-        this.pattern = Pattern.compile("^.*type\":\"([^\"]+).*");
 
         this.recursiveStrategy = new RecursivePrefixTreeStrategy(tree, names.indexName());
         this.recursiveStrategy.setDistErrPct(distanceErrorPct);
         this.termStrategy = new TermQueryPrefixTreeStrategy(tree, names.indexName());
         this.termStrategy.setDistErrPct(distanceErrorPct);
         this.defaultStrategy = resolveStrategy(defaultStrategyName);
+
+        geometryJSON = new GeometryJSON();
 
 
     }
@@ -271,7 +274,9 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
                 }
             }
 
-            Field[] fields = defaultStrategy.createIndexableFields(shapeBuilder.build());
+            Shape shape = shapeBuilder.build();
+
+            Field[] fields = defaultStrategy.createIndexableFields(shape);
             if (fields == null || fields.length == 0) {
                 return;
             }
@@ -286,109 +291,82 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
 
             String geoJson = shapeBuilder.toString();
 
+            geoJson = geoJson.replaceFirst(shapeBuilder.type().name().toLowerCase(), getGeoJsonType(shapeBuilder.type()));
 
-            Matcher matcher = this.pattern.matcher(geoJson);
+            Geometry geom = geometryJSON.read(geoJson);
 
-            matcher.find();
+            byte[] wkb = new WKBWriter().write(geom);
 
-            String type = matcher.group(1);
+            BinaryFieldMapper.CustomBinaryDocValuesField f = (BinaryFieldMapper.CustomBinaryDocValuesField) context.doc().getByKey(names().indexName());
 
-            geoJson = geoJson.replaceFirst(type, getGeoJsonType(type));
+            if (f == null) {
+                f = new BinaryFieldMapper.CustomBinaryDocValuesField(names().indexName(), wkb);
+                context.doc().addWithKey(names().indexName(), f);
+            } else {
+                f.add(wkb);
+            }
 
-            parseWkb(context, geoJson);
+            areaMapper.parse(context.createExternalValueContext(geom.getLength()));
+
+            typeMapper.parse(context.createExternalValueContext(geom.getGeometryType()));
+
+            Coordinate[] coords = geom.getEnvelope().getCoordinates();
+
+            GeoPoint topLeft = new GeoPoint(coords[0].y, coords[0].x);
+            bboxMapper.parse(context.createExternalValueContext(topLeft));
+
+            if (coords.length == 5) {
+                GeoPoint bottomRight = new GeoPoint(coords[2].y, coords[2].x);
+                bboxMapper.parse(context.createExternalValueContext(bottomRight));
+            }
+
+            try {
+                byte[] mdBytes = MessageDigest.getInstance("md5").digest(wkb);
+                hashMapper.parse(context.createExternalValueContext(getHexFromDigest(mdBytes)));
+            } catch (NoSuchAlgorithmException e) {
+                throw new IOException(e);
+            }
+            wkbTextMapper.parse(context.createExternalValueContext(Base64.encodeBytes(wkb)));
+
+
+            Point c = shape.getCenter();
+            centroidMapper.parse(context.createExternalValueContext(new GeoPoint(c.getY(), c.getX())));
 
         } catch (Exception e) {
             throw new MapperParsingException("failed to parse [" + names.fullName() + "]", e);
         }
     }
 
-    private String getGeoJsonType(String geoType) throws IOException {
-        if (geoType.equals("point")) {
-            return "Point";
-        }
-        if (geoType.equals("multipoint")) {
-            return "MultiPoint";
-        }
-        if (geoType.equals("linestring")) {
-            return "LineString";
-        }
-        if (geoType.equals("multilinestring")) {
-            return "MultiLineString";
-        }
-        if (geoType.equals("polygon")) {
-            return "Polygon";
-        }
-        if (geoType.equals("multipolygon")) {
-            return "MultiPolygon";
-        }
-        if (geoType.equals("geometrycollection")) {
-            return "GeometryCollection";
+    private String getHexFromDigest(byte[] digest) {
+        StringBuffer sb = new StringBuffer();
+
+        for (int i = 0; i < digest.length; i++) {
+            sb.append(Integer.toString((digest[i] & 0xff) + 0x100, 16).substring(1));
         }
 
-        throw new IOException("Geo Type unknown");
+        return sb.toString();
     }
 
-    /**
-     * Writes the WKB serialization of the <tt>shape</tt> to the given ParseContext
-     * as an external value.
-     */
-    private void parseWkb(ParseContext context, String geoJson) throws IOException {
-
-
-        GeometryJSON geometryJSON = new GeometryJSON();
-
-        Geometry geom = geometryJSON.read(geoJson);
-
-//        Geometry geom = ShapeBuilder.SPATIAL_CONTEXT.getGeometryFrom(shapeBuilder.build());
-        byte[] wkb = new WKBWriter().write(geom);
-
-//        wkbMapper.parse(context.createExternalValueContext(wkb));
-
-        BinaryFieldMapper.CustomBinaryDocValuesField f = (BinaryFieldMapper.CustomBinaryDocValuesField) context.doc().getByKey(names().indexName());
-
-        if (f == null) {
-            f = new BinaryFieldMapper.CustomBinaryDocValuesField(names().indexName(), wkb);
-            context.doc().addWithKey(names().indexName(), f);
-        } else {
-            f.add(wkb);
+    private String getGeoJsonType(ShapeBuilder.GeoShapeType geoType) throws IOException {
+        switch (geoType) {
+            case POINT:
+                return "Point";
+            case MULTIPOINT:
+                return "MultiPoint";
+            case LINESTRING:
+                return "LineString";
+            case MULTILINESTRING:
+                return "MultiLineString";
+            case POLYGON:
+                return "Polygon";
+            case MULTIPOLYGON:
+                return "MultiPolygon";
+            case GEOMETRYCOLLECTION:
+                return "GeometryCollection";
+            default:
+                throw new IOException("Geo Type unknown");
         }
-
-        areaMapper.parse(context.createExternalValueContext(geom.getLength()));
-
-        typeMapper.parse(context.createExternalValueContext(geom.getGeometryType()));
-
-        Geometry bbox = geom.getEnvelope();
-
-        Coordinate[] coords = bbox.getCoordinates();
-
-        GeoPoint topLeft = new GeoPoint(coords[0].y, coords[0].x);
-        bboxMapper.parse(context.createExternalValueContext(topLeft));
-
-        if (coords.length == 5) {
-            GeoPoint bottomRight = new GeoPoint(coords[2].y, coords[2].x);
-            bboxMapper.parse(context.createExternalValueContext(bottomRight));
-        }
-
-        try {
-
-            byte[] mdBytes = MessageDigest.getInstance("md5").digest(wkb);
-
-            StringBuffer sb = new StringBuffer();
-
-            for (int i = 0; i < mdBytes.length; i++) {
-                sb.append(Integer.toString((mdBytes[i] & 0xff) + 0x100, 16).substring(1));
-            }
-
-            hashMapper.parse(context.createExternalValueContext(sb.toString()));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IOException(e);
-        }
-        wkbTextMapper.parse(context.createExternalValueContext(Base64.encodeBytes(wkb)));
-
-        Point jtsCentroid = geom.getCentroid();
-        centroidMapper.parse(context.createExternalValueContext(new GeoPoint(jtsCentroid.getY(), jtsCentroid.getX())));
     }
-
 
     @Override
     protected void parseCreateField(ParseContext context, List<Field> fields) throws IOException {
