@@ -62,7 +62,7 @@ public class RestGeoAction3 extends BaseRestHandler {
         if (geoField == null) {
             throw new Exception("Field parameter is mandatory");
         }
-        final String geoFieldWKB = geoField + "." + GeoMapper2.Names.WKB;
+//        final String geoFieldWKB = geoField + "." + GeoMapper2.Names.WKB;
         final String geoFieldWKBText = geoField + "." + GeoMapper2.Names.WKB_TEXT;
         final String geoFieldType = geoField + "." + GeoMapper2.Names.TYPE;
         final String geoFieldHash = geoField + "." + GeoMapper2.Names.HASH;
