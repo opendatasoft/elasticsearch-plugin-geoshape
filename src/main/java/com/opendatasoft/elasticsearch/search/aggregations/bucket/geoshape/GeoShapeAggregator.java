@@ -1,5 +1,6 @@
 package com.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape;
 
+import com.opendatasoft.elasticsearch.plugin.geo.GeoPluginUtils;
 import com.vividsolutions.jts.geom.Coordinate;
 import com.vividsolutions.jts.geom.Geometry;
 import com.vividsolutions.jts.geom.GeometryFactory;
@@ -37,16 +38,15 @@ public class GeoShapeAggregator extends BucketsAggregator {
     private SortedBinaryDocValues values;
     private final BytesRefBuilder previous;
     private final InternalGeoShape.OutputFormat outputFormat;
-    private final WKBReader wkbReader;
-    private final WKBWriter wkbWriter;
     private final GeometryFactory geometryFactory;
     private double tolerance;
     private boolean simplifyShape;
+    private GeoShape.Algorithm algorithm;
 //    private int zoom;
 
     public GeoShapeAggregator(String name, AggregatorFactories factories, ValuesSource.Bytes valuesSource,
                                  int requiredSize, int shardSize, InternalGeoShape.OutputFormat outputFormat,
-                                 boolean simplifyShape, int zoom, AggregationContext aggregationContext, Aggregator parent) {
+                                 boolean simplifyShape, int zoom, GeoShape.Algorithm algorithm,AggregationContext aggregationContext, Aggregator parent) {
 
         super(name, BucketAggregationMode.PER_BUCKET, factories, INITIAL_CAPACITY, aggregationContext, parent);
         this.valuesSource = valuesSource;
@@ -56,9 +56,8 @@ public class GeoShapeAggregator extends BucketsAggregator {
         this.simplifyShape = simplifyShape;
         bucketOrds = new BytesRefHash(estimatedBucketCount, aggregationContext.bigArrays());
         previous = new BytesRefBuilder();
-        this.wkbReader = new WKBReader();
-        this.wkbWriter = new WKBWriter();
         this.geometryFactory = new GeometryFactory();
+        this.algorithm = algorithm;
 
         if (simplifyShape) {
             tolerance = 360 / (256 * Math.pow(zoom, 3));
@@ -81,21 +80,31 @@ public class GeoShapeAggregator extends BucketsAggregator {
         values = valuesSource.bytesValues();
     }
 
-    private BytesRef simplifyGeoShape(BytesRef wkb) {
-        try {
-            Geometry geom = new WKBReader().read(wkb.bytes);
-            if (geom.getGeometryType().equals("Point")) {
-                return wkb;
-            }
+    private Geometry getSimplifiedShape(Geometry geometry) {
+        switch (algorithm) {
+            case TOPOLOGY_PRESERVING:
+                return TopologyPreservingSimplifier.simplify(geometry, tolerance);
+            default:
+                return DouglasPeuckerSimplifier.simplify(geometry, tolerance);
+        }
+    }
+
+    private Geometry simplifyGeoShape(Geometry geom) {
+//        try {
+
+//            if (geom.getGeometryType().equals("Point")) {
+//                return wkb;
+//            }
 //            Geometry polygonSimplified = TopologyPreservingSimplifier.simplify(geom, tolerance);
-            Geometry polygonSimplified = DouglasPeuckerSimplifier.simplify(geom, tolerance);
+            Geometry polygonSimplified = getSimplifiedShape(geom);
             if (polygonSimplified.isEmpty()) {
                 polygonSimplified = this.geometryFactory.createPoint(geom.getCoordinate());
             }
-            return new BytesRef(new WKBWriter().write(polygonSimplified));
-        } catch (ParseException e) {
-            return wkb;
-        }
+        return geom;
+//            return new BytesRef(new WKBWriter().write(polygonSimplified));
+//        } catch (ParseException e) {
+//            return wkb;
+//        }
     }
 
 
@@ -142,18 +151,34 @@ public class GeoShapeAggregator extends BucketsAggregator {
 
         for (int i=0; i < bucketOrds.size(); i++) {
             if (spare == null) {
-                spare = new InternalGeoShape.Bucket(new BytesRef(), 0, null);
+                spare = new InternalGeoShape.Bucket(new BytesRef(), null, null, null, 0, 0, null);
             }
 
             bucketOrds.get(i, spare.wkb);
 
             spare.wkb = BytesRef.deepCopyOf(spare.wkb);
 
-            if (simplifyShape) {
-                spare.wkb = simplifyGeoShape(spare.wkb);
+            Geometry geom = null;
+
+            try {
+                geom = new WKBReader().read(spare.wkb.bytes);
+            } catch (ParseException e) {
+                e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
             }
 
+            spare.wkbHash = GeoPluginUtils.getHashFromWKB(spare.wkb.bytes);
+            spare.area = geom.getLength();
+
+            if (simplifyShape) {
+                Geometry simplifiedGeom = simplifyGeoShape(geom);
+                spare.simplifiedType = simplifiedGeom.getGeometryType();
+                spare.wkb = new BytesRef(new WKBWriter().write(simplifiedGeom));
+                spare.area = simplifiedGeom.getLength();
+            }
+
+
             spare.docCount = bucketDocCount(i);
+            spare.realType = geom.getGeometryType();
             spare.bucketOrd = i;
 
             spare = ordered.insertWithOverflow(spare);

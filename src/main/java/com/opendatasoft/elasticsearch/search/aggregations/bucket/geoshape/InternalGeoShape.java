@@ -51,14 +51,22 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
     static class Bucket implements GeoShape.Bucket, Comparable<Bucket>{
 
         protected BytesRef wkb;
+        protected String wkbHash;
+        protected String realType;
+        protected String simplifiedType;
         protected long docCount;
+        protected double area;
         long bucketOrd;
         protected InternalAggregations aggregations;
 
-        public Bucket(BytesRef wkb, long docCount, InternalAggregations aggregations) {
+        public Bucket(BytesRef wkb, String wkbHash, String realType, String simplifiedType, double area, long docCount, InternalAggregations aggregations) {
             this.wkb = wkb;
+            this.wkbHash = wkbHash;
+            this.realType = realType;
+            this.simplifiedType = simplifiedType;
             this.docCount = docCount;
             this.aggregations = aggregations;
+            this.area = area;
         }
 
         @Override
@@ -111,7 +119,7 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
                 aggregationsList.add(bucket.aggregations);
             }
             final InternalAggregations aggs = InternalAggregations.reduce(aggregationsList, context);
-            return new Bucket(wkb, docCount, aggs);
+            return new Bucket(wkb, wkbHash, realType, simplifiedType, area, docCount, aggs);
         }
     }
 
@@ -120,10 +128,7 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
     private Collection<Bucket> buckets;
     protected Map<String, Bucket> bucketMap;
     private OutputFormat outputFormat;
-    private WKBWriter wkbWriter;
-    private WKTWriter wktWriter;
     private GeometryJSON geometryJSON;
-    private WKBReader wkbReader;
 
     InternalGeoShape(){}
 
@@ -132,10 +137,7 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
         this.requiredSize = requiredSize;
         this.buckets = buckets;
         this.outputFormat = outputFormat;
-        this.wktWriter = new WKTWriter();
-        this.wkbWriter = new WKBWriter();
         this.geometryJSON = new GeometryJSON(20);
-        this.wkbReader = new WKBReader();
     }
 
     @Override
@@ -205,7 +207,7 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
         int size = in.readVInt();
         List<Bucket> buckets = new ArrayList<>(size);
         for (int i = 0; i < size; i++) {
-            buckets.add(new Bucket(in.readBytesRef(), in.readVLong(), InternalAggregations.readAggregations(in)));
+            buckets.add(new Bucket(in.readBytesRef(), in.readString(), in.readString(), in.readString(), in.readDouble(), in.readVLong(), InternalAggregations.readAggregations(in)));
         }
         this.buckets = buckets;
         this.bucketMap = null;
@@ -218,6 +220,10 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
         out.writeVInt(buckets.size());
         for (Bucket bucket : buckets) {
             out.writeBytesRef(bucket.wkb);
+            out.writeString(bucket.wkbHash);
+            out.writeString(bucket.realType);
+            out.writeString(bucket.simplifiedType);
+            out.writeDouble(bucket.area);
             out.writeVLong(bucket.getDocCount());
             ((InternalAggregations) bucket.getAggregations()).writeTo(out);
         }
@@ -244,6 +250,10 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
 //            builder.field(CommonFields.KEY, bucket.getKeyAsText());
             try {
                 builder.field(CommonFields.KEY, outputGeoShape(bucket.wkb));
+                builder.field("digest", bucket.wkbHash);
+                builder.field("real_type", bucket.realType);
+                if (bucket.simplifiedType != null)
+                    builder.field("simplified_type", bucket.simplifiedType);
             } catch (ParseException e) {
                 e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
             }
@@ -264,7 +274,7 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
 
         @Override
         protected boolean lessThan(Bucket o1, Bucket o2) {
-            long i = o2.getDocCount() - o1.getDocCount();
+            double i = o2.area - o1.area;
             if (i == 0) {
                 i = o2.compareTo(o1);
                 if (i == 0) {

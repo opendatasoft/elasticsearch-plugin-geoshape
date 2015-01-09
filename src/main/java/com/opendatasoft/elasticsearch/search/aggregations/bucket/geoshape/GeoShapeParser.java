@@ -38,6 +38,7 @@ public class GeoShapeParser implements Aggregator.Parser{
         int zoom = DEFAULT_ZOOM;
         boolean simplifyShape = false;
         InternalGeoShape.OutputFormat outputFormat = DEFAULT_OUTPUT_FORMAT;
+        GeoShape.Algorithm algorithm = GeoShape.Algorithm.DOUGLAS_PEUCKER;
 
         XContentParser.Token token;
         String currentFieldName = null;
@@ -70,6 +71,9 @@ public class GeoShapeParser implements Aggregator.Parser{
                             if ("zoom".equals(currentFieldName)) {
                                 zoom = parser.intValue();
                             }
+                            else if ("algorithm".equals(currentFieldName)) {
+                                algorithm = GeoShape.Algorithm.valueOf(currentFieldName.toUpperCase());
+                            }
                         }
                     }
                 }
@@ -97,7 +101,7 @@ public class GeoShapeParser implements Aggregator.Parser{
             zoom = DEFAULT_ZOOM;
         }
 
-        return new GeoShapeFactory(aggregationName, vsParser.config(), requiredSize, shardSize, outputFormat, simplifyShape, zoom);
+        return new GeoShapeFactory(aggregationName, vsParser.config(), requiredSize, shardSize, outputFormat, simplifyShape, zoom, algorithm);
 
     }
 
@@ -109,14 +113,16 @@ public class GeoShapeParser implements Aggregator.Parser{
         private InternalGeoShape.OutputFormat outputFormat;
         boolean simplifyShape;
         int zoom;
+        GeoShape.Algorithm algorithm;
 
-        public GeoShapeFactory(String name, ValuesSourceConfig config, int requiredSize, int shardSize, InternalGeoShape.OutputFormat outputFormat, boolean simplifyShape, int zoom) {
+        public GeoShapeFactory(String name, ValuesSourceConfig config, int requiredSize, int shardSize, InternalGeoShape.OutputFormat outputFormat, boolean simplifyShape, int zoom, GeoShape.Algorithm algorithm) {
             super(name, InternalGeoHashGrid.TYPE.name(), config);
             this.requiredSize = requiredSize;
             this.shardSize = shardSize;
             this.outputFormat = outputFormat;
             this.simplifyShape = simplifyShape;
             this.zoom = zoom;
+            this.algorithm = algorithm;
         }
 
         @Override
@@ -132,7 +138,7 @@ public class GeoShapeParser implements Aggregator.Parser{
 
         @Override
         protected Aggregator create(ValuesSource.Bytes valuesSource, long expectedBucketsCount, AggregationContext aggregationContext, Aggregator parent) {
-            return new GeoShapeAggregator(name, factories, valuesSource, requiredSize, shardSize, outputFormat, simplifyShape, zoom, aggregationContext, parent);
+            return new GeoShapeAggregator(name, factories, valuesSource, requiredSize, shardSize, outputFormat, simplifyShape, zoom, algorithm, aggregationContext, parent);
         }
 
     }
