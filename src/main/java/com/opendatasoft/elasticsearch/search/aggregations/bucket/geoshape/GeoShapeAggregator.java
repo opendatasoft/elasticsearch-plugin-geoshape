@@ -46,7 +46,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
 
     public GeoShapeAggregator(String name, AggregatorFactories factories, ValuesSource.Bytes valuesSource,
                                  int requiredSize, int shardSize, InternalGeoShape.OutputFormat outputFormat,
-                                 boolean simplifyShape, int zoom, GeoShape.Algorithm algorithm,AggregationContext aggregationContext, Aggregator parent) {
+                                 boolean simplifyShape, int zoom, GeoShape.Algorithm algorithm, AggregationContext aggregationContext, Aggregator parent) {
 
         super(name, BucketAggregationMode.PER_BUCKET, factories, INITIAL_CAPACITY, aggregationContext, parent);
         this.valuesSource = valuesSource;
@@ -100,7 +100,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
             if (polygonSimplified.isEmpty()) {
                 polygonSimplified = this.geometryFactory.createPoint(geom.getCoordinate());
             }
-        return geom;
+        return polygonSimplified;
 //            return new BytesRef(new WKBWriter().write(polygonSimplified));
 //        } catch (ParseException e) {
 //            return wkb;
@@ -175,7 +175,6 @@ public class GeoShapeAggregator extends BucketsAggregator {
                 spare.wkb = new BytesRef(new WKBWriter().write(simplifiedGeom));
                 spare.area = simplifiedGeom.getLength();
             }
-
 
             spare.docCount = bucketDocCount(i);
             spare.realType = geom.getGeometryType();
