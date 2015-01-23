@@ -276,16 +276,29 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
         return null;
     }
 
-    private int getTreelevelForGeometry(Geometry geom) {
+    private int getTreelevelForGeometry(Geometry geom, Geometry centroid) {
         // For mutliple geometry, we must take the smaller length precision
         // For geohash, level is between 1 -> 12
 
 
-        double geomLength = geom.getArea();
+//        double geomLength = geom.getArea();
+        double geomLength = geom.getLength();
 
-        if (geomLength == 0) {
-            geomLength = geom.getLength();
+        double geomArea = geom.getArea();
+
+        // little magic here
+        if (geomArea > 0) {
+            if (geomArea < 0.1) {
+                geomLength /= 4;
+            } else {
+                geomLength = geomArea;
+            }
+
         }
+
+//        if (geomLength == 0) {
+//            geomLength = geom.getLength();
+//        }
         if (tree.equals(Names.TREE_GEOHASH)) {
 
             int level;
@@ -294,7 +307,7 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
             if (geomLength == 0) {
                 level = GeohashPrefixTree.getMaxLevelsPossible() / 2;
             } else {
-                level = GeoUtils.geoHashLevelsForPrecision(GeoPluginUtils.getMetersFromDecimalDegree(geomLength));
+                level = GeoUtils.geoHashLevelsForPrecision(GeoPluginUtils.getMetersFromDecimalDegree(geomLength, centroid.getCoordinate().y));
             }
 
             return level;
@@ -307,7 +320,7 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
             if (geomLength == 0) {
                 level = QuadPrefixTree.DEFAULT_MAX_LEVELS;
             } else {
-                level = GeoUtils.quadTreeLevelsForPrecision(GeoPluginUtils.getMetersFromDecimalDegree(geomLength));
+                level = GeoUtils.quadTreeLevelsForPrecision(GeoPluginUtils.getMetersFromDecimalDegree(geomLength, centroid.getCoordinate().y));
             }
 
             return level;
@@ -354,8 +367,8 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
         return prefixTreeStrategy;
     }
 
-    private PrefixTreeStrategy getTreeStrategyForSpecificGeometry(Geometry geom) {
-        int level = getTreelevelForGeometry(geom);
+    private PrefixTreeStrategy getTreeStrategyForSpecificGeometry(Geometry geom, Geometry centroid) {
+        int level = getTreelevelForGeometry(geom, centroid);
 
         if (level == -1) {
             return null;
@@ -392,7 +405,9 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
 
             Geometry geom = geometryJSON.read(geoJson);
 
-            PrefixTreeStrategy prefixTreeStrategy = getTreeStrategyForSpecificGeometry(geom);
+            Geometry centroid = geom.getCentroid();
+
+            PrefixTreeStrategy prefixTreeStrategy = getTreeStrategyForSpecificGeometry(geom, centroid);
 
             if (prefixTreeStrategy !=null) {
 
@@ -441,8 +456,8 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
 //            wkbTextMapper.parse(context.createExternalValueContext(Base64.encodeBytes(wkb)));
 
 
-            Point c = shape.getCenter();
-            centroidMapper.parse(context.createExternalValueContext(new GeoPoint(c.getY(), c.getX())));
+//            Point c = shape.getCenter();
+            centroidMapper.parse(context.createExternalValueContext(new GeoPoint(centroid.getCoordinate().y, centroid.getCoordinate().x)));
 
         } catch (Exception e) {
             throw new MapperParsingException("failed to parse [" + names.fullName() + "]", e);
