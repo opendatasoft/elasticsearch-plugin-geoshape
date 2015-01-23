@@ -244,6 +244,7 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
 
     @Override
     public XContentBuilder doXContentBody(XContentBuilder builder, Params params) throws IOException {
+
         builder.startArray(CommonFields.BUCKETS);
         for (Bucket bucket : buckets) {
             builder.startObject();

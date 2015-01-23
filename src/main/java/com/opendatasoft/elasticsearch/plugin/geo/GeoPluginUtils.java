@@ -1,5 +1,7 @@
 package com.opendatasoft.elasticsearch.plugin.geo;
 
+import org.elasticsearch.common.geo.GeoUtils;
+
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
@@ -26,6 +28,15 @@ public class GeoPluginUtils {
             return "";
 //            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
         }
+    }
+
+    public static double getMetersFromDecimalDegree(double decimalDegree) {
+        return GeoUtils.EARTH_EQUATOR * decimalDegree / 360;
+    }
+
+    public static void main(String[] args) {
+        System.out.println(getMetersFromDecimalDegree(1));
+        System.out.println(getMetersFromDecimalDegree(0.6) / 1000);
     }
 
 }
