@@ -34,9 +34,14 @@ public class GeoPluginUtils {
         return GeoUtils.EARTH_EQUATOR * decimalDegree / 360;
     }
 
+    public static double getMetersFromDecimalDegree(double decimalDegree, double latitude) {
+        return (GeoUtils.EARTH_EQUATOR * Math.cos(Math.toRadians(latitude))) * decimalDegree / 360;
+    }
+
     public static void main(String[] args) {
         System.out.println(getMetersFromDecimalDegree(1));
         System.out.println(getMetersFromDecimalDegree(0.6) / 1000);
+        System.out.println(getMetersFromDecimalDegree(0.6, 47) / 1000);
     }
 
 }
