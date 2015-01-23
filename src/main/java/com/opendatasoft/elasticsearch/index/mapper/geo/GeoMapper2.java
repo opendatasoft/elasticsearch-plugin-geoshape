@@ -38,6 +38,8 @@ import org.geotools.geojson.geom.GeometryJSON;
 import java.io.*;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -146,13 +148,13 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
         public GeoMapper2 build(BuilderContext context) {
             final FieldMapper.Names names = buildNames(context);
 
-            if (Names.TREE_GEOHASH.equals(tree)) {
-                prefixTree = new GeohashPrefixTree(ShapeBuilder.SPATIAL_CONTEXT, getLevels(treeLevels, precisionInMeters, Defaults.GEOHASH_LEVELS, true));
-            } else if (Names.TREE_QUADTREE.equals(tree)) {
-                prefixTree = new QuadPrefixTree(ShapeBuilder.SPATIAL_CONTEXT, getLevels(treeLevels, precisionInMeters, Defaults.QUADTREE_LEVELS, false));
-            } else {
-                throw new ElasticsearchIllegalArgumentException("Unknown prefix tree type [" + tree + "]");
-            }
+//            if (Names.TREE_GEOHASH.equals(tree)) {
+//                prefixTree = new GeohashPrefixTree(ShapeBuilder.SPATIAL_CONTEXT, getLevels(treeLevels, precisionInMeters, Defaults.GEOHASH_LEVELS, true));
+//            } else if (Names.TREE_QUADTREE.equals(tree)) {
+//                prefixTree = new QuadPrefixTree(ShapeBuilder.SPATIAL_CONTEXT, getLevels(treeLevels, precisionInMeters, Defaults.QUADTREE_LEVELS, false));
+//            } else {
+//                throw new ElasticsearchIllegalArgumentException("Unknown prefix tree type [" + tree + "]");
+//            }
 
             ContentPath.Type origPathType = context.path().pathType();
             context.path().pathType(ContentPath.Type.FULL);
@@ -171,17 +173,9 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
             context.path().pathType(origPathType);
 
 
-            return new GeoMapper2(names, prefixTree, strategyName, distanceErrorPct, wkbMapper, typeMapper, doubleMapper, bboxMapper, hashMapper, centroidMapper, fieldDataSettings, docValues, fieldType, postingsProvider,
+            return new GeoMapper2(names, tree, strategyName, distanceErrorPct, wkbMapper, typeMapper, doubleMapper, bboxMapper, hashMapper, centroidMapper, fieldDataSettings, docValues, fieldType, postingsProvider,
                     docValuesProvider, multiFieldsBuilder.build(this, context), copyTo);
         }
-    }
-
-    private static final int getLevels(int treeLevels, double precisionInMeters, int defaultLevels, boolean geoHash) {
-        if (treeLevels > 0 || precisionInMeters >= 0) {
-            return Math.max(treeLevels, precisionInMeters >= 0 ? (geoHash ? GeoUtils.geoHashLevelsForPrecision(precisionInMeters)
-                    : GeoUtils.quadTreeLevelsForPrecision(precisionInMeters)) : 0);
-        }
-        return defaultLevels;
     }
 
     public static class TypeParser implements Mapper.TypeParser {
@@ -189,24 +183,23 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
         @Override
         public Mapper.Builder parse(String name, Map<String, Object> node, ParserContext parserContext) throws MapperParsingException {
             Builder builder = new GeoMapper2.Builder(name);
-            TypeParsers.parseField(builder, name, node, parserContext);
+//            TypeParsers.parseField(builder, name, node, parserContext);
 
             for (Map.Entry<String, Object> entry : node.entrySet()) {
                 String fieldName = Strings.toUnderscoreCase(entry.getKey());
                 Object fieldNode = entry.getValue();
                 if (Names.TREE.equals(fieldName)) {
                     builder.tree(fieldNode.toString());
-                } else if (Names.TREE_LEVELS.equals(fieldName)) {
-                    builder.treeLevels(Integer.parseInt(fieldNode.toString()));
-                } else if (Names.TREE_PRESISION.equals(fieldName)) {
-                    builder.treeLevelsByDistance(DistanceUnit.parse(fieldNode.toString(), DistanceUnit.DEFAULT, DistanceUnit.DEFAULT));
-                } else if (Names.DISTANCE_ERROR_PCT.equals(fieldName)) {
-                    builder.distanceErrorPct(Double.parseDouble(fieldNode.toString()));
+//                } else if (Names.TREE_LEVELS.equals(fieldName)) {
+//                    builder.treeLevels(Integer.parseInt(fieldNode.toString()));
+//                } else if (Names.TREE_PRESISION.equals(fieldName)) {
+//                    builder.treeLevelsByDistance(DistanceUnit.parse(fieldNode.toString(), DistanceUnit.DEFAULT, DistanceUnit.DEFAULT));
+//                } else if (Names.DISTANCE_ERROR_PCT.equals(fieldName)) {
+//                    builder.distanceErrorPct(Double.parseDouble(fieldNode.toString()));
                 } else if (Names.STRATEGY.equals(fieldName)) {
                     builder.strategy(fieldNode.toString());
                 }
             }
-
             return builder;
         }
     }
@@ -219,20 +212,36 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
 //    private final StringFieldMapper wkbTextMapper;
     private final GeoPointFieldMapper centroidMapper;
 
-    private final PrefixTreeStrategy defaultStrategy;
-    private final RecursivePrefixTreeStrategy recursiveStrategy;
-    private final TermQueryPrefixTreeStrategy termStrategy;
+//    private final PrefixTreeStrategy defaultStrategy;
+//    private final RecursivePrefixTreeStrategy recursiveStrategy;
+//    private final TermQueryPrefixTreeStrategy termStrategy;
 
     private final GeometryJSON geometryJSON;
 
+    private final Map<Integer, PrefixTreeStrategy> hashTreeLevels;
+
+    // Tree Type : Geohash or quadTree
+    private final String tree;
+    private final String defaultStrategyName;
+    private final double distanceErrorPct;
+
+    private static SpatialPrefixTree getSearchPrefixTree(String treeType) {
+        if (Names.TREE_GEOHASH.equals(treeType)) {
+            return new GeohashPrefixTree(ShapeBuilder.SPATIAL_CONTEXT, GeohashPrefixTree.getMaxLevelsPossible());
+        } else if (Names.TREE_QUADTREE.equals(treeType)) {
+            return new QuadPrefixTree(ShapeBuilder.SPATIAL_CONTEXT, QuadPrefixTree.DEFAULT_MAX_LEVELS);
+        } else {
+            throw new ElasticsearchIllegalArgumentException("Unknown prefix tree type [" + treeType + "]");
+        }
+    }
 
     public GeoMapper2(FieldMapper.Names names,
-                      SpatialPrefixTree tree, String defaultStrategyName, double distanceErrorPct, BinaryFieldMapper wkbMapper,
+                      String tree, String defaultStrategyName, double distanceErrorPct, BinaryFieldMapper wkbMapper,
                       StringFieldMapper typeMapper, DoubleFieldMapper areaMapper, GeoPointFieldMapper bboxMapper,
                       StringFieldMapper hashMapper, GeoPointFieldMapper centroidMapper, @Nullable Settings fieldDataSettings, Boolean docValues, FieldType fieldType,
                       PostingsFormatProvider postingsProvider, DocValuesFormatProvider docValuesProvider,
                       MultiFields multiFields, CopyTo copyTo) {
-        super(names, tree, defaultStrategyName, distanceErrorPct, fieldType, postingsProvider, docValuesProvider, multiFields, copyTo);
+        super(names, getSearchPrefixTree(tree), defaultStrategyName, distanceErrorPct, fieldType, postingsProvider, docValuesProvider, multiFields, copyTo);
 //        super(names, 1, fieldType, docValues, null, null, postingsProvider, docValuesProvider, null, null, fieldDataSettings , null, multiFields, copyTo);
         this.wkbMapper = wkbMapper;
         this.typeMapper = typeMapper;
@@ -241,16 +250,20 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
         this.hashMapper = hashMapper;
 //        this.wkbTextMapper = wkbTextMapper;
         this.centroidMapper = centroidMapper;
+        this.defaultStrategyName = defaultStrategyName;
 
-        this.recursiveStrategy = new RecursivePrefixTreeStrategy(tree, names.indexName());
-        this.recursiveStrategy.setDistErrPct(distanceErrorPct);
-        this.termStrategy = new TermQueryPrefixTreeStrategy(tree, names.indexName());
-        this.termStrategy.setDistErrPct(distanceErrorPct);
-        this.defaultStrategy = resolveStrategy(defaultStrategyName);
+//        this.recursiveStrategy = new RecursivePrefixTreeStrategy(tree, names.indexName());
+//        this.recursiveStrategy.setDistErrPct(distanceErrorPct);
+//        this.termStrategy = new TermQueryPrefixTreeStrategy(tree, names.indexName());
+//        this.termStrategy.setDistErrPct(distanceErrorPct);
+//        this.defaultStrategy = resolveStrategy(defaultStrategyName);
+
+        this.tree = tree;
 
         geometryJSON = new GeometryJSON();
 
-
+        this.hashTreeLevels = new HashMap<>();
+        this.distanceErrorPct = distanceErrorPct;
     }
 
     @Override
@@ -261,6 +274,101 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
     @Override
     public FieldDataType defaultFieldDataType() {
         return null;
+    }
+
+    private int getTreelevelForGeometry(Geometry geom) {
+        // For mutliple geometry, we must take the smaller length precision
+        // For geohash, level is between 1 -> 12
+
+
+        double geomLength = geom.getArea();
+
+        if (geomLength == 0) {
+            geomLength = geom.getLength();
+        }
+        if (tree.equals(Names.TREE_GEOHASH)) {
+
+            int level;
+
+            // For point
+            if (geomLength == 0) {
+                level = GeohashPrefixTree.getMaxLevelsPossible() / 2;
+            } else {
+                level = GeoUtils.geoHashLevelsForPrecision(GeoPluginUtils.getMetersFromDecimalDegree(geomLength));
+            }
+
+            return level;
+
+        } else if (tree.equals(Names.TREE_QUADTREE)) {
+
+            int level;
+
+            // For point
+            if (geomLength == 0) {
+                level = QuadPrefixTree.DEFAULT_MAX_LEVELS;
+            } else {
+                level = GeoUtils.quadTreeLevelsForPrecision(GeoPluginUtils.getMetersFromDecimalDegree(geomLength));
+            }
+
+            return level;
+
+//            return QuadPrefixTree.DEFAULT_MAX_LEVELS;
+//            return -1;
+        } else {
+            return -1;
+        }
+    }
+
+    private PrefixTreeStrategy createPrefixTreeStrategyForLevel(int level) {
+
+        SpatialPrefixTree prefixTree;
+
+        String strategyName = defaultStrategyName;
+
+        if (Names.TREE_GEOHASH.equals(tree)) {
+            prefixTree = new GeohashPrefixTree(ShapeBuilder.SPATIAL_CONTEXT, level);
+
+//            if (level == GeohashPrefixTree.getMaxLevelsPossible()) {
+//                strategyName = SpatialStrategy.TERM.getStrategyName();
+//            }
+        } else if (Names.TREE_QUADTREE.equals(tree)) {
+            prefixTree = new QuadPrefixTree(ShapeBuilder.SPATIAL_CONTEXT, level);
+//            if (level == QuadPrefixTree.) {
+//                strategyName = SpatialStrategy.TERM.getStrategyName();
+//            }
+        } else {
+            throw new ElasticsearchIllegalArgumentException("Unknown prefix tree type [" + tree + "]");
+        }
+
+        PrefixTreeStrategy prefixTreeStrategy;
+
+        if (SpatialStrategy.RECURSIVE.getStrategyName().equals(strategyName)) {
+            prefixTreeStrategy = new RecursivePrefixTreeStrategy(prefixTree, names.indexName());
+            prefixTreeStrategy.setDistErrPct(distanceErrorPct);
+        } else if (SpatialStrategy.TERM.getStrategyName().equals(strategyName)) {
+            prefixTreeStrategy = new TermQueryPrefixTreeStrategy(prefixTree, names.indexName());
+            prefixTreeStrategy.setDistErrPct(distanceErrorPct);
+        } else {
+            throw new ElasticsearchIllegalArgumentException("Unknown prefix tree strategy [" + strategyName + "]");
+        }
+        return prefixTreeStrategy;
+    }
+
+    private PrefixTreeStrategy getTreeStrategyForSpecificGeometry(Geometry geom) {
+        int level = getTreelevelForGeometry(geom);
+
+        if (level == -1) {
+            return null;
+        }
+
+        PrefixTreeStrategy prefixTreeStrategy = hashTreeLevels.get(level);
+
+        if (prefixTreeStrategy == null) {
+            prefixTreeStrategy = createPrefixTreeStrategyForLevel(level);
+            hashTreeLevels.put(level, prefixTreeStrategy);
+        }
+
+        return prefixTreeStrategy;
     }
 
     @Override
@@ -277,24 +385,30 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
 
             Shape shape = shapeBuilder.build();
 
-            Field[] fields = defaultStrategy.createIndexableFields(shape);
-            if (fields == null || fields.length == 0) {
-                return;
-            }
-            for (Field field : fields) {
-                if (!customBoost()) {
-                    field.setBoost(boost);
-                }
-                if (context.listener().beforeFieldAdded(this, field, context)) {
-                    context.doc().add(field);
-                }
-            }
 
             String geoJson = shapeBuilder.toString();
 
             geoJson = geoJson.replaceFirst(shapeBuilder.type().name().toLowerCase(), getGeoJsonType(shapeBuilder.type()));
 
             Geometry geom = geometryJSON.read(geoJson);
+
+            PrefixTreeStrategy prefixTreeStrategy = getTreeStrategyForSpecificGeometry(geom);
+
+            if (prefixTreeStrategy !=null) {
+
+                Field[] fields = prefixTreeStrategy.createIndexableFields(shape);
+                if (fields == null || fields.length == 0) {
+                    return;
+                }
+                for (Field field : fields) {
+                    if (!customBoost()) {
+                        field.setBoost(boost);
+                    }
+                    if (context.listener().beforeFieldAdded(this, field, context)) {
+                        context.doc().add(field);
+                    }
+                }
+            }
 
             byte[] wkb = new WKBWriter().write(geom);
 
@@ -363,24 +477,28 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
     @Override
     protected void doXContentBody(XContentBuilder builder, boolean includeDefaults, Params params) throws IOException {
         builder.field("type", contentType());
+        builder.field(Names.TREE, tree);
 
         // TODO: Come up with a better way to get the name, maybe pass it from builder
-        if (defaultStrategy.getGrid() instanceof GeohashPrefixTree) {
-            // Don't emit the tree name since GeohashPrefixTree is the default
-            // Only emit the tree levels if it isn't the default value
-            if (includeDefaults || defaultStrategy.getGrid().getMaxLevels() != Defaults.GEOHASH_LEVELS) {
-                builder.field(Names.TREE_LEVELS, defaultStrategy.getGrid().getMaxLevels());
-            }
-        } else {
-            builder.field(Names.TREE, Names.TREE_QUADTREE);
-            if (includeDefaults || defaultStrategy.getGrid().getMaxLevels() != Defaults.QUADTREE_LEVELS) {
-                builder.field(Names.TREE_LEVELS, defaultStrategy.getGrid().getMaxLevels());
-            }
-        }
 
-        if (includeDefaults || defaultStrategy.getDistErrPct() != Defaults.DISTANCE_ERROR_PCT) {
-            builder.field(Names.DISTANCE_ERROR_PCT, defaultStrategy.getDistErrPct());
-        }
+
+
+//        if (defaultStrategy.getGrid() instanceof GeohashPrefixTree) {
+//            // Don't emit the tree name since GeohashPrefixTree is the default
+//            // Only emit the tree levels if it isn't the default value
+//            if (includeDefaults || defaultStrategy.getGrid().getMaxLevels() != Defaults.GEOHASH_LEVELS) {
+//                builder.field(Names.TREE_LEVELS, defaultStrategy.getGrid().getMaxLevels());
+//            }
+//        } else {
+//            builder.field(Names.TREE, Names.TREE_QUADTREE);
+//            if (includeDefaults || defaultStrategy.getGrid().getMaxLevels() != Defaults.QUADTREE_LEVELS) {
+//                builder.field(Names.TREE_LEVELS, defaultStrategy.getGrid().getMaxLevels());
+//            }
+//        }
+//
+//        if (includeDefaults || defaultStrategy.getDistErrPct() != Defaults.DISTANCE_ERROR_PCT) {
+//            builder.field(Names.DISTANCE_ERROR_PCT, defaultStrategy.getDistErrPct());
+//        }
     }
 
 
@@ -420,26 +538,30 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
 //        throw new UnsupportedOperationException("GeoShape fields cannot be converted to String values");
 //    }
 
-    public PrefixTreeStrategy defaultStrategy() {
-        return this.defaultStrategy;
-    }
+//    public PrefixTreeStrategy defaultStrategy() {
+//        return this.defaultStrategy;
+//    }
 
-    public PrefixTreeStrategy recursiveStrategy() {
-        return this.recursiveStrategy;
-    }
+//    public PrefixTreeStrategy recursiveStrategy() {
+//        return this.recursiveStrategy;
+//    }
 
-    public PrefixTreeStrategy termStrategy() {
-        return this.termStrategy;
-    }
+//    public PrefixTreeStrategy termStrategy() {
+//        return this.termStrategy;
+//    }
 
 
-    public PrefixTreeStrategy resolveStrategy(String strategyName) {
-        if (SpatialStrategy.RECURSIVE.getStrategyName().equals(strategyName)) {
-            return recursiveStrategy;
-        }
-        if (SpatialStrategy.TERM.getStrategyName().equals(strategyName)) {
-            return termStrategy;
-        }
-        throw new ElasticsearchIllegalArgumentException("Unknown prefix tree strategy [" + strategyName + "]");
-    }
+//    public PrefixTreeStrategy resolveStrategy(String strategyName) {
+//
+//        if (! hashTreeLevels.isEmpty()) {
+//            PrefixTreeStrategy result = hashTreeLevels.get(Collections.min(hashTreeLevels.keySet()));
+//            if (result != null) {
+//                return result;
+//            }
+//        }
+//
+//        return super.resolveStrategy(strategyName);
+//
+////        return hashTreeLevels.get(Collections.min(hashTreeLevels.keySet()));
+//    }
 }
