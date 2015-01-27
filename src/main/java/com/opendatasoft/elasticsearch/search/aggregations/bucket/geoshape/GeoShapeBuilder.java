@@ -20,6 +20,7 @@ public class GeoShapeBuilder extends AggregationBuilder<GeoShapeBuilder>{
     private int requiredSize = GeoShapeParser.DEFAULT_MAX_NUM_CELLS;
     private int shardSize = 0;
     private boolean simplifyShape = false;
+    private GeoShape.Algorithm algorithm;
     InternalGeoShape.OutputFormat outputFormat = InternalGeoShape.OutputFormat.GEOJSON;
 
 
@@ -50,6 +51,11 @@ public class GeoShapeBuilder extends AggregationBuilder<GeoShapeBuilder>{
         return this;
     }
 
+    public GeoShapeBuilder algorithm(GeoShape.Algorithm algorithm) {
+        this.algorithm = algorithm;
+        return this;
+    }
+
     public GeoShapeBuilder size(int requiredSize) {
         this.requiredSize = requiredSize;
         return this;
@@ -72,12 +78,16 @@ public class GeoShapeBuilder extends AggregationBuilder<GeoShapeBuilder>{
         if (simplifyShape) {
             builder.startObject("simplify");
             builder.field("zoom", zoom);
+            if (algorithm != GeoShapeParser.DEFAULT_ALGORITHM) {
+                builder.field("algorithm", algorithm);
+            }
             builder.endObject();
         }
         if (outputFormat != GeoShapeParser.DEFAULT_OUTPUT_FORMAT)
         {
             builder.field("output_format", outputFormat.toString());
         }
+
         if (requiredSize != GeoShapeParser.DEFAULT_MAX_NUM_CELLS) {
             builder.field("size", requiredSize);
         }

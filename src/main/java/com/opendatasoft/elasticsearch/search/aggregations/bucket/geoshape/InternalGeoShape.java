@@ -48,7 +48,7 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
     }
 
 
-    static class Bucket implements GeoShape.Bucket, Comparable<Bucket>{
+    public static class Bucket implements GeoShape.Bucket, Comparable<Bucket>{
 
         protected BytesRef wkb;
         protected String wkbHash;
@@ -99,6 +99,15 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
             return wkb.hashCode();
         }
 
+        @Override
+        public String getType() {
+            return simplifiedType;
+        }
+
+        @Override
+        public String getHash() {
+            return wkbHash;
+        }
 
         @Override
         public int compareTo(Bucket other) {
