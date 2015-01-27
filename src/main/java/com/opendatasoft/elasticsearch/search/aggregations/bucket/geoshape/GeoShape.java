@@ -29,6 +29,10 @@ public interface GeoShape extends MultiBucketsAggregation {
 
         long getShapeHash();
 
+        String getType();
+
+        String getHash();
+
 
     }
 

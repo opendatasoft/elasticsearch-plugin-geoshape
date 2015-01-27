@@ -27,6 +27,8 @@ public class GeoShapeParser implements Aggregator.Parser{
     public static final int DEFAULT_ZOOM = 0;
     public static final int DEFAULT_MAX_NUM_CELLS = 0;
     public static final InternalGeoShape.OutputFormat DEFAULT_OUTPUT_FORMAT = InternalGeoShape.OutputFormat.GEOJSON;
+    public static final GeoShape.Algorithm DEFAULT_ALGORITHM = GeoShape.Algorithm.DOUGLAS_PEUCKER;
+
 
     @Override
     public AggregatorFactory parse(String aggregationName, XContentParser parser, SearchContext context) throws IOException {
@@ -38,7 +40,7 @@ public class GeoShapeParser implements Aggregator.Parser{
         int zoom = DEFAULT_ZOOM;
         boolean simplifyShape = false;
         InternalGeoShape.OutputFormat outputFormat = DEFAULT_OUTPUT_FORMAT;
-        GeoShape.Algorithm algorithm = GeoShape.Algorithm.DOUGLAS_PEUCKER;
+        GeoShape.Algorithm algorithm = DEFAULT_ALGORITHM;
 
         XContentParser.Token token;
         String currentFieldName = null;

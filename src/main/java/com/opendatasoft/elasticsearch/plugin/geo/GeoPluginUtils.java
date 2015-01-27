@@ -4,6 +4,8 @@ import org.elasticsearch.common.geo.GeoUtils;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Created with IntelliJ IDEA.
@@ -38,10 +40,130 @@ public class GeoPluginUtils {
         return (GeoUtils.EARTH_EQUATOR * Math.cos(Math.toRadians(latitude))) * decimalDegree / 360;
     }
 
+    public static double getDecimalDegreeFromMeter(double meter) {
+        return meter * 360 / GeoUtils.EARTH_EQUATOR;
+    }
+
+    public static double getDecimalDegreeFromMeter(double meter, double latitude) {
+        return meter * 360 / (GeoUtils.EARTH_EQUATOR * Math.cos(Math.toRadians(latitude)));
+    }
+
+//    public static List<Double> getEnvelopeForTile(int x, int y, int z, int tileSize) {
+//
+//    }
+
+    public static class Envelope {
+        public double north;
+        public double west;
+        public double south;
+        public double east;
+    }
+    public static Envelope tile2boundingBox(final int x, final int y, int z, int tileSize) throws Exception {
+        if (tileSize == 512) {
+            z -= 1;
+        }
+        else if (tileSize != 256) {
+            throw new Exception("Only 256 and 512 tile sizes are supported for map rendering");
+        }
+
+        Envelope bb = new Envelope();
+        bb.north = tile2lat(y, z);
+        bb.west = tile2lon(x, z);
+        bb.south = tile2lat(y + 1, z);
+        bb.east = tile2lon(x + 1, z);
+        return bb;
+    }
+
+    static double tile2lon(int x, int z) {
+        return x / Math.pow(2.0, z) * 360.0 - 180;
+    }
+
+    static double tile2lat(int y, int z) {
+        double n = Math.PI - (2.0 * Math.PI * y) / Math.pow(2.0, z);
+        return Math.toDegrees(Math.atan(Math.sinh(n)));
+    }
+
+
+    public static double getMeterByPixel(int zoom, double lat) {
+        return (GeoUtils.EARTH_EQUATOR / 256) * (Math.cos(Math.toRadians(lat)) / Math.pow(2, zoom));
+    }
+
+
+    public static double getShapeLimit(int zoom, double latitude, int nbPixel) {
+       return getDecimalDegreeFromMeter(getMeterByPixel(zoom, latitude) * nbPixel, latitude);
+    }
+
+    public static double getShapeLimit (int zoom, double latitude) {
+        return getShapeLimit(zoom, latitude, 1);
+    }
+
+    public static double getOverflow(double coord1, double coord2, int pixelOverflow, int tileSize) {
+        double distance = Math.abs(coord1 - coord2);
+        double pixelPerDistance = distance / tileSize;
+
+        return  pixelOverflow * pixelPerDistance;
+    }
+
+    public static double normalizeLat(double latitude) {
+        if (latitude < -90) {
+            return -90;
+        }
+        if (latitude > 90) {
+            return 90;
+        }
+        return latitude;
+    }
+
+    public static double normalizeLon(double longitude) {
+        if (longitude < -179.9) {
+            return -179.9;
+        }
+        if (longitude > 179.9) {
+            return 179.9;
+        }
+        return longitude;
+    }
+
+    public static Envelope overflowEnvelope(Envelope envelope, int pixelOverflow, int tileSize) {
+
+        double latOverFlow = getOverflow(envelope.north, envelope.south, pixelOverflow, tileSize);
+        double lonOverFlow = getOverflow(envelope.west, envelope.east, pixelOverflow, tileSize);
+
+        Envelope res = new Envelope();
+
+        res.north = normalizeLat(envelope.north + latOverFlow);
+        res.south = normalizeLat(envelope.south - latOverFlow);
+        res.west = normalizeLon(envelope.west - lonOverFlow);
+        res.east = normalizeLon(envelope.east + lonOverFlow);
+
+        return res;
+
+    }
+
     public static void main(String[] args) {
-        System.out.println(getMetersFromDecimalDegree(1));
-        System.out.println(getMetersFromDecimalDegree(0.6) / 1000);
-        System.out.println(getMetersFromDecimalDegree(0.6, 47) / 1000);
+//        System.out.println(getMetersFromDecimalDegree(1));
+//        System.out.println(getMetersFromDecimalDegree(0.6) / 1000);
+//        System.out.println(getMetersFromDecimalDegree(0.6, 47) / 1000);
+
+
+        for (int i = 0; i< 20; i++) {
+//            System.out.println("zoom : " + i + " == " + GeoUtils.geoHashLevelsForPrecision(GeoPluginUtils.getMeterByPixel(i, 42)));
+//            System.out.println("zoom : " + i + " == " + GeoUtils.geoHashLevelsForPrecision(GeoPluginUtils.getMeterByPixel(i, 42) * 40));
+//
+//            System.out.println("zoom : " + i + " == " + getDecimalDegreeFromMeter(getMeterByPixel(i, 0) * 10));
+//            System.out.println("zoom : " + i + " == " + getShapeLimit(i, 0, 10));
+
+            System.out.println((int) (100 / (i + 1)));
+        }
+
+
+//        System.out.println(getMeterByPixel(18, 0) * 512);
+//        System.out.println(getDecimalDegreeFromMeter(getMeterByPixel(18, 0) * 512));
+//        System.out.println(getDecimalDegreeFromMeter(getMeterByPixel(18, 0) * 512, 42));
+
+
+//        System.out.println(GeoUtils.geoHashLevelsForPrecision(GeoPluginUtils.getMeterByPixel(12, 42)));
+//        System.out.println(GeoUtils.geoHashLevelsForPrecision(GeoPluginUtils.getMeterByPixel(12, 42) * 40));
     }
 
 }
