@@ -7,6 +7,7 @@ import com.opendatasoft.elasticsearch.plugin.geo.GeoPluginUtils;
 import com.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.GeoShape;
 import com.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.GeoShapeBuilder;
 import com.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.InternalGeoShape;
+import com.spatial4j.core.io.GeohashUtils;
 import com.vividsolutions.jts.geom.Coordinate;
 import com.vividsolutions.jts.geom.Envelope;
 import com.vividsolutions.jts.geom.Geometry;
@@ -23,20 +24,14 @@ import org.elasticsearch.common.geo.GeoUtils;
 import org.elasticsearch.common.geo.builders.ShapeBuilder;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.index.query.*;
 import org.elasticsearch.rest.*;
 import org.elasticsearch.rest.action.search.RestSearchAction;
-import org.elasticsearch.search.SearchHit;
-import org.elasticsearch.search.aggregations.Aggregation;
 import org.elasticsearch.search.aggregations.bucket.SingleBucketAggregation;
 import org.elasticsearch.search.aggregations.bucket.filter.FilterAggregationBuilder;
-import org.elasticsearch.search.aggregations.bucket.filter.FilterAggregator;
 import org.elasticsearch.search.aggregations.bucket.geogrid.GeoHashGrid;
 import org.elasticsearch.search.aggregations.bucket.geogrid.GeoHashGridBuilder;
-import org.elasticsearch.search.aggregations.metrics.tophits.TopHits;
-import org.elasticsearch.search.aggregations.metrics.tophits.TopHitsBuilder;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.geotools.geojson.geom.GeometryJSON;
 
@@ -68,6 +63,9 @@ public class RestGeoAction4 extends BaseRestHandler {
         SearchRequest searchRequest = RestSearchAction.parseSearchRequest(request);
         searchRequest.listenerThreaded(true);
         final GeoSimpleRequest geoSimpleRequest = new GeoSimpleRequest();
+
+        final WKTWriter wktWriter = new WKTWriter();
+        final WKBReader wkbReader = new WKBReader();
 
         final GeometryJSON geometryJSON = new GeometryJSON(20);
 
@@ -110,13 +108,23 @@ public class RestGeoAction4 extends BaseRestHandler {
 
         SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
 
+//        double distanceDiagonal = Math.sqrt(2 *Math.pow(40,2));
+
         GeoPluginUtils.Envelope overflowEnvelope = GeoPluginUtils.overflowEnvelope(tileEnvelope, 40, tileSize);
+
+
+
+        double degrees = GeoPluginUtils.getDecimalDegreeFromMeter(40 * GeoPluginUtils.getMeterByPixel(zoom, centroid.y), 42);
+
+        int geohashLevel = GeohashUtils.lookupHashLenForWidthHeight(degrees, degrees);
         
-        int geohashLevel = GeoUtils.geoHashLevelsForPrecision(GeoPluginUtils.getMeterByPixel(zoom, centroid.y) * 40);
+//        int geohashLevel = GeoUtils.geoHashLevelsForPrecision(GeoPluginUtils.getMeterByPixel(zoom, centroid.y) * distanceDiagonal);
+
+//        geohashLevel -=1;
 
         int nbShape = 300;
         if (zoom > 0) {
-            nbShape =  300 / zoom;
+            nbShape =  300 / (zoom * 2);
         }
 
         FilterBuilder pointFilter = new BoolFilterBuilder().must(
@@ -160,9 +168,9 @@ public class RestGeoAction4 extends BaseRestHandler {
 
 
         GeoShapeBuilder smallGeoShapeBuilder = new GeoShapeBuilder("shape").field(geoFieldWKB).algorithm(algorithm).zoom(zoom).simplifyShape(true).outputFormat(outputFormat).size(nbShape);
-        GeoHashGridBuilder geoHashGridBuilder = new GeoHashGridBuilder("small_grid").field(geoFieldCentroid).precision(geohashLevel).size(1000).subAggregation(smallGeoShapeBuilder);
+        GeoHashGridBuilder geoHashGridBuilder = new GeoHashGridBuilder("small_grid").field(geoFieldCentroid).precision(geohashLevel).size(10000).subAggregation(smallGeoShapeBuilder);
         FilterAggregationBuilder smallShapeAggregation = new FilterAggregationBuilder("small_shapes").
-                filter(new RangeFilterBuilder(geoFieldArea).gte(0).lt(shapeLimit)).subAggregation(geoHashGridBuilder);
+                filter(new RangeFilterBuilder(geoFieldArea).gt(0).lt(shapeLimit)).subAggregation(geoHashGridBuilder);
 
 
         GeoShapeBuilder geoShapeBuilder = new GeoShapeBuilder("shape").field(geoFieldWKB).algorithm(algorithm).zoom(zoom).simplifyShape(true).outputFormat(outputFormat).size(nbGeom);
@@ -209,16 +217,15 @@ public class RestGeoAction4 extends BaseRestHandler {
                         BytesRef wkb = bucket.getShapeAsByte();
 
                         String geoString;
-                        Geometry geo = new WKBReader().read(wkb.bytes);
                         switch (outputFormat) {
                             case WKT:
-                                geoString = new WKTWriter().write(geo);
+                                geoString = new WKTWriter().write(wkbReader.read(wkb.bytes));
                                 break;
                             case WKB:
                                 geoString = Base64.encodeBytes(wkb.bytes);
                                 break;
                             default:
-                                geoString = geometryJSON.toString(geo);
+                                geoString = geometryJSON.toString(wkbReader.read(wkb.bytes));
                         }
 
                         builder.startObject();
@@ -243,16 +250,15 @@ public class RestGeoAction4 extends BaseRestHandler {
                             BytesRef wkb = bucket.getShapeAsByte();
 
                             String geoString;
-                            Geometry geo = new WKBReader().read(wkb.bytes);
                             switch (outputFormat) {
                                 case WKT:
-                                    geoString = new WKTWriter().write(geo);
+                                    geoString = new WKTWriter().write(wkbReader.read(wkb.bytes));
                                     break;
                                 case WKB:
                                     geoString = Base64.encodeBytes(wkb.bytes);
                                     break;
                                 default:
-                                    geoString = geometryJSON.toString(geo);
+                                    geoString = geometryJSON.toString(wkbReader.read(wkb.bytes));
                             }
 
                             builder.startObject();
@@ -278,16 +284,15 @@ public class RestGeoAction4 extends BaseRestHandler {
                             BytesRef wkb = bucket.getShapeAsByte();
 
                             String geoString;
-                            Geometry geo = new WKBReader().read(wkb.bytes);
                             switch (outputFormat) {
                                 case WKT:
-                                    geoString = new WKTWriter().write(geo);
+                                    geoString = new WKTWriter().write(wkbReader.read(wkb.bytes));
                                     break;
                                 case WKB:
                                     geoString = Base64.encodeBytes(wkb.bytes);
                                     break;
                                 default:
-                                    geoString = geometryJSON.toString(geo);
+                                    geoString = geometryJSON.toString(wkbReader.read(wkb.bytes));
                             }
 
                             builder.startObject();
