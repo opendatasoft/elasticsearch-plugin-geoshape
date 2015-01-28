@@ -151,7 +151,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
 
         for (int i=0; i < bucketOrds.size(); i++) {
             if (spare == null) {
-                spare = new InternalGeoShape.Bucket(new BytesRef(), null, null, null, 0, 0, null);
+                spare = new InternalGeoShape.Bucket(new BytesRef(), 0, null, null, 0, 0, null);
             }
 
             bucketOrds.get(i, spare.wkb);
@@ -166,7 +166,8 @@ public class GeoShapeAggregator extends BucketsAggregator {
                 e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
             }
 
-            spare.wkbHash = GeoPluginUtils.getHashFromWKB(spare.wkb.bytes);
+            spare.wkbHash = GeoPluginUtils.getHashFromWKB(spare.wkb);
+//            spare.wkbHash = spare.wkb.bytes.hashCode();
             spare.area = geom.getLength();
 
             if (simplifyShape) {

@@ -15,6 +15,7 @@ import org.apache.lucene.spatial.prefix.TermQueryPrefixTreeStrategy;
 import org.apache.lucene.spatial.prefix.tree.GeohashPrefixTree;
 import org.apache.lucene.spatial.prefix.tree.QuadPrefixTree;
 import org.apache.lucene.spatial.prefix.tree.SpatialPrefixTree;
+import org.apache.lucene.util.BytesRef;
 import org.elasticsearch.ElasticsearchIllegalArgumentException;
 import org.elasticsearch.common.Base64;
 import org.elasticsearch.common.Nullable;
@@ -452,7 +453,7 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
                 bboxMapper.parse(context.createExternalValueContext(bottomRight));
             }
 
-            hashMapper.parse(context.createExternalValueContext(GeoPluginUtils.getHashFromWKB(wkb)));
+            hashMapper.parse(context.createExternalValueContext(String.valueOf(GeoPluginUtils.getHashFromWKB(new BytesRef(wkb)))));
 //            wkbTextMapper.parse(context.createExternalValueContext(Base64.encodeBytes(wkb)));
 
 
