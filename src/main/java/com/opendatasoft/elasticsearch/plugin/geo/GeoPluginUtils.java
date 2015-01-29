@@ -1,6 +1,8 @@
 package com.opendatasoft.elasticsearch.plugin.geo;
 
+import com.spatial4j.core.distance.DistanceCalculator;
 import com.spatial4j.core.io.GeohashUtils;
+import com.vividsolutions.jts.geom.Envelope;
 import org.apache.lucene.util.BytesRef;
 import org.elasticsearch.common.geo.GeoUtils;
 import org.elasticsearch.common.hash.MurmurHash3;
@@ -59,12 +61,13 @@ public class GeoPluginUtils {
 //
 //    }
 
-    public static class Envelope {
-        public double north;
-        public double west;
-        public double south;
-        public double east;
-    }
+//    public static class Envelope {
+//        public double north;
+//        public double west;
+//        public double south;
+//        public double east;
+//    }
+
     public static Envelope tile2boundingBox(final int x, final int y, int z, int tileSize) throws Exception {
         if (tileSize == 512) {
             z -= 1;
@@ -73,12 +76,7 @@ public class GeoPluginUtils {
             throw new Exception("Only 256 and 512 tile sizes are supported for map rendering");
         }
 
-        Envelope bb = new Envelope();
-        bb.north = tile2lat(y, z);
-        bb.west = tile2lon(x, z);
-        bb.south = tile2lat(y + 1, z);
-        bb.east = tile2lon(x + 1, z);
-        return bb;
+        return new Envelope(tile2lon(x, z), tile2lon(x + 1, z), tile2lat(y + 1, z), tile2lat(y, z));
     }
 
     static double tile2lon(int x, int z) {
@@ -133,15 +131,13 @@ public class GeoPluginUtils {
 
     public static Envelope overflowEnvelope(Envelope envelope, int pixelOverflow, int tileSize) {
 
-        double latOverFlow = getOverflow(envelope.north, envelope.south, pixelOverflow, tileSize);
-        double lonOverFlow = getOverflow(envelope.west, envelope.east, pixelOverflow, tileSize);
+        double latOverFlow = getOverflow(envelope.getMaxY(), envelope.getMinY(), pixelOverflow, tileSize);
+        double lonOverFlow = getOverflow(envelope.getMinX(), envelope.getMaxX(), pixelOverflow, tileSize);
 
         Envelope res = new Envelope();
 
-        res.north = normalizeLat(envelope.north + latOverFlow);
-        res.south = normalizeLat(envelope.south - latOverFlow);
-        res.west = normalizeLon(envelope.west - lonOverFlow);
-        res.east = normalizeLon(envelope.east + lonOverFlow);
+        res.init(normalizeLon(envelope.getMinX() - lonOverFlow), normalizeLon(envelope.getMaxX() + lonOverFlow),
+                normalizeLat(envelope.getMinY() - latOverFlow), normalizeLat(envelope.getMaxY() + latOverFlow));
 
         return res;
 
@@ -153,32 +149,32 @@ public class GeoPluginUtils {
 //        System.out.println(getMetersFromDecimalDegree(0.6, 47) / 1000);
 
 
-        for (int i = 0; i< 20; i++) {
-//            System.out.println("zoom : " + i + " == " + GeoUtils.geoHashLevelsForPrecision(GeoPluginUtils.getMeterByPixel(i, 42)));
-
-
-            double diago = Math.sqrt(Math.pow(40,2) *2 );
-
-            double meterByPixel = GeoPluginUtils.getMeterByPixel(i, 42);
-
-//            double degrees = 360.0 * 40 * meterByPixel / GeoUtils.EARTH_EQUATOR;
-
-//            System.out.println(degrees);
-
-            double degrees = getDecimalDegreeFromMeter(40 * meterByPixel, 42);
-
-            System.out.println("spatial4j : " + i + " : " + GeohashUtils.lookupHashLenForWidthHeight(degrees, degrees));
-
-            System.out.println("elastic : " + i + " : " +  GeoUtils.geoHashLevelsForPrecision(GeoPluginUtils.getMeterByPixel(i, 42) * diago));
-
-//            System.out.println("zoom : " + i + " == " + GeoUtils.geoHashLevelsForPrecision(GeoPluginUtils.getMeterByPixel(i, 42) * 40));
+//        for (int i = 0; i< 20; i++) {
+////            System.out.println("zoom : " + i + " == " + GeoUtils.geoHashLevelsForPrecision(GeoPluginUtils.getMeterByPixel(i, 42)));
 //
-//            System.out.println("zoom : " + i + " == " + getDecimalDegreeFromMeter(getMeterByPixel(i, 0) * 10));
-//            System.out.println("zoom : " + i + " == " + getShapeLimit(i, 0, 10));
-
-
-//            System.out.println((int) (100 / (i + 1)));
-        }
+//
+//            double diago = Math.sqrt(Math.pow(40,2) *2 );
+//
+//            double meterByPixel = GeoPluginUtils.getMeterByPixel(i, 42);
+//
+////            double degrees = 360.0 * 40 * meterByPixel / GeoUtils.EARTH_EQUATOR;
+//
+////            System.out.println(degrees);
+//
+//            double degrees = getDecimalDegreeFromMeter(40 * meterByPixel, 42);
+//
+//            System.out.println("spatial4j : " + i + " : " + GeohashUtils.lookupHashLenForWidthHeight(degrees, degrees));
+//
+//            System.out.println("elastic : " + i + " : " +  GeoUtils.geoHashLevelsForPrecision(GeoPluginUtils.getMeterByPixel(i, 42) * diago));
+//
+////            System.out.println("zoom : " + i + " == " + GeoUtils.geoHashLevelsForPrecision(GeoPluginUtils.getMeterByPixel(i, 42) * 40));
+////
+////            System.out.println("zoom : " + i + " == " + getDecimalDegreeFromMeter(getMeterByPixel(i, 0) * 10));
+////            System.out.println("zoom : " + i + " == " + getShapeLimit(i, 0, 10));
+//
+//
+////            System.out.println((int) (100 / (i + 1)));
+//        }
 
 
 //        System.out.println(getMeterByPixel(18, 0) * 512);
@@ -189,8 +185,8 @@ public class GeoPluginUtils {
 //        System.out.println(GeoUtils.geoHashLevelsForPrecision(GeoPluginUtils.getMeterByPixel(12, 42)));
 //        System.out.println(GeoUtils.geoHashLevelsForPrecision(GeoPluginUtils.getMeterByPixel(12, 42) * 40));
 
-        System.out.println();
 
+        double mBp = getMeterByPixel(6, 61);
     }
 
 

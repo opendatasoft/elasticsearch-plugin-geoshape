@@ -229,6 +229,7 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
     private static SpatialPrefixTree getSearchPrefixTree(String treeType) {
         if (Names.TREE_GEOHASH.equals(treeType)) {
             return new GeohashPrefixTree(ShapeBuilder.SPATIAL_CONTEXT, GeohashPrefixTree.getMaxLevelsPossible());
+//            return new GeohashPrefixTree(ShapeBuilder.SPATIAL_CONTEXT, 1);
         } else if (Names.TREE_QUADTREE.equals(treeType)) {
             return new QuadPrefixTree(ShapeBuilder.SPATIAL_CONTEXT, QuadPrefixTree.DEFAULT_MAX_LEVELS);
         } else {
@@ -285,17 +286,17 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
 //        double geomLength = geom.getArea();
         double geomLength = geom.getLength();
 
-        double geomArea = geom.getArea();
+//        double geomArea = geom.getArea();
 
         // little magic here
-        if (geomArea > 0) {
-            if (geomArea < 0.1) {
-                geomLength /= 4;
-            } else {
-                geomLength = geomArea;
-            }
-
-        }
+//        if (geomArea > 0) {
+//            if (geomArea < 0.1) {
+//                geomLength /= 4;
+//            } else {
+//                geomLength = geomArea;
+//            }
+//
+//        }
 
 //        if (geomLength == 0) {
 //            geomLength = geom.getLength();
@@ -309,6 +310,11 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
                 level = GeohashPrefixTree.getMaxLevelsPossible() / 2;
             } else {
                 level = GeoUtils.geoHashLevelsForPrecision(GeoPluginUtils.getMetersFromDecimalDegree(geomLength, centroid.getCoordinate().y));
+
+                if (level < 4) {
+                    level = 4;
+                }
+//                level = 4;
             }
 
             return level;
@@ -323,6 +329,12 @@ public class GeoMapper2 extends GeoShapeFieldMapper{
             } else {
                 level = GeoUtils.quadTreeLevelsForPrecision(GeoPluginUtils.getMetersFromDecimalDegree(geomLength, centroid.getCoordinate().y));
             }
+
+            if (level < 8) {
+                level = 8;
+            }
+
+//            level += 3;
 
             return level;
 

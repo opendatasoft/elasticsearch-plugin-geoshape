@@ -21,6 +21,7 @@ import org.elasticsearch.action.search.SearchType;
 import org.elasticsearch.client.Client;
 import org.elasticsearch.common.Base64;
 import org.elasticsearch.common.geo.GeoUtils;
+import org.elasticsearch.common.geo.builders.EnvelopeBuilder;
 import org.elasticsearch.common.geo.builders.ShapeBuilder;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.settings.Settings;
@@ -87,15 +88,19 @@ public class RestGeoAction4 extends BaseRestHandler {
         final int tileSize = request.paramAsInt("tile_size", 256);
 
 
-        GeoPluginUtils.Envelope tileEnvelope = GeoPluginUtils.tile2boundingBox(x, y, zoom, tileSize);
+        Envelope tileEnvelope = GeoPluginUtils.tile2boundingBox(x, y, zoom, tileSize);
 
-        Envelope jtsEnvelope = new Envelope(tileEnvelope.west, tileEnvelope.east, tileEnvelope.south, tileEnvelope.north);
+//        Envelope jtsEnvelope = new Envelope(tileEnvelope.west, tileEnvelope.east, tileEnvelope.south, tileEnvelope.north);
 
-        Coordinate centroid = jtsEnvelope.centre();
+        EnvelopeBuilder envelopeBuilder = ShapeBuilder.newEnvelope();
+        envelopeBuilder.topLeft(tileEnvelope.getMinX(), tileEnvelope.getMaxY()).bottomRight(tileEnvelope.getMaxX(), tileEnvelope.getMinY());
+
+        Coordinate centroid = tileEnvelope.centre();
 
         // Compute shape length limit delimiting big and small shapes
 
         double shapeLimit = GeoPluginUtils.getShapeLimit(zoom, centroid.y, 10);
+        double dropshapeLimit = GeoPluginUtils.getShapeLimit(zoom, centroid.y, 3);
 
         final int nbGeom = request.paramAsInt("nb_geom", 1000);
         final String stringOutputFormat = request.param("output_format", "wkt");
@@ -106,18 +111,13 @@ public class RestGeoAction4 extends BaseRestHandler {
 
         final GeoShape.Algorithm algorithm = GeoShape.Algorithm.valueOf(stringAlgorithm.toUpperCase());
 
-        SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
 
-//        double distanceDiagonal = Math.sqrt(2 *Math.pow(40,2));
-
-        GeoPluginUtils.Envelope overflowEnvelope = GeoPluginUtils.overflowEnvelope(tileEnvelope, 40, tileSize);
-
-
+        Envelope overflowEnvelope = GeoPluginUtils.overflowEnvelope(tileEnvelope, 40, tileSize);
 
         double degrees = GeoPluginUtils.getDecimalDegreeFromMeter(40 * GeoPluginUtils.getMeterByPixel(zoom, centroid.y), 42);
 
         int geohashLevel = GeohashUtils.lookupHashLenForWidthHeight(degrees, degrees);
-        
+
 //        int geohashLevel = GeoUtils.geoHashLevelsForPrecision(GeoPluginUtils.getMeterByPixel(zoom, centroid.y) * distanceDiagonal);
 
 //        geohashLevel -=1;
@@ -131,8 +131,8 @@ public class RestGeoAction4 extends BaseRestHandler {
                 new TermFilterBuilder(geoFieldType, "Point"),
                 new GeoShapeFilterBuilder(geoField,
                         ShapeBuilder.newEnvelope()
-                                .topLeft(overflowEnvelope.west, overflowEnvelope.north)
-                                .bottomRight(overflowEnvelope.east, overflowEnvelope.south))
+                                .topLeft(overflowEnvelope.getMinX(), overflowEnvelope.getMaxY())
+                                .bottomRight(overflowEnvelope.getMaxX(), overflowEnvelope.getMinY()))
         );
 
 
@@ -157,8 +157,8 @@ public class RestGeoAction4 extends BaseRestHandler {
                 new NotFilterBuilder(new TermFilterBuilder(geoFieldType, "Point")),
                 new GeoShapeFilterBuilder(geoField,
                         ShapeBuilder.newEnvelope()
-                                .topLeft(tileEnvelope.west, tileEnvelope.north)
-                                .bottomRight(tileEnvelope.east, tileEnvelope.south))
+                                .topLeft(overflowEnvelope.getMinX(), overflowEnvelope.getMaxY())
+                                .bottomRight(overflowEnvelope.getMaxX(), overflowEnvelope.getMinY()))
         );
 
 
@@ -167,19 +167,23 @@ public class RestGeoAction4 extends BaseRestHandler {
 //        FilterAggregationBuilder pointAggregation = new FilterAggregationBuilder("points").filter(pointFilter).subAggregation(pointGeoHashGridBuilder);
 
 
-        GeoShapeBuilder smallGeoShapeBuilder = new GeoShapeBuilder("shape").field(geoFieldWKB).algorithm(algorithm).zoom(zoom).simplifyShape(true).outputFormat(outputFormat).size(nbShape);
+        GeoShapeBuilder smallGeoShapeBuilder = new GeoShapeBuilder("shape").field(geoFieldWKB).algorithm(algorithm).zoom(zoom).simplifyShape(true).smallPolygon(true).outputFormat(outputFormat).size(300);
         GeoHashGridBuilder geoHashGridBuilder = new GeoHashGridBuilder("small_grid").field(geoFieldCentroid).precision(geohashLevel).size(10000).subAggregation(smallGeoShapeBuilder);
         FilterAggregationBuilder smallShapeAggregation = new FilterAggregationBuilder("small_shapes").
-                filter(new RangeFilterBuilder(geoFieldArea).gt(0).lt(shapeLimit)).subAggregation(geoHashGridBuilder);
+                filter(new RangeFilterBuilder(geoFieldArea).lt(shapeLimit)).subAggregation(geoHashGridBuilder);
 
 
-        GeoShapeBuilder geoShapeBuilder = new GeoShapeBuilder("shape").field(geoFieldWKB).algorithm(algorithm).zoom(zoom).simplifyShape(true).outputFormat(outputFormat).size(nbGeom);
+        GeoShapeBuilder geoShapeBuilder = new GeoShapeBuilder("shape").field(geoFieldWKB).clippedEnvelope(envelopeBuilder).clippedBuffer(1).algorithm(algorithm).zoom(zoom).simplifyShape(true).outputFormat(outputFormat).size(nbGeom);
         FilterAggregationBuilder bigShapeAggregation = new FilterAggregationBuilder("big_shapes").filter(new RangeFilterBuilder(geoFieldArea).gt(shapeLimit)).subAggregation(geoShapeBuilder);
 
+        SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
 
         searchSourceBuilder.aggregation(new FilterAggregationBuilder("shapes").filter(shapeFilter).subAggregation(smallShapeAggregation).subAggregation(bigShapeAggregation));
+//        searchSourceBuilder.aggregation(new FilterAggregationBuilder("shapes").filter(shapeFilter).subAggregation(smallShapeAggregation));
         searchSourceBuilder.aggregation(new FilterAggregationBuilder("points").filter(pointFilter).subAggregation(pointGeoHashGridBuilder));
 
+
+        searchSourceBuilder.size(0);
 
         searchRequest.searchType(SearchType.COUNT);
 
@@ -231,7 +235,7 @@ public class RestGeoAction4 extends BaseRestHandler {
                         builder.startObject();
 
                         builder.field("shape", geoString);
-                        builder.field("digest", bucket.getHash());
+                        builder.field("digest", String.valueOf(bucket.getHash()));
                         builder.field("type", bucket.getType());
                         builder.field("doc_count", bucket.getDocCount());
 
