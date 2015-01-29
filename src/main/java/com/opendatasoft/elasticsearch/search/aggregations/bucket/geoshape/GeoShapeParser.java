@@ -1,7 +1,13 @@
 package com.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape;
 
+import com.spatial4j.core.shape.Rectangle;
+import com.spatial4j.core.shape.Shape;
+import com.vividsolutions.jts.geom.Envelope;
+import com.vividsolutions.jts.geom.Geometry;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
+import org.elasticsearch.common.geo.builders.EnvelopeBuilder;
+import org.elasticsearch.common.geo.builders.ShapeBuilder;
 import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.index.fielddata.SortedBinaryDocValues;
 import org.elasticsearch.index.fielddata.SortingBinaryDocValues;
@@ -38,9 +44,12 @@ public class GeoShapeParser implements Aggregator.Parser{
         int requiredSize = DEFAULT_MAX_NUM_CELLS;
         int shardSize = -1;
         int zoom = DEFAULT_ZOOM;
+        int clippedBuffer = 0;
         boolean simplifyShape = false;
+        boolean smallPolygon = false;
         InternalGeoShape.OutputFormat outputFormat = DEFAULT_OUTPUT_FORMAT;
         GeoShape.Algorithm algorithm = DEFAULT_ALGORITHM;
+        ShapeBuilder shapeBuilder = null;
 
         XContentParser.Token token;
         String currentFieldName = null;
@@ -76,6 +85,24 @@ public class GeoShapeParser implements Aggregator.Parser{
                             else if ("algorithm".equals(currentFieldName)) {
                                 algorithm = GeoShape.Algorithm.valueOf(currentFieldName.toUpperCase());
                             }
+                        } else if (token == XContentParser.Token.VALUE_BOOLEAN) {
+                            if ("small_polygon".equals(currentFieldName)) {
+                                smallPolygon = parser.booleanValue();
+                            }
+                        }
+                    }
+                } else if ("clipped".equals(currentFieldName)) {
+                    while ((token = parser.nextToken()) != XContentParser.Token.END_OBJECT) {
+                        if (token == XContentParser.Token.FIELD_NAME) {
+                            currentFieldName = parser.currentName();
+                        } else if (token == XContentParser.Token.VALUE_NUMBER) {
+                            if ("buffer".equals(currentFieldName)) {
+                                clippedBuffer = parser.intValue();
+                            }
+                        } else if (token == XContentParser.Token.START_OBJECT) {
+                            if ("envelope".equals(currentFieldName)) {
+                                shapeBuilder = ShapeBuilder.parse(parser);
+                            }
                         }
                     }
                 }
@@ -103,7 +130,15 @@ public class GeoShapeParser implements Aggregator.Parser{
             zoom = DEFAULT_ZOOM;
         }
 
-        return new GeoShapeFactory(aggregationName, vsParser.config(), requiredSize, shardSize, outputFormat, simplifyShape, zoom, algorithm);
+        Envelope clippedEnvelope = null;
+        if (shapeBuilder != null && shapeBuilder.type() == ShapeBuilder.GeoShapeType.ENVELOPE) {
+            Rectangle env = (Rectangle) shapeBuilder.build();
+
+            clippedEnvelope = new Envelope(env.getMinX(), env.getMaxX(), env.getMinY(), env.getMaxY());
+        }
+
+
+        return new GeoShapeFactory(aggregationName, vsParser.config(), requiredSize, shardSize, outputFormat, simplifyShape, zoom, algorithm, smallPolygon, clippedEnvelope, clippedBuffer);
 
     }
 
@@ -114,17 +149,26 @@ public class GeoShapeParser implements Aggregator.Parser{
         private int shardSize;
         private InternalGeoShape.OutputFormat outputFormat;
         boolean simplifyShape;
+        boolean smallPolygon;
         int zoom;
+        int clippedBuffer;
         GeoShape.Algorithm algorithm;
+        private Envelope clippedEnvelope;
 
-        public GeoShapeFactory(String name, ValuesSourceConfig config, int requiredSize, int shardSize, InternalGeoShape.OutputFormat outputFormat, boolean simplifyShape, int zoom, GeoShape.Algorithm algorithm) {
+        public GeoShapeFactory(String name, ValuesSourceConfig config, int requiredSize, int shardSize,
+                               InternalGeoShape.OutputFormat outputFormat, boolean simplifyShape, int zoom,
+                               GeoShape.Algorithm algorithm, boolean smallPolygon, Envelope clippedEnvelope,
+                               int clippedBuffer) {
             super(name, InternalGeoHashGrid.TYPE.name(), config);
             this.requiredSize = requiredSize;
             this.shardSize = shardSize;
             this.outputFormat = outputFormat;
             this.simplifyShape = simplifyShape;
+            this.smallPolygon = smallPolygon;
             this.zoom = zoom;
+            this.clippedBuffer = clippedBuffer;
             this.algorithm = algorithm;
+            this.clippedEnvelope = clippedEnvelope;
         }
 
         @Override
@@ -140,7 +184,7 @@ public class GeoShapeParser implements Aggregator.Parser{
 
         @Override
         protected Aggregator create(ValuesSource.Bytes valuesSource, long expectedBucketsCount, AggregationContext aggregationContext, Aggregator parent) {
-            return new GeoShapeAggregator(name, factories, valuesSource, requiredSize, shardSize, outputFormat, simplifyShape, zoom, algorithm, aggregationContext, parent);
+            return new GeoShapeAggregator(name, factories, valuesSource, requiredSize, shardSize, outputFormat, simplifyShape, smallPolygon, zoom, algorithm, clippedEnvelope, clippedBuffer, aggregationContext, parent);
         }
 
     }

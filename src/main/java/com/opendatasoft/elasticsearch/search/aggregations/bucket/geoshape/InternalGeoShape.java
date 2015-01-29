@@ -51,7 +51,7 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
     public static class Bucket implements GeoShape.Bucket, Comparable<Bucket>{
 
         protected BytesRef wkb;
-        protected long wkbHash;
+        protected String wkbHash;
         protected String realType;
         protected String simplifiedType;
         protected long docCount;
@@ -59,7 +59,7 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
         long bucketOrd;
         protected InternalAggregations aggregations;
 
-        public Bucket(BytesRef wkb, long wkbHash, String realType, String simplifiedType, double area, long docCount, InternalAggregations aggregations) {
+        public Bucket(BytesRef wkb, String wkbHash, String realType, String simplifiedType, double area, long docCount, InternalAggregations aggregations) {
             this.wkb = wkb;
             this.wkbHash = wkbHash;
             this.realType = realType;
@@ -105,7 +105,7 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
         }
 
         @Override
-        public long getHash() {
+        public String getHash() {
             return wkbHash;
         }
 
@@ -216,7 +216,7 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
         int size = in.readVInt();
         List<Bucket> buckets = new ArrayList<>(size);
         for (int i = 0; i < size; i++) {
-            buckets.add(new Bucket(in.readBytesRef(), in.readLong(), in.readString(), in.readString(), in.readDouble(), in.readVLong(), InternalAggregations.readAggregations(in)));
+            buckets.add(new Bucket(in.readBytesRef(), in.readString(), in.readString(), in.readString(), in.readDouble(), in.readVLong(), InternalAggregations.readAggregations(in)));
         }
         this.buckets = buckets;
         this.bucketMap = null;
@@ -229,7 +229,7 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
         out.writeVInt(buckets.size());
         for (Bucket bucket : buckets) {
             out.writeBytesRef(bucket.wkb);
-            out.writeLong(bucket.wkbHash);
+            out.writeString(bucket.wkbHash);
             out.writeString(bucket.realType);
             out.writeString(bucket.simplifiedType);
             out.writeDouble(bucket.area);

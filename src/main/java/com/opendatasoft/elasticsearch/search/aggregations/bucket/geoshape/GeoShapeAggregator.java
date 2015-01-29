@@ -1,13 +1,13 @@
 package com.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape;
 
 import com.opendatasoft.elasticsearch.plugin.geo.GeoPluginUtils;
-import com.vividsolutions.jts.geom.Coordinate;
-import com.vividsolutions.jts.geom.Geometry;
-import com.vividsolutions.jts.geom.GeometryFactory;
-import com.vividsolutions.jts.geom.Point;
+import com.vividsolutions.jts.geom.*;
 import com.vividsolutions.jts.io.ParseException;
 import com.vividsolutions.jts.io.WKBReader;
 import com.vividsolutions.jts.io.WKBWriter;
+import com.vividsolutions.jts.operation.buffer.BufferBuilder;
+import com.vividsolutions.jts.operation.buffer.BufferOp;
+import com.vividsolutions.jts.operation.buffer.BufferParameters;
 import com.vividsolutions.jts.simplify.DouglasPeuckerSimplifier;
 import com.vividsolutions.jts.simplify.TopologyPreservingSimplifier;
 import org.apache.lucene.index.AtomicReaderContext;
@@ -22,6 +22,7 @@ import org.elasticsearch.search.aggregations.InternalAggregation;
 import org.elasticsearch.search.aggregations.bucket.BucketsAggregator;
 import org.elasticsearch.search.aggregations.support.AggregationContext;
 import org.elasticsearch.search.aggregations.support.ValuesSource;
+import org.geotools.geometry.jts.GeometryClipper;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -41,12 +42,16 @@ public class GeoShapeAggregator extends BucketsAggregator {
     private final GeometryFactory geometryFactory;
     private double tolerance;
     private boolean simplifyShape;
+    private boolean smallPolygon;
     private GeoShape.Algorithm algorithm;
-//    private int zoom;
+    private int zoom;
+    private Envelope clippedEnvelope;
 
     public GeoShapeAggregator(String name, AggregatorFactories factories, ValuesSource.Bytes valuesSource,
                                  int requiredSize, int shardSize, InternalGeoShape.OutputFormat outputFormat,
-                                 boolean simplifyShape, int zoom, GeoShape.Algorithm algorithm,AggregationContext aggregationContext, Aggregator parent) {
+                                 boolean simplifyShape, boolean smallPolygon, int zoom,
+                                 GeoShape.Algorithm algorithm, Envelope clippedEnvelope, int clippedBuffer,
+                                 AggregationContext aggregationContext, Aggregator parent) {
 
         super(name, BucketAggregationMode.PER_BUCKET, factories, INITIAL_CAPACITY, aggregationContext, parent);
         this.valuesSource = valuesSource;
@@ -54,19 +59,22 @@ public class GeoShapeAggregator extends BucketsAggregator {
         this.shardSize = shardSize;
         this.outputFormat = outputFormat;
         this.simplifyShape = simplifyShape;
+        this.smallPolygon = smallPolygon;
         bucketOrds = new BytesRefHash(estimatedBucketCount, aggregationContext.bigArrays());
         previous = new BytesRefBuilder();
         this.geometryFactory = new GeometryFactory();
         this.algorithm = algorithm;
+        this.zoom = zoom;
+        this.clippedEnvelope = clippedEnvelope;
+
+        if (clippedEnvelope != null && clippedBuffer > 0) {
+            Coordinate centre = clippedEnvelope.centre();
+            this.clippedEnvelope.expandBy(GeoPluginUtils.getDecimalDegreeFromMeter(clippedBuffer * GeoPluginUtils.getMeterByPixel(zoom, centre.y), centre.y));
+        }
 
         if (simplifyShape) {
             tolerance = 360 / (256 * Math.pow(zoom, 3));
         }
-
-//        nbDecimals = zoom / 2;
-//        if (zoom >= 20) {
-//            nbDecimals = 12;
-//        }
     }
 
 
@@ -100,7 +108,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
             if (polygonSimplified.isEmpty()) {
                 polygonSimplified = this.geometryFactory.createPoint(geom.getCoordinate());
             }
-        return geom;
+        return polygonSimplified;
 //            return new BytesRef(new WKBWriter().write(polygonSimplified));
 //        } catch (ParseException e) {
 //            return wkb;
@@ -151,7 +159,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
 
         for (int i=0; i < bucketOrds.size(); i++) {
             if (spare == null) {
-                spare = new InternalGeoShape.Bucket(new BytesRef(), 0, null, null, 0, 0, null);
+                spare = new InternalGeoShape.Bucket(new BytesRef(), null, null, null, 0, 0, null);
             }
 
             bucketOrds.get(i, spare.wkb);
@@ -166,20 +174,42 @@ public class GeoShapeAggregator extends BucketsAggregator {
                 e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
             }
 
-            spare.wkbHash = GeoPluginUtils.getHashFromWKB(spare.wkb);
+            spare.wkbHash = String.valueOf(GeoPluginUtils.getHashFromWKB(spare.wkb));
 //            spare.wkbHash = spare.wkb.bytes.hashCode();
             spare.area = geom.getLength();
+            spare.realType = geom.getGeometryType();
 
             if (simplifyShape) {
-                Geometry simplifiedGeom = simplifyGeoShape(geom);
-                spare.simplifiedType = simplifiedGeom.getGeometryType();
-                spare.wkb = new BytesRef(new WKBWriter().write(simplifiedGeom));
-                spare.area = simplifiedGeom.getLength();
+
+                if (smallPolygon && ! geom.getGeometryType().equals("LineString")) {
+                    Geometry centroid = geom.getCentroid();
+                    double bufferSize = GeoPluginUtils.getShapeLimit(zoom, centroid.getCoordinate().y);
+                    geom = centroid.buffer(bufferSize, 4, BufferParameters.CAP_SQUARE);
+                    spare.simplifiedType = geom.getGeometryType();
+                    spare.wkb = new BytesRef(new WKBWriter().write(geom));
+                    spare.area = geom.getLength();
+                } else {
+                    geom = simplifyGeoShape(geom);
+                    spare.simplifiedType = geom.getGeometryType();
+                    spare.wkb = new BytesRef(new WKBWriter().write(geom));
+                    spare.area = geom.getLength();
+                }
+
+            }
+
+            if (clippedEnvelope != null) {
+                // TODO : Add an option to disable clipping
+                try {
+                    Geometry clippedGeom = new GeometryClipper(clippedEnvelope).clip(geom, false);
+                    if (clippedGeom != null) {
+                        spare.wkb = new BytesRef(new WKBWriter().write(clippedGeom));
+                    }
+                } catch (Exception e) {
+                }
             }
 
 
             spare.docCount = bucketDocCount(i);
-            spare.realType = geom.getGeometryType();
             spare.bucketOrd = i;
 
             spare = ordered.insertWithOverflow(spare);
