@@ -75,6 +75,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
         if (simplifyShape) {
             tolerance = 360 / (256 * Math.pow(zoom, 3));
         }
+
     }
 
 
