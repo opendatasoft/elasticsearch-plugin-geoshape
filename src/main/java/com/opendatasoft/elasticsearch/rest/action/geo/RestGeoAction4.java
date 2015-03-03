@@ -97,6 +97,7 @@ public class RestGeoAction4 extends BaseRestHandler {
         final int tileSize = request.paramAsInt("tile_size", 256);
         final int nbGeom = request.paramAsInt("nb_geom", 1000);
         final String stringOutputFormat = request.param("output_format", "wkt");
+//        final String stringAlgorithm = request.param("algorithm", "TOPOLOGY_PRESERVING");
         final String stringAlgorithm = request.param("algorithm", "TOPOLOGY_PRESERVING");
         final InternalGeoShape.OutputFormat outputFormat = InternalGeoShape.OutputFormat.valueOf(stringOutputFormat.toUpperCase());
         final GeoShape.Algorithm algorithm = GeoShape.Algorithm.valueOf(stringAlgorithm.toUpperCase());
@@ -310,7 +311,9 @@ public class RestGeoAction4 extends BaseRestHandler {
 
                         for (SearchHit bucket: smallShapeAggregation.getHits()){
 
-                            List<Double> coords = ((Map<String, List<Double>>) bucket.sourceAsMap().get(geoField)).get("coordinates");
+                            String [] geoFieldsHierarchy = geoField.split("\\.");
+
+                            List<Double> coords = getCoordinatesFromSource(geoFieldsHierarchy, bucket.sourceAsMap());
 
                             Point geom = new GeometryFactory().createPoint(new Coordinate(coords.get(0), coords.get(1)));
 
@@ -366,5 +369,14 @@ public class RestGeoAction4 extends BaseRestHandler {
         });
 
 
+    }
+
+    private static List<Double> getCoordinatesFromSource(String[] geoFieldHierarchy, Map<String, Object> sourceMap) {
+        for (String hiera: geoFieldHierarchy) {
+            Object level = sourceMap.get(hiera);
+            if (level instanceof Map)
+                sourceMap = (Map<String, Object>)level;
+        }
+        return (List<Double>) sourceMap.get("coordinates");
     }
 }
