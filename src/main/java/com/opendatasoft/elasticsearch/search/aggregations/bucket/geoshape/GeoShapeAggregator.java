@@ -46,6 +46,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
     private GeoShape.Algorithm algorithm;
     private int zoom;
     private Envelope clippedEnvelope;
+    private int pixelTolerance;
 
     public GeoShapeAggregator(String name, AggregatorFactories factories, ValuesSource.Bytes valuesSource,
                                  int requiredSize, int shardSize, InternalGeoShape.OutputFormat outputFormat,
@@ -73,8 +74,10 @@ public class GeoShapeAggregator extends BucketsAggregator {
         }
 
         if (simplifyShape) {
-            tolerance = 360 / (256 * Math.pow(zoom, 3));
+            tolerance = 360 / (256 * Math.pow(zoom, 4));
         }
+
+        pixelTolerance = 1;
 
     }
 
@@ -90,11 +93,16 @@ public class GeoShapeAggregator extends BucketsAggregator {
     }
 
     private Geometry getSimplifiedShape(Geometry geometry) {
+        double lat = geometry.getCentroid().getCoordinate().y;
+        double meterByPixel = GeoPluginUtils.getMeterByPixel(zoom, lat);
+
+        double tol = GeoPluginUtils.getDecimalDegreeFromMeter(meterByPixel * pixelTolerance, lat);
+
         switch (algorithm) {
             case TOPOLOGY_PRESERVING:
-                return TopologyPreservingSimplifier.simplify(geometry, tolerance);
+                return TopologyPreservingSimplifier.simplify(geometry, tol);
             default:
-                return DouglasPeuckerSimplifier.simplify(geometry, tolerance);
+                return DouglasPeuckerSimplifier.simplify(geometry, tol);
         }
     }
 

@@ -101,7 +101,11 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
 
         @Override
         public String getType() {
-            return simplifiedType;
+            if (simplifiedType != null) {
+                return simplifiedType;
+            } else {
+                return realType;
+            }
         }
 
         @Override
@@ -261,9 +265,7 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
             try {
                 builder.field(CommonFields.KEY, outputGeoShape(bucket.wkb));
                 builder.field("digest", bucket.wkbHash);
-                builder.field("real_type", bucket.realType);
-                if (bucket.simplifiedType != null)
-                    builder.field("simplified_type", bucket.simplifiedType);
+                builder.field("type", bucket.getType());
             } catch (ParseException e) {
                 e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
             }
