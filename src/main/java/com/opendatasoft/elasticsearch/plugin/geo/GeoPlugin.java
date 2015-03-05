@@ -1,8 +1,6 @@
 package com.opendatasoft.elasticsearch.plugin.geo;
 
-import com.opendatasoft.elasticsearch.action.geo.GeoAction;
 import com.opendatasoft.elasticsearch.action.geo.GeoSimpleAction;
-import com.opendatasoft.elasticsearch.action.geo.TransportGeoAction;
 import com.opendatasoft.elasticsearch.action.geo.TransportGeoSimpleAction;
 import com.opendatasoft.elasticsearch.rest.action.geo.*;
 import com.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.GeoShapeParser;
@@ -48,13 +46,9 @@ public class GeoPlugin extends AbstractPlugin{
 
     public void onModule(RestModule module) {
         module.addRestAction(RestGeoAction.class);
-        module.addRestAction(RestGeoAction2.class);
-        module.addRestAction(RestGeoAction3.class);
-        module.addRestAction(RestGeoAction4.class);
     }
 
     public void onModule(ActionModule module) {
-        module.registerAction(GeoAction.INSTANCE, TransportGeoAction.class);
         module.registerAction(GeoSimpleAction.INSTANCE, TransportGeoSimpleAction.class);
     }
 

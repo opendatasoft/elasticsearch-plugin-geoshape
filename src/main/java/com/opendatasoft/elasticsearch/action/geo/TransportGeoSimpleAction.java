@@ -20,13 +20,6 @@ import org.elasticsearch.transport.TransportService;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * Created with IntelliJ IDEA.
- * User: clement
- * Date: 08/12/14
- * Time: 17:20
- * To change this template use File | Settings | File Templates.
- */
 public class TransportGeoSimpleAction extends TransportAction<GeoSimpleRequest, SearchResponse>{
 
 

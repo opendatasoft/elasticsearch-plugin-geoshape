@@ -13,6 +13,6 @@ public class RegisterGeoType extends AbstractIndexComponent {
     protected RegisterGeoType(Index index, @IndexSettings Settings indexSettings, MapperService mapperService) {
         super(index, indexSettings);
 
-        mapperService.documentMapperParser().putTypeParser("geo", new GeoMapper2.TypeParser());
+        mapperService.documentMapperParser().putTypeParser("geo", new GeoMapper.TypeParser());
     }
 }
