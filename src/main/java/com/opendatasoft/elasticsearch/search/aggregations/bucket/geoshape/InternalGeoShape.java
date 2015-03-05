@@ -3,7 +3,6 @@ package com.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape;
 import com.vividsolutions.jts.geom.Geometry;
 import com.vividsolutions.jts.io.ParseException;
 import com.vividsolutions.jts.io.WKBReader;
-import com.vividsolutions.jts.io.WKBWriter;
 import com.vividsolutions.jts.io.WKTWriter;
 import org.apache.lucene.util.BytesRef;
 import org.elasticsearch.common.Base64;

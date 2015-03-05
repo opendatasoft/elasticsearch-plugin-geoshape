@@ -5,13 +5,6 @@ import org.elasticsearch.search.aggregations.bucket.MultiBucketsAggregation;
 
 import java.util.Collection;
 
-/**
- * Created with IntelliJ IDEA.
- * User: clement
- * Date: 11/12/14
- * Time: 10:16
- * To change this template use File | Settings | File Templates.
- */
 public interface GeoShape extends MultiBucketsAggregation {
 
     public static enum Algorithm {
