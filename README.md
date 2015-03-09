@@ -4,14 +4,14 @@ This geo shape plugin can be used to index and aggregate geo shapes in elasticse
 
 For achieving this, the plugin adds a `geo` mapping type, a `geoshape` aggregation and and a `geo` rest entry point.
 
-### geo mapping type
+### Geo mapping type
 
-`geo` mapping can be used exactly where `geo_shape` could be used. It parsed `GeoJSON` shapes, and indexing them in elasticsearch. Compared to geo_shape type it adds extra sub fields :
+`geo` mapping can replace `geo_shape` type. It parses `GeoJSON` shapes, and indexes them in elasticsearch. Compared to geo_shape type it adds extra sub fields :
  - wkb : indexed wkb field, used to aggregate shapes
  - type : geo shape type (Polygon, point, LineString, ...) for searching on a specific type
  - area : area of Shape
- - bbox : geoPoint array containing topLeft and bottomRigth points of shape envelope
- - hash : shape digest to make exact request on shape
+ - bbox : geoPoint array containing topLeft and bottomRight points of shape envelope
+ - hash : shape digest to perform exact request on shape
  - centroid : geoPoint representing shape centroid
 
 ### Geoshape aggregation
@@ -27,18 +27,68 @@ For achieving this, the plugin adds a `geo` mapping type, a `geoshape` aggregati
   - algorithm : algorithm used for shape simplification (DOUGLAS_PEUCKER, TOPOLOGY_PRESERVING). Default to DOUGLAS_PEUCKER
  - clipped : used to return a shape that are clipped to a defined envelope. Take a dict. WARNING, when used, zoom must be set in simplify in order to work (will be fixed in a future release)
   - envelope : elasticsearch envelope where shapes must be clipped on. Mandatory when clipped is used
-  - buffer : nb pixel buffer add to envelope for clipping
+  - buffer : number of pixels add to envelope for clipping
 
 Example of use :
 ```
 {
   "aggs": {
-    "geoshape": {
-      "field": "geo_shape.wkb",
-      "output_format": "wkt",
-      "simplify": {
-        "zoom": 8,
-        "algorithm": "DOUGLAS_PEUCKER"
+    "geo": {
+      "geoshape": {
+        "field": "geo_shape.wkb",
+        "output_format": "wkt",
+        "simplify": {
+          "zoom": 8,
+          "algorithm": "DOUGLAS_PEUCKER"
+        }
+      }
+    }
+  }
+}
+```
+
+Result :
+
+```
+{
+  "aggregations": {
+    "geo": {
+      "buckets": [
+      {
+         "key": "POINT (2.2538285063 48.865022534)",
+         "digest": "4521908731506274962",
+         "type": "Point",
+         "doc_count": 1
+      },
+      {
+         "key": "POINT (2.31333976248 48.8652536076)",
+         "digest": "-3513121227624068596",
+         "type": "Point",
+         "doc_count": 1
+      },
+      {
+         "key": "POINT (2.2529555706 48.846044762)",
+         "digest": "-5055786055234076365",
+         "type": "Point",
+         "doc_count": 1
+      },
+      {
+         "key": "POINT (2.25320074406 48.867043584)",
+         "digest": "167833499021969215",
+         "type": "Point",
+         "doc_count": 1
+      },
+      {
+         "key": "POINT (2.4126175672099994 48.8333849101)",
+         "digest": "7300553048122261648",
+         "type": "Point",
+         "doc_count": 1
+      },
+      {
+         "key": "POINT (2.2924448277 48.8619170093)",
+         "digest": "-2232618493206154845",
+         "type": "Point",
+         "doc_count": 1
       }
     }
   }
@@ -47,12 +97,80 @@ Example of use :
 
 ### Geo tile REST entry
 
-This entry point generates "smart" results for a specific geo tile.
+This entry point generates "smart" results for a specific geo tile. The main purpose of this rest action is to return a tile that can be easily rendered with mapping applications like `mapnik`.
 
 Format is based on TMS format : /{index}/{type}/_geo/{zoom}/{x}/{y}
 For more information about this format : http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
 
 It takes `Get` parameters :
- - field (mandatory): `geo` field to return
+ - field (mandatory): `geo` field name. Must be of type `geo`
  - tile_size : tile size in pixel. Default to 256
  - output_format :  'wkt', 'wkb' or 'geojson'. Default to geojson
+
+It returns :
+ - shape in wkt, wkb or geojson
+ - digest : geoshape digest (in order to perform search request in it)
+ - doc_count : number of identical shapes
+ - cluster_count : number of shapes in this bucket. Small shapes aggregation only.
+ - grid : geohash grid for this bucket. Small shapes aggregation only.
+
+Example :
+
+`localhost:9200/my_index/geo_type/_geo/12/1036/704?field=geo_field`
+
+```
+{
+   "time": 12,
+   "count": 40,
+   "shapes": [
+      {
+         "shape": "POINT (2.26174532022 48.8633555664)",
+         "digest": "5980304178196219950",
+         "type": "Point",
+         "doc_count": 6,
+         "cluster_count": 6,
+         "grid": "u09tgr"
+      },
+      {
+         "shape": "POINT (2.24587597613 48.8691433358)",
+         "digest": "9079382294515706678",
+         "type": "Point",
+         "doc_count": 5,
+         "cluster_count": 5,
+         "grid": "u09w50"
+      },
+      {
+         "shape": "POINT (2.29329076205 48.8577766649)",
+         "digest": "6585224492059141239",
+         "type": "Point",
+         "doc_count": 3,
+         "cluster_count": 3,
+         "grid": "u09tun"
+      },
+      {
+         "shape": "POINT (2.2599223736999994 48.8606198209)",
+         "digest": "1243503675762065766",
+         "type": "Point",
+         "doc_count": 3,
+         "cluster_count": 3,
+         "grid": "u09tgq"
+      },
+      {
+         "shape": "POINT (2.25120424857 48.864782427799994)",
+         "digest": "2446849682065168706",
+         "type": "Point",
+         "doc_count": 3,
+         "cluster_count": 3,
+         "grid": "u09tgp"
+      },
+      {
+         "shape": "POINT (2.25293802515 48.8471789821)",
+         "digest": "4881855873819433358",
+         "type": "Point",
+         "doc_count": 3,
+         "cluster_count": 3,
+         "grid": "u09tgk"
+      }
+   ]
+}
+```
