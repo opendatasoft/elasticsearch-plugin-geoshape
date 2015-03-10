@@ -52,6 +52,7 @@ public class GeoMapper extends GeoShapeFieldMapper{
         public static final String TREE_PRESISION = "precision";
         public static final String DISTANCE_ERROR_PCT = "distance_error_pct";
         public static final String STRATEGY = "strategy";
+        public static final String BOOST_PRECISION = "boost_precision";
         public static final String WKB = "wkb";
         public static final String WKB_TEXT = "wkbtext";
         public static final String TYPE = "type";
@@ -69,6 +70,7 @@ public class GeoMapper extends GeoShapeFieldMapper{
         public static final int GEOHASH_LEVELS = GeoUtils.geoHashLevelsForPrecision("50m");
         public static final int QUADTREE_LEVELS = GeoUtils.quadTreeLevelsForPrecision("50m");
         public static final double DISTANCE_ERROR_PCT = 0.025d;
+        public static final double BOOST_PRECISION = 0;
 
         public static final FieldType FIELD_TYPE = new FieldType();
 
@@ -97,6 +99,7 @@ public class GeoMapper extends GeoShapeFieldMapper{
 
         private String tree = Defaults.TREE;
         private String strategyName = Defaults.STRATEGY;
+        private double boostPrecision = 0;
         private int treeLevels = 0;
         private double precisionInMeters = -1;
         private double distanceErrorPct = Defaults.DISTANCE_ERROR_PCT;
@@ -111,6 +114,14 @@ public class GeoMapper extends GeoShapeFieldMapper{
 //            this.fieldDataSettings = settings;
 //            return builder;
 //        }
+
+        public Builder boostPrecision(double precision) {
+            if (precision > 1) {
+                precision = 1;
+            }
+            this.boostPrecision = precision;
+            return this;
+        }
 
         public Builder tree(String tree) {
             this.tree = tree;
@@ -166,7 +177,7 @@ public class GeoMapper extends GeoShapeFieldMapper{
             context.path().pathType(origPathType);
 
 
-            return new GeoMapper(names, tree, strategyName, distanceErrorPct, wkbMapper, typeMapper, doubleMapper, bboxMapper, hashMapper, centroidMapper, fieldDataSettings, docValues, fieldType, postingsProvider,
+            return new GeoMapper(names, tree, strategyName, distanceErrorPct, boostPrecision, wkbMapper, typeMapper, doubleMapper, bboxMapper, hashMapper, centroidMapper, fieldDataSettings, docValues, fieldType, postingsProvider,
                     docValuesProvider, multiFieldsBuilder.build(this, context), copyTo);
         }
     }
@@ -187,10 +198,12 @@ public class GeoMapper extends GeoShapeFieldMapper{
 //                    builder.treeLevels(Integer.parseInt(fieldNode.toString()));
 //                } else if (Names.TREE_PRESISION.equals(fieldName)) {
 //                    builder.treeLevelsByDistance(DistanceUnit.parse(fieldNode.toString(), DistanceUnit.DEFAULT, DistanceUnit.DEFAULT));
-//                } else if (Names.DISTANCE_ERROR_PCT.equals(fieldName)) {
-//                    builder.distanceErrorPct(Double.parseDouble(fieldNode.toString()));
+                } else if (Names.DISTANCE_ERROR_PCT.equals(fieldName)) {
+                    builder.distanceErrorPct(Double.parseDouble(fieldNode.toString()));
                 } else if (Names.STRATEGY.equals(fieldName)) {
                     builder.strategy(fieldNode.toString());
+                } else if (Names.BOOST_PRECISION.equals(fieldName)) {
+                    builder.boostPrecision(Double.parseDouble(fieldNode.toString()));
                 }
             }
             return builder;
@@ -217,6 +230,7 @@ public class GeoMapper extends GeoShapeFieldMapper{
     private final String tree;
     private final String defaultStrategyName;
     private final double distanceErrorPct;
+    private final double boostPrecision;
 
     private static SpatialPrefixTree getSearchPrefixTree(String treeType) {
         if (Names.TREE_GEOHASH.equals(treeType)) {
@@ -230,7 +244,7 @@ public class GeoMapper extends GeoShapeFieldMapper{
     }
 
     public GeoMapper(FieldMapper.Names names,
-                     String tree, String defaultStrategyName, double distanceErrorPct, BinaryFieldMapper wkbMapper,
+                     String tree, String defaultStrategyName, double distanceErrorPct, double boostPrecision, BinaryFieldMapper wkbMapper,
                      StringFieldMapper typeMapper, DoubleFieldMapper areaMapper, GeoPointFieldMapper bboxMapper,
                      StringFieldMapper hashMapper, GeoPointFieldMapper centroidMapper, @Nullable Settings fieldDataSettings, Boolean docValues, FieldType fieldType,
                      PostingsFormatProvider postingsProvider, DocValuesFormatProvider docValuesProvider,
@@ -258,6 +272,7 @@ public class GeoMapper extends GeoShapeFieldMapper{
 
         this.hashTreeLevels = new HashMap<>();
         this.distanceErrorPct = distanceErrorPct;
+        this.boostPrecision = boostPrecision;
     }
 
     @Override
@@ -268,6 +283,11 @@ public class GeoMapper extends GeoShapeFieldMapper{
     @Override
     public FieldDataType defaultFieldDataType() {
         return null;
+    }
+
+
+    private int boostLevel(double level) {
+        return (int) (level + level * this.boostPrecision);
     }
 
     private int getTreelevelForGeometry(Geometry geom, Geometry centroid) {
@@ -303,10 +323,17 @@ public class GeoMapper extends GeoShapeFieldMapper{
             } else {
                 level = GeoUtils.geoHashLevelsForPrecision(GeoPluginUtils.getMetersFromDecimalDegree(geomLength, centroid.getCoordinate().y));
 
+
                 if (level < 4) {
                     level = 4;
                 }
 //                level = 4;
+            }
+
+            level = boostLevel(level);
+
+            if (level > GeohashPrefixTree.getMaxLevelsPossible()) {
+                level = GeohashPrefixTree.getMaxLevelsPossible();
             }
 
             return level;
@@ -322,11 +349,15 @@ public class GeoMapper extends GeoShapeFieldMapper{
                 level = GeoUtils.quadTreeLevelsForPrecision(GeoPluginUtils.getMetersFromDecimalDegree(geomLength, centroid.getCoordinate().y));
             }
 
+
             if (level < 8) {
                 level = 8;
             }
 
-//            level += 3;
+            level = boostLevel(level);
+            if (level > QuadPrefixTree.DEFAULT_MAX_LEVELS) {
+                level = QuadPrefixTree.DEFAULT_MAX_LEVELS;
+            }
 
             return level;
 
@@ -498,10 +529,8 @@ public class GeoMapper extends GeoShapeFieldMapper{
     protected void doXContentBody(XContentBuilder builder, boolean includeDefaults, Params params) throws IOException {
         builder.field("type", contentType());
         builder.field(Names.TREE, tree);
-
-        // TODO: Come up with a better way to get the name, maybe pass it from builder
-
-
+        builder.field(Names.BOOST_PRECISION, boostPrecision);
+        builder.field(Names.DISTANCE_ERROR_PCT, distanceErrorPct);
 
 //        if (defaultStrategy.getGrid() instanceof GeohashPrefixTree) {
 //            // Don't emit the tree name since GeohashPrefixTree is the default
@@ -516,9 +545,6 @@ public class GeoMapper extends GeoShapeFieldMapper{
 //            }
 //        }
 //
-//        if (includeDefaults || defaultStrategy.getDistErrPct() != Defaults.DISTANCE_ERROR_PCT) {
-//            builder.field(Names.DISTANCE_ERROR_PCT, defaultStrategy.getDistErrPct());
-//        }
     }
 
 
