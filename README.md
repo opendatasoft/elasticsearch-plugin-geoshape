@@ -14,6 +14,14 @@ For achieving this, the plugin adds a `geo` mapping type, a `geoshape` aggregati
  - hash : shape digest to perform exact request on shape
  - centroid : geoPoint representing shape centroid
 
+Geo mapper computes, depending on shape length, a specific precision for each shape (corresponding to `precision` parameter).
+This precision can be boost with `boost_precision` parameter.
+
+Its parameters are slightly different than geoshape ones :
+ - tree : geohash or quadtree
+ - distance_error_pct : same as geo_shape type
+ - boost_precision : double that can be used to boost shape precision. Between 0 and 1, default to 0.
+
 ### Geoshape aggregation
 
 `geoshape` aggregation is a multi buckets aggregation that returns a bucket for each shape.
