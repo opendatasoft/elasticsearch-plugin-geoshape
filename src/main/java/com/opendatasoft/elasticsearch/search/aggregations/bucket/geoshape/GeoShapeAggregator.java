@@ -6,6 +6,7 @@ import com.vividsolutions.jts.io.ParseException;
 import com.vividsolutions.jts.io.WKBReader;
 import com.vividsolutions.jts.io.WKBWriter;
 import com.vividsolutions.jts.operation.buffer.BufferParameters;
+import com.vividsolutions.jts.operation.predicate.RectangleIntersects;
 import com.vividsolutions.jts.simplify.DouglasPeuckerSimplifier;
 import com.vividsolutions.jts.simplify.TopologyPreservingSimplifier;
 import org.apache.lucene.index.AtomicReaderContext;
@@ -38,7 +39,6 @@ public class GeoShapeAggregator extends BucketsAggregator {
     private final BytesRefBuilder previous;
     private final InternalGeoShape.OutputFormat outputFormat;
     private final GeometryFactory geometryFactory;
-    private double tolerance;
     private boolean simplifyShape;
     private boolean smallPolygon;
     private GeoShape.Algorithm algorithm;
@@ -71,10 +71,6 @@ public class GeoShapeAggregator extends BucketsAggregator {
             this.clippedEnvelope.expandBy(GeoPluginUtils.getDecimalDegreeFromMeter(clippedBuffer * GeoPluginUtils.getMeterByPixel(zoom, centre.y), centre.y));
         }
 
-        if (simplifyShape) {
-            tolerance = 360 / (256 * Math.pow(zoom, 4));
-        }
-
         pixelTolerance = 1;
 
     }
@@ -105,21 +101,11 @@ public class GeoShapeAggregator extends BucketsAggregator {
     }
 
     private Geometry simplifyGeoShape(Geometry geom) {
-//        try {
-
-//            if (geom.getGeometryType().equals("Point")) {
-//                return wkb;
-//            }
-//            Geometry polygonSimplified = TopologyPreservingSimplifier.simplify(geom, tolerance);
             Geometry polygonSimplified = getSimplifiedShape(geom);
             if (polygonSimplified.isEmpty()) {
                 polygonSimplified = this.geometryFactory.createPoint(geom.getCoordinate());
             }
         return polygonSimplified;
-//            return new BytesRef(new WKBWriter().write(polygonSimplified));
-//        } catch (ParseException e) {
-//            return wkb;
-//        }
     }
 
 
@@ -182,7 +168,6 @@ public class GeoShapeAggregator extends BucketsAggregator {
             }
 
             spare.wkbHash = String.valueOf(GeoPluginUtils.getHashFromWKB(spare.wkb));
-//            spare.wkbHash = spare.wkb.bytes.hashCode();
             spare.area = geom.getLength();
             spare.realType = geom.getGeometryType();
 
@@ -204,11 +189,10 @@ public class GeoShapeAggregator extends BucketsAggregator {
 
             }
 
-            if (clippedEnvelope != null) {
-                // TODO : Add an option to disable clipping
+            if (clippedEnvelope != null && !geom.getGeometryType().equals("LineString")) {
                 try {
-                    Geometry clippedGeom = new GeometryClipper(clippedEnvelope).clip(geom, false);
-                    if (clippedGeom != null) {
+                    Geometry clippedGeom = new GeometryClipper(clippedEnvelope).clip(geom.reverse(), false);
+                    if (clippedGeom != null && ! clippedGeom.isEmpty()) {
                         spare.wkb = new BytesRef(new WKBWriter().write(clippedGeom));
                     }
                 } catch (Exception e) {
