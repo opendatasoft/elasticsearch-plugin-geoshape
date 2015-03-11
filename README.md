@@ -4,6 +4,11 @@ This geo shape plugin can be used to index and aggregate geo shapes in elasticse
 
 This plugin adds a `geo` mapping type, a `geoshape` aggregation, a `geohash_clustering` aggregation and and a `geo` rest entry point.
 
+Installation
+------------
+
+`bin/plugin --install geoshape-plugin --url "https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v1.1.0/elasticsearch-geo-plugin-1.1.0.zip"`
+
 | elasticsearch  | Geoshape Plugin     |
 |----------------|---------------------|
 | master         | not tested yet      |
