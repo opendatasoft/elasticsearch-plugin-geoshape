@@ -199,14 +199,12 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
         BucketPriorityQueue ordered = new BucketPriorityQueue(size);
         for (LongObjectPagedHashMap.Cursor<List<Bucket>> cursor : buckets) {
             List<Bucket> sameCellBuckets = cursor.value;
-//            System.out.println(outputGeoShape(sameCellBuckets.get(0).wkb));
             ordered.insertWithOverflow(sameCellBuckets.get(0).reduce(sameCellBuckets, reduceContext));
         }
         buckets.close();
         Bucket[] list = new Bucket[ordered.size()];
         for (int i = ordered.size() - 1; i >= 0; i--) {
             list[i] = ordered.pop();
-//            System.out.println(outputGeoShape(list[i].wkb));
         }
 
         return new InternalGeoShape(name, requiredSize, outputFormat, Arrays.asList(list));
@@ -260,13 +258,12 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
         builder.startArray(CommonFields.BUCKETS);
         for (Bucket bucket : buckets) {
             builder.startObject();
-//            builder.field(CommonFields.KEY, bucket.getKeyAsText());
             try {
                 builder.field(CommonFields.KEY, outputGeoShape(bucket.wkb));
                 builder.field("digest", bucket.wkbHash);
                 builder.field("type", bucket.getType());
             } catch (ParseException e) {
-                e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+                continue;
             }
             builder.field(CommonFields.DOC_COUNT, bucket.getDocCount());
             ((InternalAggregations) bucket.getAggregations()).toXContentInternal(builder, params);
