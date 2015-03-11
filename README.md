@@ -2,7 +2,7 @@
 
 This geo shape plugin can be used to index and aggregate geo shapes in elasticsearch.
 
-For achieving this, the plugin adds a `geo` mapping type, a `geoshape` aggregation and and a `geo` rest entry point.
+This plugin adds a `geo` mapping type, a `geoshape` aggregation, a `geohash_clustering` aggregation and and a `geo` rest entry point.
 
 ### Geo mapping type
 
@@ -100,6 +100,75 @@ Result :
       }
     }
   }
+}
+```
+
+### Geohash clustering aggregation
+
+This aggregations computes a geohash precision from a `zoom` and a `distance` (in pixel).
+It groups points (from `field` parameter) into buckets that represent geohash cells and computes each buckets center.
+Then it merges these cells if distance between two cluster centers is lower than `distance` parameter.
+
+```json
+{
+  "aggregations": {
+    "<aggregation_name>": {
+      "geohash_clustering": {
+        "field": "<field_name>",
+        "zoom": "<zoom>"
+      }
+    }
+  }
+}
+```
+Input parameters :
+ - `field` must be of type geo_point.
+ - `zoom` is a mandatory integer parameter between 0 and 20. It represents the zoom level used in the request to aggregate geo points.
+
+The plugin aggregates these points in geohash with a "good" precision depending on the zoom provided. Then it merges clusters based on distance (in pixels).
+Default distance is set to 100, but can be set to another integer in the request.
+
+For example :
+
+```json
+{
+    "aggregations" : {
+        "my_cluster_aggregation" : {
+            "geohash_clustering": {
+                "field": "geo_point",
+                "zoom": 0,
+                "distance": 50
+            }
+        }
+    }
+}
+```
+
+```json
+{
+    "aggregations": {
+         "my_cluster_aggregation": {
+            "buckets": [
+               {
+                  "key": "u0",
+                  "doc_count": 90293,
+                  "geohash_grids": [
+                     [
+                        "u0"
+                     ]
+                  ],
+                  "cluster_center": {
+                     "type": "point",
+                     "coordinates": [
+                        2.32920361762,
+                        48.8449899502
+                     ]
+                  }
+               }
+            ]
+         }
+    }
+
 }
 ```
 
