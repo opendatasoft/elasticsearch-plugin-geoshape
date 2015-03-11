@@ -3,6 +3,8 @@ package com.opendatasoft.elasticsearch.plugin.geo;
 import com.opendatasoft.elasticsearch.action.geo.GeoSimpleAction;
 import com.opendatasoft.elasticsearch.action.geo.TransportGeoSimpleAction;
 import com.opendatasoft.elasticsearch.rest.action.geo.*;
+import com.opendatasoft.elasticsearch.search.aggregations.bucket.geohashclustering.GeoHashClusteringParser;
+import com.opendatasoft.elasticsearch.search.aggregations.bucket.geohashclustering.InternalGeoHashClustering;
 import com.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.GeoShapeParser;
 import com.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.InternalGeoShape;
 import org.elasticsearch.action.ActionModule;
@@ -55,5 +57,7 @@ public class GeoPlugin extends AbstractPlugin{
     public void onModule(AggregationModule aggModule) {
         aggModule.addAggregatorParser(GeoShapeParser.class);
         InternalGeoShape.registerStreams();
+        aggModule.addAggregatorParser(GeoHashClusteringParser.class);
+        InternalGeoHashClustering.registerStreams();
     }
 }

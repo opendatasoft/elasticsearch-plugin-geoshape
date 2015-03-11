@@ -4,6 +4,8 @@ import com.opendatasoft.elasticsearch.action.geo.GeoSimpleAction;
 import com.opendatasoft.elasticsearch.action.geo.GeoSimpleRequest;
 import com.opendatasoft.elasticsearch.index.mapper.geo.GeoMapper;
 import com.opendatasoft.elasticsearch.plugin.geo.GeoPluginUtils;
+import com.opendatasoft.elasticsearch.search.aggregations.bucket.geohashclustering.GeoHashClustering;
+import com.opendatasoft.elasticsearch.search.aggregations.bucket.geohashclustering.GeoHashClusteringBuilder;
 import com.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.GeoShape;
 import com.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.GeoShapeBuilder;
 import com.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.InternalGeoShape;
@@ -19,6 +21,8 @@ import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.action.search.SearchType;
 import org.elasticsearch.client.Client;
 import org.elasticsearch.common.Base64;
+import org.elasticsearch.common.geo.GeoHashUtils;
+import org.elasticsearch.common.geo.GeoPoint;
 import org.elasticsearch.common.geo.GeoUtils;
 import org.elasticsearch.common.geo.builders.EnvelopeBuilder;
 import org.elasticsearch.common.geo.builders.ShapeBuilder;
@@ -126,7 +130,7 @@ public class RestGeoAction extends BaseRestHandler {
 
         // Compute an error precision. (we have false positive shapes, so we need to request more buckets) TODO : use precision in field mapping ??
         // Add 50%
-        nbBuckets += nbBuckets * 0.5;
+//        nbBuckets += nbBuckets * 0.5;
 
         Envelope overflowEnvelope = GeoPluginUtils.overflowEnvelope(tileEnvelope, 40, tileSize);
 //        Envelope overflowEnvelope = GeoPluginUtils.overflowEnvelope(tileEnvelope, (int) (GeoUtils.geoHashCellWidth(geohashLevel) / meterByPixel), tileSize);
@@ -151,10 +155,14 @@ public class RestGeoAction extends BaseRestHandler {
         );
 
 
-        TopHitsBuilder topHitsBuilder = new TopHitsBuilder("shape").setFetchSource(geoField, null).setSize(1)
-                .addSort(geoFieldDigest, SortOrder.DESC)
-                .addSort(new GeoDistanceSortBuilder(geoFieldCentroid).order(SortOrder.ASC).point(centroid.y, centroid.x));
-        GeoHashGridBuilder pointGeoHashGridBuilder = new GeoHashGridBuilder("point_grid").field(geoFieldCentroid).precision(geohashLevel).size(1000).subAggregation(topHitsBuilder);
+//        GeoShapeBuilder pointGeoShapeBuilder = new GeoShapeBuilder("shape").field(geoFieldWKB).algorithm(algorithm).zoom(zoom).simplifyShape(true).outputFormat(outputFormat).size(100);
+//        GeoHashGridBuilder pointGeoHashGridBuilder = new GeoHashGridBuilder("point_grid").field(geoFieldCentroid).precision(geohashLevel).size(10000);
+        GeoHashClusteringBuilder pointGeoHashGridBuilder = new GeoHashClusteringBuilder("point_grid").field(geoFieldCentroid).zoom(zoom).distance(10);
+
+//        TopHitsBuilder topHitsBuilder = new TopHitsBuilder("shape").setFetchSource(geoField, null).setSize(1)
+//                .addSort(geoFieldDigest, SortOrder.DESC)
+//                .addSort(new GeoDistanceSortBuilder(geoFieldCentroid).order(SortOrder.ASC).point(centroid.y, centroid.x));
+//        GeoHashGridBuilder pointGeoHashGridBuilder = new GeoHashGridBuilder("point_grid").field(geoFieldCentroid).precision(geohashLevel).size(1000).subAggregation(topHitsBuilder);
 
 
         GeoShapeBuilder smallGeoShapeBuilder = new GeoShapeBuilder("shape").field(geoFieldWKB).clippedEnvelope(envelopeBuilder).clippedBuffer(1).algorithm(algorithm).zoom(zoom).simplifyShape(true).smallPolygon(true).outputFormat(outputFormat).size(geoHashNbPixels);
@@ -189,7 +197,8 @@ public class RestGeoAction extends BaseRestHandler {
 
 
                     SingleBucketAggregation pointAggregation = response.getAggregations().get("points");
-                    GeoHashGrid pointGrid = pointAggregation.getAggregations().get("point_grid");
+//                    GeoHashGrid pointGrid = pointAggregation.getAggregations().get("point_grid");
+                    GeoHashClustering pointGrid = pointAggregation.getAggregations().get("point_grid");
 
                     SingleBucketAggregation shapes = response.getAggregations().get("shapes");
                     SingleBucketAggregation smallShapeFilterAggregation = shapes.getAggregations().get("small_shapes");
@@ -269,47 +278,86 @@ public class RestGeoAction extends BaseRestHandler {
                         }
                     }
 
-                    for (GeoHashGrid.Bucket bucketGrid : pointGrid.getBuckets()) {
+                    GeometryFactory geometryFactory = new GeometryFactory();
 
-                        TopHits smallShapeAggregation = bucketGrid.getAggregations().get("shape");
+                    for (GeoHashClustering.Bucket bucketGrid : pointGrid.getBuckets()) {
+                        
+//                        String geohash = bucketGrid.getKey();
+                        
+                        GeoPoint pointHash = bucketGrid.getClusterCenter();
 
-                        for (SearchHit bucket: smallShapeAggregation.getHits()){
+                        byte[] geoPointWkb = new WKBWriter().write(geometryFactory.createPoint(new Coordinate(pointHash.getLon(), pointHash.getLat())));
 
-                            String [] geoFieldsHierarchy = geoField.split("\\.");
+//                        GeoShape smallShapeAggregation = bucketGrid.getAggregations().get("shape");
 
-                            List<Double> coords = getCoordinatesFromSource(geoFieldsHierarchy, bucket.sourceAsMap());
-
-                            Point geom = new GeometryFactory().createPoint(new Coordinate(coords.get(0), coords.get(1)));
-
-                            byte[] wkb = new WKBWriter().write(geom);
-
+//                        for (GeoShape.Bucket bucket: smallShapeAggregation.getBuckets()){
+//
 //                            BytesRef wkb = bucket.getShapeAsByte();
-
-                            String geoString;
-                            switch (outputFormat) {
-                                case WKT:
-                                    geoString = new WKTWriter().write(geom);
-                                    break;
-                                case WKB:
-                                    geoString = Base64.encodeBytes(wkb);
-                                    break;
-                                default:
-                                    geoString = geometryJSON.toString(geom);
-                            }
-
-                            builder.startObject();
-
-                            builder.field("shape", geoString);
-//                            builder.field("digest", bucket.getFields().get(geoFieldDigest).getValue());
-                            builder.field("digest", bucket.getSortValues()[0]);
-                            builder.field("type", geom.getGeometryType());
-                            builder.field("doc_count", smallShapeAggregation.getHits().getTotalHits());
-                            builder.field("cluster_count", bucketGrid.getDocCount());
-                            builder.field("grid", bucketGrid.getKey());
-
-
-                            builder.endObject();
+//
+                        String geoString;
+                        switch (outputFormat) {
+                            case WKT:
+                                geoString = new WKTWriter().write(wkbReader.read(geoPointWkb));
+                                break;
+                            case WKB:
+                                geoString = Base64.encodeBytes(geoPointWkb);
+                                break;
+                            default:
+                                geoString = geometryJSON.toString(wkbReader.read(geoPointWkb));
                         }
+
+                        builder.startObject();
+
+                        builder.field("shape", geoString);
+//                        builder.field("digest", bucket.getHash());
+                        builder.field("type", "Point");
+                        builder.field("doc_count", bucketGrid.getDocCount());
+                        builder.field("cluster_count", bucketGrid.getDocCount());
+                        builder.field("grid", bucketGrid.getKey());
+
+
+                        builder.endObject();
+//                        }
+
+//                        TopHits smallShapeAggregation = bucketGrid.getAggregations().get("shape");
+//
+//                        for (SearchHit bucket: smallShapeAggregation.getHits()){
+//
+//                            String [] geoFieldsHierarchy = geoField.split("\\.");
+//
+//                            List<Double> coords = getCoordinatesFromSource(geoFieldsHierarchy, bucket.sourceAsMap());
+//
+//                            Point geom = new GeometryFactory().createPoint(new Coordinate(coords.get(0), coords.get(1)));
+//
+//                            byte[] wkb = new WKBWriter().write(geom);
+//
+////                            BytesRef wkb = bucket.getShapeAsByte();
+//
+//                            String geoString;
+//                            switch (outputFormat) {
+//                                case WKT:
+//                                    geoString = new WKTWriter().write(geom);
+//                                    break;
+//                                case WKB:
+//                                    geoString = Base64.encodeBytes(wkb);
+//                                    break;
+//                                default:
+//                                    geoString = geometryJSON.toString(geom);
+//                            }
+//
+//                            builder.startObject();
+//
+//                            builder.field("shape", geoString);
+////                            builder.field("digest", bucket.getFields().get(geoFieldDigest).getValue());
+//                            builder.field("digest", bucket.getSortValues()[0]);
+//                            builder.field("type", geom.getGeometryType());
+//                            builder.field("doc_count", smallShapeAggregation.getHits().getTotalHits());
+//                            builder.field("cluster_count", bucketGrid.getDocCount());
+//                            builder.field("grid", bucketGrid.getKey());
+//
+//
+//                            builder.endObject();
+//                        }
                     }
 
                     builder.endArray();
