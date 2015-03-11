@@ -4,6 +4,12 @@ This geo shape plugin can be used to index and aggregate geo shapes in elasticse
 
 This plugin adds a `geo` mapping type, a `geoshape` aggregation, a `geohash_clustering` aggregation and and a `geo` rest entry point.
 
+| elasticsearch  | Geoshape Plugin     |
+|----------------|---------------------|
+| master         | not tested yet      |
+| 1.4.3 -> 1.4.4 | not tested yet      |
+| 1.4.2          | 1.1.0               |
+
 ### Geo mapping type
 
 `geo` mapping can replace `geo_shape` type. It parses `GeoJSON` shapes, and indexes them in elasticsearch. Compared to geo_shape type it adds extra sub fields :
