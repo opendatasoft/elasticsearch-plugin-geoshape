@@ -6,7 +6,6 @@ import com.vividsolutions.jts.io.ParseException;
 import com.vividsolutions.jts.io.WKBReader;
 import com.vividsolutions.jts.io.WKBWriter;
 import com.vividsolutions.jts.operation.buffer.BufferParameters;
-import com.vividsolutions.jts.operation.predicate.RectangleIntersects;
 import com.vividsolutions.jts.simplify.DouglasPeuckerSimplifier;
 import com.vividsolutions.jts.simplify.TopologyPreservingSimplifier;
 import org.apache.lucene.index.AtomicReaderContext;
@@ -45,6 +44,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
     private int zoom;
     private Envelope clippedEnvelope;
     private int pixelTolerance;
+    private WKBReader wkbReader;
 
     public GeoShapeAggregator(String name, AggregatorFactories factories, ValuesSource.Bytes valuesSource,
                                  int requiredSize, int shardSize, InternalGeoShape.OutputFormat outputFormat,
@@ -65,6 +65,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
         this.algorithm = algorithm;
         this.zoom = zoom;
         this.clippedEnvelope = clippedEnvelope;
+        this.wkbReader = new WKBReader();
 
         if (clippedEnvelope != null && clippedBuffer > 0) {
             Coordinate centre = clippedEnvelope.centre();
@@ -140,6 +141,22 @@ public class GeoShapeAggregator extends BucketsAggregator {
         return new InternalGeoShape(name, requiredSize, outputFormat, Collections.<InternalGeoShape.Bucket>emptyList());
     }
 
+
+    // Return true if wkb is a point
+    // http://en.wikipedia.org/wiki/Well-known_text#Well-known_binary
+    private boolean wkbIsPoint(byte[] wkb) {
+        if (wkb.length < 5) {
+            return false;
+        }
+
+        // Big endian or little endian shape representation
+        if (wkb[0] == 0) {
+            return wkb[1] == 0 && wkb[2] == 0 && wkb[3] == 0 && wkb[4] == 1;
+        } else {
+            return wkb[1] == 1 && wkb[2] == 0 && wkb[3] == 0 && wkb[4] == 0;
+        }
+    }
+
     @Override
     public InternalAggregation buildAggregation(long owningBucketOrdinal) {
         assert owningBucketOrdinal == 0;
@@ -159,43 +176,50 @@ public class GeoShapeAggregator extends BucketsAggregator {
 
             spare.wkb = BytesRef.deepCopyOf(spare.wkb);
 
-            Geometry geom = null;
-
-            try {
-                geom = new WKBReader().read(spare.wkb.bytes);
-            } catch (ParseException e) {
-                e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-            }
-
             spare.wkbHash = String.valueOf(GeoPluginUtils.getHashFromWKB(spare.wkb));
-            spare.area = geom.getLength();
-            spare.realType = geom.getGeometryType();
 
-            if (simplifyShape) {
+            if (wkbIsPoint(spare.wkb.bytes)) {
+                spare.area = 0;
+                spare.realType = "Point";
+            } else {
+                Geometry geom;
 
-                if (smallPolygon && ! geom.getGeometryType().equals("LineString")) {
-                    Geometry centroid = geom.getCentroid();
-                    double bufferSize = GeoPluginUtils.getShapeLimit(zoom, centroid.getCoordinate().y);
-                    geom = centroid.buffer(bufferSize, 4, BufferParameters.CAP_SQUARE);
-                    spare.simplifiedType = geom.getGeometryType();
-                    spare.wkb = new BytesRef(new WKBWriter().write(geom));
-                    spare.area = geom.getLength();
-                } else {
-                    geom = simplifyGeoShape(geom);
-                    spare.simplifiedType = geom.getGeometryType();
-                    spare.wkb = new BytesRef(new WKBWriter().write(geom));
-                    spare.area = geom.getLength();
+                try {
+                    geom = wkbReader.read(spare.wkb.bytes);
+                } catch (ParseException e) {
+                   continue;
                 }
 
-            }
+                spare.area = geom.getLength();
+                spare.realType = geom.getGeometryType();
 
-            if (clippedEnvelope != null && !geom.getGeometryType().equals("LineString")) {
-                try {
-                    Geometry clippedGeom = new GeometryClipper(clippedEnvelope).clip(geom.reverse(), false);
-                    if (clippedGeom != null && ! clippedGeom.isEmpty()) {
-                        spare.wkb = new BytesRef(new WKBWriter().write(clippedGeom));
+                if (simplifyShape) {
+
+                    if (smallPolygon && ! geom.getGeometryType().equals("LineString")) {
+                        Geometry centroid = geom.getCentroid();
+                        double bufferSize = GeoPluginUtils.getShapeLimit(zoom, centroid.getCoordinate().y);
+                        geom = centroid.buffer(bufferSize, 4, BufferParameters.CAP_SQUARE);
+                        spare.simplifiedType = geom.getGeometryType();
+                        spare.wkb = new BytesRef(new WKBWriter().write(geom));
+                        spare.area = geom.getLength();
+                    } else {
+                        geom = simplifyGeoShape(geom);
+                        spare.simplifiedType = geom.getGeometryType();
+                        spare.wkb = new BytesRef(new WKBWriter().write(geom));
+                        spare.area = geom.getLength();
                     }
-                } catch (Exception e) {
+
+                }
+
+                if (clippedEnvelope != null && !geom.getGeometryType().equals("LineString")) {
+                    try {
+                        Geometry clippedGeom = new GeometryClipper(clippedEnvelope).clip(geom.reverse(), false);
+                        if (clippedGeom != null && ! clippedGeom.isEmpty()) {
+                            spare.wkb = new BytesRef(new WKBWriter().write(clippedGeom));
+                        }
+                    } catch (Exception e) {
+                        continue;
+                    }
                 }
             }
 
