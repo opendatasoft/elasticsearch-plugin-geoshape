@@ -105,6 +105,7 @@ public class GeoHashClusteringAggregator extends BucketsAggregator {
             double meterByPixel = GeoClusterUtils.getMeterByPixel(zoom, geoPoint.getLat());
             int pointPrecision = GeoUtils.geoHashLevelsForPrecision(distance * meterByPixel);
             pointPrecision = pointPrecision > 1 ? pointPrecision - 1: pointPrecision ;
+            if(pointPrecision > 12) pointPrecision = 12;
             final long clusterHashLong = GeoHashUtils.encodeAsLong(geoPoint.getLat(), geoPoint.getLon(), pointPrecision);
             ClusterCollector collec;
             long bucketOrdinal2 = bucketOrds.add(clusterHashLong);
