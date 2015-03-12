@@ -75,8 +75,9 @@ public class GeoShapeParser implements Aggregator.Parser{
                             if ("zoom".equals(currentFieldName)) {
                                 zoom = parser.intValue();
                             }
-                            else if ("algorithm".equals(currentFieldName)) {
-                                algorithm = GeoShape.Algorithm.valueOf(currentFieldName.toUpperCase());
+                        } else if (token == XContentParser.Token.VALUE_STRING) {
+                            if ("algorithm".equals(currentFieldName)) {
+                                algorithm = GeoShape.Algorithm.valueOf(parser.text().toUpperCase());
                             }
                         } else if (token == XContentParser.Token.VALUE_BOOLEAN) {
                             if ("small_polygon".equals(currentFieldName)) {
