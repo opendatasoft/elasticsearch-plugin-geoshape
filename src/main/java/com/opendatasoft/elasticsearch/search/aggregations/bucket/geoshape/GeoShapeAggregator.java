@@ -195,7 +195,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
 
                 if (simplifyShape) {
 
-                    if (smallPolygon && ! geom.getGeometryType().equals("LineString")) {
+                    if (smallPolygon) {
                         Geometry centroid = geom.getCentroid();
                         double bufferSize = GeoPluginUtils.getShapeLimit(zoom, centroid.getCoordinate().y);
                         geom = centroid.buffer(bufferSize, 4, BufferParameters.CAP_SQUARE);
