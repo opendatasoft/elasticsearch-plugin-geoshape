@@ -158,19 +158,27 @@ public class RestGeoAction extends BaseRestHandler {
         // Aggregate LineString geometries
         // We drop geometry with too small length
 
+
         FilterBuilder lineStringFilter = new BoolFilterBuilder().must(
                 new TermFilterBuilder(geoFieldType, "LineString"),
                 new GeoShapeFilterBuilder(geoField,
                         ShapeBuilder.newEnvelope()
                                 .topLeft(tileEnvelope.getMinX(), tileEnvelope.getMaxY())
-                                .bottomRight(tileEnvelope.getMaxX(), tileEnvelope.getMinY())),
-                // FIXME : Compute smarter Linestring length limit !!!
-                new RangeFilterBuilder(geoFieldArea).gt(lineStringLimit / 10)
+                                .bottomRight(tileEnvelope.getMaxX(), tileEnvelope.getMinY()))
         );
 
 
-        GeoShapeBuilder lineStringAggregation = new GeoShapeBuilder("line_string_agg").field(geoFieldWKB).clippedEnvelope(envelopeBuilder).clippedBuffer(1).algorithm(algorithm).zoom(zoom).simplifyShape(true).outputFormat(outputFormat).size(nbGeom);
-        searchSourceBuilder.aggregation(new FilterAggregationBuilder("line_string_filter").filter(lineStringFilter).subAggregation(lineStringAggregation));
+
+        GeoHashClusteringBuilder smallLineStringGrid = new GeoHashClusteringBuilder("small_line_string_agg").field(geoFieldCentroid).zoom(zoom).distance(1);
+        FilterAggregationBuilder smallLineStringFilter = new FilterAggregationBuilder("small_line_string_filter").
+                filter(new RangeFilterBuilder(geoFieldArea).lt(lineStringLimit)).subAggregation(smallLineStringGrid);
+
+
+        GeoShapeBuilder bigLineStringAggregation = new GeoShapeBuilder("big_line_string_agg").field(geoFieldWKB).clippedEnvelope(envelopeBuilder).clippedBuffer(1).algorithm(algorithm).zoom(zoom).simplifyShape(true).outputFormat(outputFormat).size(nbGeom);
+        FilterAggregationBuilder bigLineStringFilter = new FilterAggregationBuilder("big_line_string_filter").
+                filter(new RangeFilterBuilder(geoFieldArea).gt(lineStringLimit)).subAggregation(bigLineStringAggregation);
+
+        searchSourceBuilder.aggregation(new FilterAggregationBuilder("line_string_filter").filter(lineStringFilter).subAggregation(smallLineStringFilter).subAggregation(bigLineStringFilter));
 
 
         // Aggregate Polygons
@@ -230,9 +238,19 @@ public class RestGeoAction extends BaseRestHandler {
                     SingleBucketAggregation pointFilter = response.getAggregations().get("point_filter");
                     GeoHashClustering pointAggregation = pointFilter.getAggregations().get("point_agg");
 
-                    // Retrieve LineString aggregation
+                    // Retrieve LineString (small and big) aggregations
                     SingleBucketAggregation lineStringFilter = response.getAggregations().get("line_string_filter");
-                    GeoShape lineStringAggregation = lineStringFilter.getAggregations().get("line_string_agg");
+
+                    // Retrieve small Polygon aggregation
+                    SingleBucketAggregation smallLineStringFilter = lineStringFilter.getAggregations().get("small_line_string_filter");
+                    GeoHashClustering smallLineStringAggregation = smallLineStringFilter.getAggregations().get("small_line_string_agg");
+
+
+                    // Retrieve big Polygon aggregation
+                    SingleBucketAggregation bigLineStringFilter = lineStringFilter.getAggregations().get("big_line_string_filter");
+                    GeoShape bigLineStringAggregation = bigLineStringFilter.getAggregations().get("big_line_string_agg");
+
+//                    GeoShape lineStringAggregation = lineStringFilter.getAggregations().get("line_string_agg");
 
                     // Retrieve Polygon (small and big) aggregations
 
@@ -277,7 +295,7 @@ public class RestGeoAction extends BaseRestHandler {
                         builder.endObject();
                     }
 
-                    for (GeoShape.Bucket bucket : lineStringAggregation.getBuckets()) {
+                    for (GeoShape.Bucket bucket : bigLineStringAggregation.getBuckets()) {
                         byte[] wkb = bucket.getShapeAsByte().bytes;
 
                         if (mustProject) {
@@ -301,6 +319,35 @@ public class RestGeoAction extends BaseRestHandler {
                     GeometryFactory geometryFactory = new GeometryFactory();
 
                     for (GeoHashClustering.Bucket bucketGrid : smallPolygonAggregation.getBuckets()) {
+
+                        GeoPoint pointHash = bucketGrid.getClusterCenter();
+
+                        Geometry jtsPoint = geometryFactory.createPoint(new Coordinate(pointHash.lon(), pointHash.lat()));
+
+                        double bufferSize = GeoPluginUtils.getShapeLimit(zoom, jtsPoint.getCoordinate().y);
+                        Geometry geom = jtsPoint.buffer(bufferSize, 4, BufferParameters.CAP_SQUARE);
+
+                        if (mustProject) {
+                            geom = JTS.transform(geom, transform);
+                        }
+
+                        byte[] geoPointWkb = new WKBWriter().write(geom);
+
+                        String geoString = outputFormatter.getGeoStringFromWKB(geoPointWkb);
+
+                        builder.startObject();
+
+                        builder.field("shape", geoString);
+//                        builder.field("digest", bucket.getHash());
+                        builder.field("type", "Polygon");
+                        builder.field("doc_count", bucketGrid.getDocCount());
+                        builder.field("cluster_count", bucketGrid.getDocCount());
+                        builder.field("grid", bucketGrid.getKey());
+
+                        builder.endObject();
+                    }
+
+                    for (GeoHashClustering.Bucket bucketGrid : smallLineStringAggregation.getBuckets()) {
 
                         GeoPoint pointHash = bucketGrid.getClusterCenter();
 
