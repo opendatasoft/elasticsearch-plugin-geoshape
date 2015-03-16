@@ -194,6 +194,7 @@ It takes `Get` parameters :
  - field (mandatory): `geo` field name. Must be of type `geo`
  - tile_size : tile size in pixel. Default to 256
  - output_format :  'wkt', 'wkb' or 'geojson'. Default to geojson
+ - output_projection: projection to apply on result geometries. Default to 'EPSG:4326'
 
 It returns :
  - shape in wkt, wkb or geojson

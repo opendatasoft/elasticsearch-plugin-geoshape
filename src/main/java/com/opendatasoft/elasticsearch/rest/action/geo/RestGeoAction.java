@@ -37,6 +37,12 @@ import org.elasticsearch.search.aggregations.bucket.SingleBucketAggregation;
 import org.elasticsearch.search.aggregations.bucket.filter.FilterAggregationBuilder;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.geotools.geojson.geom.GeometryJSON;
+import org.geotools.geometry.jts.JTS;
+import org.geotools.referencing.CRS;
+import org.opengis.referencing.FactoryException;
+import org.opengis.referencing.NoSuchAuthorityCodeException;
+import org.opengis.referencing.crs.CoordinateReferenceSystem;
+import org.opengis.referencing.operation.MathTransform;
 
 import java.io.IOException;
 
@@ -89,11 +95,22 @@ public class RestGeoAction extends BaseRestHandler {
         final int tileSize = request.paramAsInt("tile_size", 256);
         final int nbGeom = request.paramAsInt("nb_geom", 1000);
         final String stringOutputFormat = request.param("output_format", "wkt");
+        final String outputProjection = request.param("output_projection", "EPSG:4326");
 //        final String stringAlgorithm = request.param("algorithm", "TOPOLOGY_PRESERVING");
         final String stringAlgorithm = request.param("algorithm", "TOPOLOGY_PRESERVING");
         final InternalGeoShape.OutputFormat outputFormat = InternalGeoShape.OutputFormat.valueOf(stringOutputFormat.toUpperCase());
         final GeoShape.Algorithm algorithm = GeoShape.Algorithm.valueOf(stringAlgorithm.toUpperCase());
 
+
+        // Force axis order : http://docs.geotools.org/latest/userguide/library/referencing/order.html
+        System.setProperty("org.geotools.referencing.forceXY", "true");
+
+        final CoordinateReferenceSystem sourceCRS = CRS.decode("EPSG:4326");
+        final CoordinateReferenceSystem targetCRS = CRS.decode(outputProjection);
+
+        final MathTransform transform = CRS.findMathTransform(sourceCRS, targetCRS);
+
+        final boolean mustProject = ! outputProjection.equals("EPSG:4326");
 
         Envelope tileEnvelope = GeoPluginUtils.tile2boundingBox(x, y, zoom, tileSize);
 
@@ -240,9 +257,15 @@ public class RestGeoAction extends BaseRestHandler {
                     builder.startArray();
 
                     for (GeoShape.Bucket bucket : bigPolygonAggregation.getBuckets()) {
-                        BytesRef wkb = bucket.getShapeAsByte();
+                        byte[] wkb = bucket.getShapeAsByte().bytes;
 
-                        String geoString = outputFormatter.getGeoStringFromWKB(wkb.bytes);
+                        if (mustProject) {
+                            Geometry geom = wkbReader.read(wkb);
+                            geom = JTS.transform(geom, transform);
+                            wkb = new WKBWriter().write(geom);
+                        }
+
+                        String geoString = outputFormatter.getGeoStringFromWKB(wkb);
 
                         builder.startObject();
 
@@ -255,9 +278,15 @@ public class RestGeoAction extends BaseRestHandler {
                     }
 
                     for (GeoShape.Bucket bucket : lineStringAggregation.getBuckets()) {
-                        BytesRef wkb = bucket.getShapeAsByte();
+                        byte[] wkb = bucket.getShapeAsByte().bytes;
 
-                        String geoString = outputFormatter.getGeoStringFromWKB(wkb.bytes);
+                        if (mustProject) {
+                            Geometry geom = wkbReader.read(wkb);
+                            geom = JTS.transform(geom, transform);
+                            wkb = new WKBWriter().write(geom);
+                        }
+
+                        String geoString = outputFormatter.getGeoStringFromWKB(wkb);
 
                         builder.startObject();
 
@@ -280,6 +309,9 @@ public class RestGeoAction extends BaseRestHandler {
                         double bufferSize = GeoPluginUtils.getShapeLimit(zoom, jtsPoint.getCoordinate().y);
                         Geometry geom = jtsPoint.buffer(bufferSize, 4, BufferParameters.CAP_SQUARE);
 
+                        if (mustProject) {
+                            geom = JTS.transform(geom, transform);
+                        }
 
                         byte[] geoPointWkb = new WKBWriter().write(geom);
 
@@ -297,13 +329,22 @@ public class RestGeoAction extends BaseRestHandler {
                         builder.endObject();
                     }
 
+
                     for (GeoHashClustering.Bucket bucketGrid : pointAggregation.getBuckets()) {
-                        
+
                         GeoPoint pointHash = bucketGrid.getClusterCenter();
 
-                        byte[] geoPointWkb = new WKBWriter().write(geometryFactory.createPoint(new Coordinate(pointHash.getLon(), pointHash.getLat())));
+                        Coordinate coord = new Coordinate(pointHash.getLon(), pointHash.getLat());
 
-                        String geoString = outputFormatter.getGeoStringFromWKB(geoPointWkb);;
+                        if (mustProject) {
+                            JTS.transform(coord, coord, transform);
+                        }
+
+                        Geometry pointGeometry = geometryFactory.createPoint(coord);
+
+                        byte[] geoPointWkb = new WKBWriter().write(pointGeometry);
+
+                        String geoString = outputFormatter.getGeoStringFromWKB(geoPointWkb);
 
                         builder.startObject();
 
