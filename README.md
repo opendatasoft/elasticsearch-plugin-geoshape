@@ -2,7 +2,7 @@
 
 This geo shape plugin can be used to index and aggregate geo shapes in elasticsearch.
 
-This plugin adds a `geo` mapping type, a `geoshape` aggregation, a `geohash_clustering` aggregation and and a `geo` rest entry point.
+This plugin adds a `geo` mapping type, a `geoshape` aggregation, a `geohash_clustering` aggregation and a `geo` REST entry point.
 
 Installation
 ------------
@@ -17,7 +17,7 @@ Installation
 
 ### Geo mapping type
 
-`geo` mapping can replace `geo_shape` type. It parses `GeoJSON` shapes, and indexes them in elasticsearch. Compared to geo_shape type it adds extra sub fields :
+`geo` mapping can replace `geo_shape` type. It parses `GeoJSON` shapes, and indexes them in elasticsearch. Compared to geo_shape type it adds extra sub fields:
  - wkb : indexed wkb field, used to aggregate shapes
  - type : geo shape type (Polygon, point, LineString, ...) for searching on a specific type
  - area : area of Shape
@@ -26,27 +26,27 @@ Installation
  - centroid : geoPoint representing shape centroid
 
 Geo mapper computes, depending on shape length, a specific precision for each shape (corresponding to `precision` parameter).
-This precision can be boost with `boost_precision` parameter.
+This precision can be boosted with `boost_precision` parameter.
 
-Its parameters are slightly different than geoshape ones :
+Its parameters are slightly different than geoshape ones:
  - tree : geohash or quadtree
  - distance_error_pct : same as geo_shape type
- - boost_precision : double that can be used to boost shape precision. Between 0 and 1, default to 0.
+ - boost_precision : double that can be used to boost shape precision. Between 0 and 1, defaults to 0.
 
 ### Geoshape aggregation
 
-`geoshape` aggregation is a multi buckets aggregation that returns a bucket for each shape.
+`geoshape` aggregation is a multi-bucket aggregation that returns a bucket for each shape.
 
 `geoshape` parameters are :
  - field : a wkb field. (Maybe change to `geo` type field instead)
  - size : restrict number of results
- - output_format : define output shape format ('wkt', 'wkb', 'geojson'). Default to geojson
- - simplify : used to simplify aggregated shapes. Take a parameter dict
+ - output_format : define output shape format ('wkt', 'wkb', 'geojson'). Defaults to geojson
+ - simplify : used to simplify aggregated shapes. Takes a parameter dict
   - zoom : level of zoom. Mandatory in simplify dict
   - algorithm : algorithm used for shape simplification (DOUGLAS_PEUCKER, TOPOLOGY_PRESERVING). Default to DOUGLAS_PEUCKER
  - clipped : used to return a shape that are clipped to a defined envelope. Take a dict. WARNING, when used, zoom must be set in simplify in order to work (will be fixed in a future release)
   - envelope : elasticsearch envelope where shapes must be clipped on. Mandatory when clipped is used
-  - buffer : number of pixels add to envelope for clipping
+  - buffer : number of pixels added to envelope for clipping
 
 Example of use :
 ```
@@ -117,8 +117,8 @@ Result :
 ### Geohash clustering aggregation
 
 This aggregations computes a geohash precision from a `zoom` and a `distance` (in pixel).
-It groups points (from `field` parameter) into buckets that represent geohash cells and computes each buckets center.
-Then it merges these cells if distance between two cluster centers is lower than `distance` parameter.
+It groups points (from `field` parameter) into buckets that represent geohash cells and computes each bucket's center.
+Then it merges these cells if the distance between two clusters' centers is lower than the `distance` parameter.
 
 ```json
 {
@@ -137,7 +137,7 @@ Input parameters :
  - `zoom` is a mandatory integer parameter between 0 and 20. It represents the zoom level used in the request to aggregate geo points.
 
 The plugin aggregates these points in geohash with a "good" precision depending on the zoom provided. Then it merges clusters based on distance (in pixels).
-Default distance is set to 100, but can be set to another integer in the request.
+Default distance is set to 100, but it can be set to another integer in the request.
 
 For example :
 
@@ -185,16 +185,16 @@ For example :
 
 ### Geo tile REST entry
 
-This entry point generates "smart" results for a specific geo tile. The main purpose of this rest action is to return a tile that can be easily rendered with mapping applications like `mapnik`.
+This entry point generates "smart" results for a specific geo tile. The main purpose of this REST entry point is to return a tile that can be easily rendered with mapping applications like `mapnik`.
 
 Format is based on TMS format : /{index}/{type}/_geo/{zoom}/{x}/{y}
 For more information about this format : http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
 
-It takes `Get` parameters :
+It takes `GET` parameters :
  - field (mandatory): `geo` field name. Must be of type `geo`
- - tile_size : tile size in pixel. Default to 256
- - output_format :  'wkt', 'wkb' or 'geojson'. Default to geojson
- - output_projection: projection to apply on result geometries. Default to 'EPSG:4326'
+ - tile_size : tile size in pixel. Defaults to 256
+ - output_format :  'wkt', 'wkb' or 'geojson'. Defaults to geojson
+ - output_projection: projection to apply on result geometries. Defaults to 'EPSG:4326'
 
 It returns :
  - shape in wkt, wkb or geojson
