@@ -7,7 +7,9 @@ This plugin adds a `geo` mapping type, a `geoshape` aggregation, a `geohash_clus
 Installation
 ------------
 
-`bin/plugin --install geoshape-plugin --url "https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v1.1.2/elasticsearch-geo-plugin-1.1.2.zip"`
+```
+bin/plugin --install geoshape-plugin --url "https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v1.1.2/elasticsearch-geo-plugin-1.1.2.zip"
+```
 
 | elasticsearch  | Geoshape Plugin     |
 |----------------|---------------------|
