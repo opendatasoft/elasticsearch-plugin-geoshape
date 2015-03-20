@@ -33,8 +33,14 @@ import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.index.query.*;
 import org.elasticsearch.rest.*;
 import org.elasticsearch.rest.action.search.RestSearchAction;
+import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.search.SearchHitField;
 import org.elasticsearch.search.aggregations.bucket.SingleBucketAggregation;
 import org.elasticsearch.search.aggregations.bucket.filter.FilterAggregationBuilder;
+import org.elasticsearch.search.aggregations.bucket.terms.Terms;
+import org.elasticsearch.search.aggregations.bucket.terms.TermsBuilder;
+import org.elasticsearch.search.aggregations.metrics.tophits.TopHits;
+import org.elasticsearch.search.aggregations.metrics.tophits.TopHitsBuilder;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.geotools.geojson.geom.GeometryJSON;
 import org.geotools.geometry.jts.JTS;
@@ -168,6 +174,9 @@ public class RestGeoAction extends BaseRestHandler {
         );
 
 
+
+//        GeoShapeBuilder samallLineStringFirstHit = new GeoShapeBuilder("small_line_string_top_hit").field(geoFieldWKB).zoom(zoom).simplifyShape(true).outputFormat(outputFormat).size(1);
+//        GeoHashClusteringBuilder smallLineStringGrid = new GeoHashClusteringBuilder("small_line_string_agg").field(geoFieldCentroid).zoom(zoom).distance(1).subAggregation(samallLineStringFirstHit);
 
         GeoHashClusteringBuilder smallLineStringGrid = new GeoHashClusteringBuilder("small_line_string_agg").field(geoFieldCentroid).zoom(zoom).distance(1);
         FilterAggregationBuilder smallLineStringFilter = new FilterAggregationBuilder("small_line_string_filter").
@@ -354,7 +363,7 @@ public class RestGeoAction extends BaseRestHandler {
                         Geometry jtsPoint = geometryFactory.createPoint(new Coordinate(pointHash.lon(), pointHash.lat()));
 
                         double bufferSize = GeoPluginUtils.getShapeLimit(zoom, jtsPoint.getCoordinate().y);
-                        Geometry geom = jtsPoint.buffer(bufferSize, 4, BufferParameters.CAP_SQUARE);
+                        Geometry geom = jtsPoint.buffer(bufferSize / 3, 4, BufferParameters.CAP_SQUARE);
 
                         if (mustProject) {
                             geom = JTS.transform(geom, transform);
@@ -368,7 +377,7 @@ public class RestGeoAction extends BaseRestHandler {
 
                         builder.field("shape", geoString);
 //                        builder.field("digest", bucket.getHash());
-                        builder.field("type", "Polygon");
+                        builder.field("type", "LineString");
                         builder.field("doc_count", bucketGrid.getDocCount());
                         builder.field("cluster_count", bucketGrid.getDocCount());
                         builder.field("grid", bucketGrid.getKey());
