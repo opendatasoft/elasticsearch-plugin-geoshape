@@ -51,6 +51,7 @@ public class GeoMapper extends GeoShapeFieldMapper{
         public static final String TREE_LEVELS = "tree_levels";
         public static final String TREE_PRESISION = "precision";
         public static final String DISTANCE_ERROR_PCT = "distance_error_pct";
+        public static final String ORIENTATION = "orientation";
         public static final String STRATEGY = "strategy";
         public static final String BOOST_PRECISION = "boost_precision";
         public static final String WKB = "wkb";
@@ -70,6 +71,7 @@ public class GeoMapper extends GeoShapeFieldMapper{
         public static final int GEOHASH_LEVELS = GeoUtils.geoHashLevelsForPrecision("50m");
         public static final int QUADTREE_LEVELS = GeoUtils.quadTreeLevelsForPrecision("50m");
         public static final double DISTANCE_ERROR_PCT = 0.025d;
+        public static final ShapeBuilder.Orientation ORIENTATION = ShapeBuilder.Orientation.RIGHT;
         public static final double BOOST_PRECISION = 0;
 
         public static final FieldType FIELD_TYPE = new FieldType();
@@ -103,6 +105,8 @@ public class GeoMapper extends GeoShapeFieldMapper{
         private int treeLevels = 0;
         private double precisionInMeters = -1;
         private double distanceErrorPct = Defaults.DISTANCE_ERROR_PCT;
+
+        private ShapeBuilder.Orientation orientation = Defaults.ORIENTATION;
 
         private SpatialPrefixTree prefixTree;
 
@@ -148,6 +152,11 @@ public class GeoMapper extends GeoShapeFieldMapper{
             return this;
         }
 
+        public Builder orientation(ShapeBuilder.Orientation orientation) {
+            this.orientation = orientation;
+            return this;
+        }
+
         @Override
         public GeoMapper build(BuilderContext context) {
             final FieldMapper.Names names = buildNames(context);
@@ -177,7 +186,7 @@ public class GeoMapper extends GeoShapeFieldMapper{
             context.path().pathType(origPathType);
 
 
-            return new GeoMapper(names, tree, strategyName, distanceErrorPct, boostPrecision, wkbMapper, typeMapper, doubleMapper, bboxMapper, hashMapper, centroidMapper, fieldDataSettings, docValues, fieldType, postingsProvider,
+            return new GeoMapper(names, tree, strategyName, distanceErrorPct, orientation, boostPrecision, wkbMapper, typeMapper, doubleMapper, bboxMapper, hashMapper, centroidMapper, fieldDataSettings, docValues, fieldType, postingsProvider,
                     docValuesProvider, multiFieldsBuilder.build(this, context), copyTo);
         }
     }
@@ -204,6 +213,8 @@ public class GeoMapper extends GeoShapeFieldMapper{
                     builder.strategy(fieldNode.toString());
                 } else if (Names.BOOST_PRECISION.equals(fieldName)) {
                     builder.boostPrecision(Double.parseDouble(fieldNode.toString()));
+                } else if (Names.ORIENTATION.equals(fieldName)) {
+                    builder.orientation(ShapeBuilder.orientationFromString(fieldNode.toString()));
                 }
             }
             return builder;
@@ -231,6 +242,7 @@ public class GeoMapper extends GeoShapeFieldMapper{
     private final String defaultStrategyName;
     private final double distanceErrorPct;
     private final double boostPrecision;
+    private ShapeBuilder.Orientation shapeOrientation;
 
     private static SpatialPrefixTree getSearchPrefixTree(String treeType) {
         if (Names.TREE_GEOHASH.equals(treeType)) {
@@ -244,12 +256,12 @@ public class GeoMapper extends GeoShapeFieldMapper{
     }
 
     public GeoMapper(FieldMapper.Names names,
-                     String tree, String defaultStrategyName, double distanceErrorPct, double boostPrecision, BinaryFieldMapper wkbMapper,
+                     String tree, String defaultStrategyName, double distanceErrorPct, ShapeBuilder.Orientation shapeOrientation, double boostPrecision, BinaryFieldMapper wkbMapper,
                      StringFieldMapper typeMapper, DoubleFieldMapper areaMapper, GeoPointFieldMapper bboxMapper,
                      StringFieldMapper hashMapper, GeoPointFieldMapper centroidMapper, @Nullable Settings fieldDataSettings, Boolean docValues, FieldType fieldType,
                      PostingsFormatProvider postingsProvider, DocValuesFormatProvider docValuesProvider,
                      MultiFields multiFields, CopyTo copyTo) {
-        super(names, getSearchPrefixTree(tree), defaultStrategyName, distanceErrorPct, fieldType, postingsProvider, docValuesProvider, multiFields, copyTo);
+        super(names, getSearchPrefixTree(tree), defaultStrategyName, distanceErrorPct, shapeOrientation, fieldType, postingsProvider, docValuesProvider, multiFields, copyTo);
 //        super(names, 1, fieldType, docValues, null, null, postingsProvider, docValuesProvider, null, null, fieldDataSettings , null, multiFields, copyTo);
         this.wkbMapper = wkbMapper;
         this.typeMapper = typeMapper;
@@ -259,6 +271,7 @@ public class GeoMapper extends GeoShapeFieldMapper{
 //        this.wkbTextMapper = wkbTextMapper;
         this.centroidMapper = centroidMapper;
         this.defaultStrategyName = defaultStrategyName;
+        this.shapeOrientation = shapeOrientation;
 
 //        this.recursiveStrategy = new RecursivePrefixTreeStrategy(tree, names.indexName());
 //        this.recursiveStrategy.setDistErrPct(distanceErrorPct);
