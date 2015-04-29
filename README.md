@@ -8,12 +8,12 @@ Installation
 ------------
 
 ```
-bin/plugin --install geoshape-plugin --url "https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v1.1.4/elasticsearch-geo-plugin-1.1.4.zip"
+bin/plugin --install geoshape-plugin --url "https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v1.5.2.0/elasticsearch-geo-plugin-1.5.2.0.zip"
 ```
 
 | elasticsearch  | Geoshape Plugin     |
 |----------------|---------------------|
-| master         | not tested yet      |
+| 1.5.2          | 1.5.2.0             |
 | 1.4.4          | 1.1.4               |
 | 1.4.2          | 1.1.3               |
 
