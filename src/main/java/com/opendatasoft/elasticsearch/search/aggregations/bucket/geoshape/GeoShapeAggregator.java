@@ -193,36 +193,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
                 spare.area = geom.getLength();
                 spare.realType = geom.getGeometryType();
 
-                if (simplifyShape) {
-
-                    if (smallPolygon) {
-                        Geometry centroid = geom.getCentroid();
-                        double bufferSize = GeoPluginUtils.getShapeLimit(zoom, centroid.getCoordinate().y);
-                        geom = centroid.buffer(bufferSize, 4, BufferParameters.CAP_SQUARE);
-                        spare.simplifiedType = geom.getGeometryType();
-                        spare.wkb = new BytesRef(new WKBWriter().write(geom));
-                        spare.area = geom.getLength();
-                    } else {
-                        geom = simplifyGeoShape(geom);
-                        spare.simplifiedType = geom.getGeometryType();
-                        spare.wkb = new BytesRef(new WKBWriter().write(geom));
-                        spare.area = geom.getLength();
-                    }
-
-                }
-
-                if (clippedEnvelope != null && !geom.getGeometryType().equals("LineString")) {
-                    try {
-                        Geometry clippedGeom = new GeometryClipper(clippedEnvelope).clip(geom.reverse(), false);
-                        if (clippedGeom != null && ! clippedGeom.isEmpty()) {
-                            spare.wkb = new BytesRef(new WKBWriter().write(clippedGeom));
-                        }
-                    } catch (Exception e) {
-                        continue;
-                    }
-                }
             }
-
 
             spare.docCount = bucketDocCount(i);
             spare.bucketOrd = i;
@@ -234,6 +205,41 @@ public class GeoShapeAggregator extends BucketsAggregator {
 
         for (int i = ordered.size() - 1; i >= 0; --i) {
             final InternalGeoShape.Bucket bucket = ordered.pop();
+
+            Geometry geom;
+            try {
+                geom = wkbReader.read(bucket.wkb.bytes);
+            } catch (ParseException e) {
+                continue;
+            }
+            if (simplifyShape) {
+                if (smallPolygon) {
+                    Geometry centroid = geom.getCentroid();
+                    double bufferSize = GeoPluginUtils.getShapeLimit(zoom, centroid.getCoordinate().y);
+                    geom = centroid.buffer(bufferSize, 4, BufferParameters.CAP_SQUARE);
+                    bucket.simplifiedType = geom.getGeometryType();
+                    bucket.wkb = new BytesRef(new WKBWriter().write(geom));
+                    bucket.area = geom.getLength();
+                } else {
+                    geom = simplifyGeoShape(geom);
+                    bucket.simplifiedType = geom.getGeometryType();
+                    bucket.wkb = new BytesRef(new WKBWriter().write(geom));
+                    bucket.area = geom.getLength();
+                }
+
+            }
+
+            if (clippedEnvelope != null && !geom.getGeometryType().equals("LineString")) {
+                try {
+                    Geometry clippedGeom = new GeometryClipper(clippedEnvelope).clip(geom.reverse(), false);
+                    if (clippedGeom != null && ! clippedGeom.isEmpty()) {
+                        bucket.wkb = new BytesRef(new WKBWriter().write(clippedGeom));
+                    }
+                } catch (Exception e) {
+                    continue;
+                }
+            }
+
             bucket.aggregations = bucketAggregations(bucket.bucketOrd);
             list[i] = bucket;
         }
