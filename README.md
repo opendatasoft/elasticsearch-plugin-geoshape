@@ -187,10 +187,11 @@ Format is based on TMS format : /{index}/{type}/_geo/{zoom}/{x}/{y}
 For more information about this format : http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
 
 It takes parameters that can passed as `GET` parameters or in request body:
- - field (mandatory): `geo` field name. Must be of type `geo`
- - tile_size : tile size in pixel. Defaults to 256
- - output_format :  'wkt', 'wkb' or 'geojson'. Defaults to geojson
- - output_projection: projection to apply on result geometries. Defaults to 'EPSG:4326'
+ - `field` (mandatory): `geo` field name. Must be of type `geo`
+ - `tile_size` : tile size in pixel. Defaults to 256
+ - `output_format` :  'wkt', 'wkb' or 'geojson'. Defaults to geojson
+ - `output_projection` : projection to apply on result geometries. Defaults to 'EPSG:4326'
+ - `aggs` or `aggregations` (only on request body) : Performs elasticsearch aggregations https://www.elastic.co/guide/en/elasticsearch/reference/current/search-aggregations.html. Aggregations results are added for each shape object in an `aggregations` field.
 
 It returns :
  - shape in wkt, wkb or geojson
@@ -201,7 +202,7 @@ It returns :
 
 Example :
 
-`curl -XGET 'localhost:9200/my_index/geo_type/_geo/12/1036/704' -d '{"field": "geo_field"}'`
+`curl -XGET 'localhost:9200/my_index/geo_type/_geo/12/1036/704' -d '{"field": "geo_field", "aggs": {"term": {"terms":{"field": "term_field"}}}}'`
 
 ```
 {
@@ -214,7 +215,12 @@ Example :
          "type": "Point",
          "doc_count": 6,
          "cluster_count": 6,
-         "grid": "u09tgr"
+         "grid": "u09tgr",
+         "aggregations": {
+            "term": {
+                ...
+            }
+         }
       },
       {
          "shape": "POINT (2.24587597613 48.8691433358)",
@@ -222,7 +228,12 @@ Example :
          "type": "Point",
          "doc_count": 5,
          "cluster_count": 5,
-         "grid": "u09w50"
+         "grid": "u09w50",
+         "aggregations": {
+            "term": {
+                ...
+            }
+         }
       },
       {
          "shape": "POINT (2.29329076205 48.8577766649)",
@@ -230,7 +241,12 @@ Example :
          "type": "Point",
          "doc_count": 3,
          "cluster_count": 3,
-         "grid": "u09tun"
+         "grid": "u09tun",
+         "aggregations": {
+            "term": {
+                ...
+            }
+         }
       },
       {
          "shape": "POINT (2.2599223736999994 48.8606198209)",
@@ -238,7 +254,12 @@ Example :
          "type": "Point",
          "doc_count": 3,
          "cluster_count": 3,
-         "grid": "u09tgq"
+         "grid": "u09tgq",
+         "aggregations": {
+            "term": {
+                ...
+            }
+         }
       },
       {
          "shape": "POINT (2.25120424857 48.864782427799994)",
@@ -246,7 +267,12 @@ Example :
          "type": "Point",
          "doc_count": 3,
          "cluster_count": 3,
-         "grid": "u09tgp"
+         "grid": "u09tgp",
+         "aggregations": {
+            "term": {
+                ...
+            }
+         }
       },
       {
          "shape": "POINT (2.25293802515 48.8471789821)",
@@ -254,7 +280,12 @@ Example :
          "type": "Point",
          "doc_count": 3,
          "cluster_count": 3,
-         "grid": "u09tgk"
+         "grid": "u09tgk",
+         "aggregations": {
+            "term": {
+                ...
+            }
+         }
       }
    ]
 }
