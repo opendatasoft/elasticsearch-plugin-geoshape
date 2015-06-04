@@ -30,6 +30,8 @@ import org.elasticsearch.common.geo.builders.ShapeBuilder;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.xcontent.XContentBuilder;
+import org.elasticsearch.common.xcontent.XContentHelper;
+import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.index.query.*;
 import org.elasticsearch.rest.*;
 import org.elasticsearch.rest.action.search.RestSearchAction;
@@ -51,6 +53,7 @@ import org.opengis.referencing.crs.CoordinateReferenceSystem;
 import org.opengis.referencing.operation.MathTransform;
 
 import java.io.IOException;
+import java.util.Map;
 
 import static org.elasticsearch.rest.RestStatus.OK;
 
@@ -82,9 +85,44 @@ public class RestGeoAction extends BaseRestHandler {
 
         final GeometryJSON geometryJSON = new GeometryJSON(20);
 
+        String geoField = request.param("field");
+        final int zoom = request.paramAsInt("zoom", 1);
+        final int x = request.paramAsInt("x", 0);
+        final int y = request.paramAsInt("y", 0);
+        int tileSize = request.paramAsInt("tile_size", 256);
+        final int nbGeom = request.paramAsInt("nb_geom", 1000);
+        String stringOutputFormat = request.param("output_format", "wkt");
+        String outputProjection = request.param("output_projection", "EPSG:4326");
+        String stringAlgorithm = request.param("algorithm", "TOPOLOGY_PRESERVING");
 
-//        List< arbres_remarquables_20113-geo_shape-geo_shape-wkb
-        final String geoField = request.param("field");
+
+        XContentParser parser = XContentHelper.createParser(request.content());
+        XContentParser.Token token;
+        String currentFieldName = null;
+
+        while((token = parser.nextToken()) != XContentParser.Token.END_OBJECT) {
+            if (token == XContentParser.Token.FIELD_NAME) {
+                currentFieldName = parser.currentName();
+            } else if (token == XContentParser.Token.START_OBJECT) {
+                if (currentFieldName != null) {
+                    parser.map();
+                }
+            } else if (token == XContentParser.Token.VALUE_STRING) {
+                if ("field".equals(currentFieldName)) {
+                    geoField = parser.text();
+                } else if ("output_format".equals(currentFieldName)) {
+                    stringOutputFormat = parser.text();
+                } else if ("algorithm".equals(currentFieldName)) {
+                    stringAlgorithm = parser.text();
+                } else if ("output_projection".equals(currentFieldName)) {
+                    outputProjection = parser.text();
+                }
+            } else if (token == XContentParser.Token.VALUE_NUMBER) {
+                if ("tile_size".equals(currentFieldName)) {
+                    tileSize = parser.intValue();
+                }
+            }
+        }
         if (geoField == null) {
             throw new Exception("Field parameter is mandatory");
         }
@@ -94,19 +132,8 @@ public class RestGeoAction extends BaseRestHandler {
         final String geoFieldCentroid = geoField + "." + GeoMapper.Names.CENTROID;
         final String geoFieldDigest = geoField + "." + GeoMapper.Names.HASH;
 
-
-        final int zoom = request.paramAsInt("zoom", 1);
-        final int x = request.paramAsInt("x", 0);
-        final int y = request.paramAsInt("y", 0);
-        final int tileSize = request.paramAsInt("tile_size", 256);
-        final int nbGeom = request.paramAsInt("nb_geom", 1000);
-        final String stringOutputFormat = request.param("output_format", "wkt");
-        final String outputProjection = request.param("output_projection", "EPSG:4326");
-//        final String stringAlgorithm = request.param("algorithm", "TOPOLOGY_PRESERVING");
-        final String stringAlgorithm = request.param("algorithm", "TOPOLOGY_PRESERVING");
-        final InternalGeoShape.OutputFormat outputFormat = InternalGeoShape.OutputFormat.valueOf(stringOutputFormat.toUpperCase());
         final GeoShape.Algorithm algorithm = GeoShape.Algorithm.valueOf(stringAlgorithm.toUpperCase());
-
+        final InternalGeoShape.OutputFormat outputFormat = InternalGeoShape.OutputFormat.valueOf(stringOutputFormat.toUpperCase());
 
         // Force axis order : http://docs.geotools.org/latest/userguide/library/referencing/order.html
         System.setProperty("org.geotools.referencing.forceXY", "true");
@@ -219,7 +246,7 @@ public class RestGeoAction extends BaseRestHandler {
 
         searchRequest.searchType(SearchType.COUNT);
 
-        searchRequest.extraSource(searchSourceBuilder);
+        searchRequest.source(searchSourceBuilder);
 
         geoSimpleRequest.setSearchRequest(searchRequest);
 
