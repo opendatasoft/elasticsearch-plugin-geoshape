@@ -191,7 +191,7 @@ This entry point generates "smart" results for a specific geo tile. The main pur
 Format is based on TMS format : /{index}/{type}/_geo/{zoom}/{x}/{y}
 For more information about this format : http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
 
-It takes `GET` parameters :
+It takes parameters that can passed as `GET` parameters or in request body:
  - field (mandatory): `geo` field name. Must be of type `geo`
  - tile_size : tile size in pixel. Defaults to 256
  - output_format :  'wkt', 'wkb' or 'geojson'. Defaults to geojson
@@ -206,7 +206,7 @@ It returns :
 
 Example :
 
-`localhost:9200/my_index/geo_type/_geo/12/1036/704?field=geo_field`
+`curl -XGET 'localhost:9200/my_index/geo_type/_geo/12/1036/704' -d '{"field": "geo_field"}'`
 
 ```
 {
