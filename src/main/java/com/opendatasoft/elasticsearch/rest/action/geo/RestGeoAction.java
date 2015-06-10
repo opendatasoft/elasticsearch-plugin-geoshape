@@ -37,6 +37,7 @@ import org.elasticsearch.rest.action.search.RestSearchAction;
 import org.elasticsearch.search.aggregations.Aggregation;
 import org.elasticsearch.search.aggregations.bucket.MultiBucketsAggregation;
 import org.elasticsearch.search.aggregations.bucket.SingleBucketAggregation;
+import org.elasticsearch.search.aggregations.bucket.filter.FilterAggregationBuilder;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.geotools.geojson.geom.GeometryJSON;
 import org.geotools.geometry.jts.JTS;
@@ -180,34 +181,16 @@ public class RestGeoAction extends BaseRestHandler {
                                 .bottomRight(overflowEnvelope.getMaxX(), overflowEnvelope.getMinY()))
         );
 
-
-        // FIXME : Change aggregation construction when https://github.com/elastic/elasticsearch/pull/11473 is merged
         GeoHashClusteringBuilder pointGeoHashGridBuilder = new GeoHashClusteringBuilder("point_agg").field(geoFieldCentroid).zoom(zoom).distance(10);
 
-        XContentBuilder sub = XContentFactory.jsonBuilder().startObject();
-        pointGeoHashGridBuilder.toXContent(sub, ToXContent.EMPTY_PARAMS);
-        sub.endObject();
-
-        Map<String, Object> map = XContentHelper.convertToMap(sub.bytes(), true).v2();
         if (aggsParam != null) {
-            ((LinkedHashMap<String, Object>) map.entrySet().iterator().next().getValue()).put("aggs", aggsParam);
+            pointGeoHashGridBuilder.subAggregation(aggsParam);
         }
 
-
-        // Aggregate Point geometries
-        XContentBuilder agg = JsonXContent.contentBuilder()
-                .startObject()
-                    .startObject("point_filter")
-                        .field("filter", pointFilter)
-                        .field("aggs").map(map)
-                    .endObject();
-//                .endObject();
-
-//        searchSourceBuilder.aggregations(agg);
+        searchSourceBuilder.aggregation(new FilterAggregationBuilder("point_filter").filter(pointFilter).subAggregation(pointGeoHashGridBuilder));
 
         // Aggregate LineString geometries
         // We drop geometry with too small length
-
 
         FilterBuilder lineStringFilter = new BoolFilterBuilder().must(
                 new TermFilterBuilder(geoFieldType, "LineString"),
@@ -222,48 +205,24 @@ public class RestGeoAction extends BaseRestHandler {
 
         GeoHashClusteringBuilder smallLineStringGrid = new GeoHashClusteringBuilder("small_line_string_agg").field(geoFieldCentroid).zoom(zoom).distance(1);
 
-        sub = XContentFactory.jsonBuilder().startObject();
-        smallLineStringGrid.toXContent(sub, ToXContent.EMPTY_PARAMS);
-        sub.endObject();
-
-        Map<String, Object> smallLineStringGridMap = XContentHelper.convertToMap(sub.bytes(), true).v2();
         if (aggsParam != null) {
-            ((LinkedHashMap<String, Object>) map.entrySet().iterator().next().getValue()).put("aggs", aggsParam);
+            smallLineStringGrid.subAggregation(aggsParam);
         }
 
-//        FilterAggregationBuilder smallLineStringFilter = new FilterAggregationBuilder("small_line_string_filter").
-//                filter(new RangeFilterBuilder(geoFieldArea).lt(lineStringLimit)).subAggregation(smallLineStringGrid);
+        FilterAggregationBuilder smallLineStringFilter = new FilterAggregationBuilder("small_line_string_filter").
+                filter(new RangeFilterBuilder(geoFieldArea).lt(lineStringLimit)).subAggregation(smallLineStringGrid);
+
 
         GeoShapeBuilder bigLineStringAggregation = new GeoShapeBuilder("big_line_string_agg").field(geoFieldWKB).clippedEnvelope(envelopeBuilder).clippedBuffer(1).algorithm(algorithm).zoom(zoom).simplifyShape(true).outputFormat(outputFormat).size(nbGeom);
 
-        sub = XContentFactory.jsonBuilder().startObject();
-        bigLineStringAggregation.toXContent(sub, ToXContent.EMPTY_PARAMS);
-        sub.endObject();
-
-        Map<String, Object> bigLineStringAggregationMap = XContentHelper.convertToMap(sub.bytes(), true).v2();
         if (aggsParam != null) {
-            ((LinkedHashMap<String, Object>) map.entrySet().iterator().next().getValue()).put("aggs", aggsParam);
+            bigLineStringAggregation.subAggregation(aggsParam);
         }
 
+        FilterAggregationBuilder bigLineStringFilter = new FilterAggregationBuilder("big_line_string_filter").
+                filter(new RangeFilterBuilder(geoFieldArea).gt(lineStringLimit)).subAggregation(bigLineStringAggregation);
 
-//        FilterAggregationBuilder bigLineStringFilter = new FilterAggregationBuilder("big_line_string_filter").
-//                filter(new RangeFilterBuilder(geoFieldArea).gt(lineStringLimit)).subAggregation(bigLineStringAggregation);
-
-//        searchSourceBuilder.aggregation(new FilterAggregationBuilder("line_string_filter").filter(lineStringFilter).subAggregation(smallLineStringFilter).subAggregation(bigLineStringFilter));
-
-        agg.startObject("line_string_filter")
-                .field("filter", lineStringFilter)
-                .startObject("aggs")
-                    .startObject("small_line_string_filter")
-                        .field("filter", new RangeFilterBuilder(geoFieldArea).lt(lineStringLimit))
-                        .field("aggs").map(smallLineStringGridMap)
-                    .endObject()
-                    .startObject("big_line_string_filter")
-                        .field("filter", new RangeFilterBuilder(geoFieldArea).gt(lineStringLimit))
-                        .field("aggs").map(bigLineStringAggregationMap)
-                    .endObject()
-                .endObject()
-            .endObject();
+        searchSourceBuilder.aggregation(new FilterAggregationBuilder("line_string_filter").filter(lineStringFilter).subAggregation(smallLineStringFilter).subAggregation(bigLineStringFilter));
 
 
         // Aggregate Polygons
@@ -280,54 +239,26 @@ public class RestGeoAction extends BaseRestHandler {
 
         // Aggregate small polygons to geohash clusters
         GeoHashClusteringBuilder smallPolygonsGrid = new GeoHashClusteringBuilder("small_polygon_agg").field(geoFieldCentroid).zoom(zoom).distance(1);
-//        FilterAggregationBuilder smallPolygonFilter = new FilterAggregationBuilder("small_polygon_filter").
-//                filter(new RangeFilterBuilder(geoFieldArea).lt(shapeLimit)).subAggregation(smallPolygonsGrid);
 
-        sub = XContentFactory.jsonBuilder().startObject();
-        smallPolygonsGrid.toXContent(sub, ToXContent.EMPTY_PARAMS);
-        sub.endObject();
-
-        Map<String, Object> smallPolygonsGridMap = XContentHelper.convertToMap(sub.bytes(), true).v2();
         if (aggsParam != null) {
-            ((LinkedHashMap<String, Object>) map.entrySet().iterator().next().getValue()).put("aggs", aggsParam);
+            smallPolygonsGrid.subAggregation(aggsParam);
         }
+
+        FilterAggregationBuilder smallPolygonFilter = new FilterAggregationBuilder("small_polygon_filter").
+                filter(new RangeFilterBuilder(geoFieldArea).lt(shapeLimit)).subAggregation(smallPolygonsGrid);
 
 
         // Aggregate big polygons to geohash clusters
         GeoShapeBuilder bigPolygonsAggregation = new GeoShapeBuilder("big_polygon_agg").field(geoFieldWKB).clippedEnvelope(envelopeBuilder).clippedBuffer(1).algorithm(algorithm).zoom(zoom).simplifyShape(true).outputFormat(outputFormat).size(nbGeom);
-//        FilterAggregationBuilder bigPolygonsFilter = new FilterAggregationBuilder("big_polygon_filter").
-//                filter(new RangeFilterBuilder(geoFieldArea).gt(shapeLimit)).subAggregation(bigPolygonsAggregation);
-
-        sub = XContentFactory.jsonBuilder().startObject();
-        bigPolygonsAggregation.toXContent(sub, ToXContent.EMPTY_PARAMS);
-        sub.endObject();
-        Map<String, Object> bigPolygonsAggregationMap = XContentHelper.convertToMap(sub.bytes(), true).v2();
 
         if (aggsParam != null) {
-            ((LinkedHashMap<String, Object>) map.entrySet().iterator().next().getValue()).put("aggs", aggsParam);
+            bigPolygonsAggregation.subAggregation(aggsParam);
         }
-//
-//        searchSourceBuilder.aggregation(new FilterAggregationBuilder("polygon_filter").filter(polygonFilter).subAggregation(smallPolygonFilter).subAggregation(bigPolygonsFilter));
 
+        FilterAggregationBuilder bigPolygonsFilter = new FilterAggregationBuilder("big_polygon_filter").
+                filter(new RangeFilterBuilder(geoFieldArea).gt(shapeLimit)).subAggregation(bigPolygonsAggregation);
 
-        agg.startObject("polygon_filter")
-                .field("filter", polygonFilter)
-                .startObject("aggs")
-                    .startObject("small_polygon_filter")
-                        .field("filter", new RangeFilterBuilder(geoFieldArea).lt(shapeLimit))
-                        .field("aggs").map(smallPolygonsGridMap)
-                    .endObject()
-                    .startObject("big_polygon_filter")
-                        .field("filter", new RangeFilterBuilder(geoFieldArea).gt(shapeLimit))
-                        .field("aggs").map(bigPolygonsAggregationMap)
-                    .endObject()
-                .endObject()
-            .endObject();
-
-
-        agg.endObject();
-
-        searchSourceBuilder.aggregations(agg);
+        searchSourceBuilder.aggregation(new FilterAggregationBuilder("polygon_filter").filter(polygonFilter).subAggregation(smallPolygonFilter).subAggregation(bigPolygonsFilter));
 
         searchSourceBuilder.size(0);
 
