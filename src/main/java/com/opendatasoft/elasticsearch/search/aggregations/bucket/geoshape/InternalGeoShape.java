@@ -213,6 +213,7 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
     @Override
     public void readFrom(StreamInput in) throws IOException {
         this.name = in.readString();
+        this.outputFormat = OutputFormat.valueOf(in.readString());
         this.requiredSize = readSize(in);
         int size = in.readVInt();
         List<Bucket> buckets = new ArrayList<>(size);
@@ -226,6 +227,7 @@ public class InternalGeoShape extends InternalAggregation implements GeoShape {
     @Override
     public void writeTo(StreamOutput out) throws IOException {
         out.writeString(name);
+        out.writeString(outputFormat.name());
         writeSize(requiredSize, out);
         out.writeVInt(buckets.size());
         for (Bucket bucket : buckets) {
