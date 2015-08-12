@@ -96,12 +96,16 @@ public class RestGeoAction extends BaseRestHandler {
 
         Map<String, Object> aggsParam = null;
 
+        SearchSourceBuilder defaultQuery = new SearchSourceBuilder();
+
         while((token = parser.nextToken()) != XContentParser.Token.END_OBJECT) {
             if (token == XContentParser.Token.FIELD_NAME) {
                 currentFieldName = parser.currentName();
             } else if (token == XContentParser.Token.START_OBJECT) {
                 if ("aggs".equals(currentFieldName) || "aggregations".equals(currentFieldName)) {
                     aggsParam = parser.map();
+                } else if ("query".equals(currentFieldName)) {
+                    defaultQuery.query(parser.map());
                 }
             } else if (token == XContentParser.Token.VALUE_STRING) {
                 if ("field".equals(currentFieldName)) {
@@ -265,6 +269,8 @@ public class RestGeoAction extends BaseRestHandler {
         searchRequest.searchType(SearchType.COUNT);
 
         searchRequest.source(searchSourceBuilder);
+
+        searchRequest.extraSource(defaultQuery);
 
         geoSimpleRequest.setSearchRequest(searchRequest);
 
