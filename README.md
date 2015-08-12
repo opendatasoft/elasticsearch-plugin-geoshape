@@ -8,7 +8,7 @@ Installation
 ------------
 
 ```
-bin/plugin --install geoshape-plugin --url "https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v1.6.0.1/elasticsearch-geo-plugin-1.6.0.1.zip"
+bin/plugin --install geoshape-plugin --url "https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v1.6.0.2/elasticsearch-geo-plugin-1.6.0.2.zip"
 ```
 
 
