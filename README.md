@@ -8,7 +8,7 @@ Installation
 ------------
 
 ```
-bin/plugin --install geoshape-plugin --url "https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v1.5.2.3/elasticsearch-geo-plugin-1.5.2.3.zip"
+bin/plugin --install geoshape-plugin --url "https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v1.5.2.4/elasticsearch-geo-plugin-1.5.2.4.zip"
 ```
 
 ### Geo mapping type
