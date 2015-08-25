@@ -1,9 +1,13 @@
 package com.opendatasoft.elasticsearch.index.mapper.geo;
 
 import com.opendatasoft.elasticsearch.plugin.geo.GeoPluginUtils;
+import com.spatial4j.core.context.jts.JtsSpatialContext;
 import com.spatial4j.core.shape.Shape;
+import com.spatial4j.core.shape.ShapeCollection;
+import com.spatial4j.core.shape.jts.JtsGeometry;
 import com.vividsolutions.jts.geom.Coordinate;
 import com.vividsolutions.jts.geom.Geometry;
+import com.vividsolutions.jts.geom.GeometryFactory;
 import com.vividsolutions.jts.io.WKBWriter;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.FieldType;
@@ -31,7 +35,6 @@ import org.elasticsearch.index.mapper.*;
 import org.elasticsearch.index.mapper.core.*;
 import org.elasticsearch.index.mapper.geo.GeoPointFieldMapper;
 import org.elasticsearch.index.mapper.geo.GeoShapeFieldMapper;
-import org.geotools.geojson.geom.GeometryJSON;
 
 import java.io.*;
 import java.util.HashMap;
@@ -233,8 +236,6 @@ public class GeoMapper extends GeoShapeFieldMapper{
 //    private final RecursivePrefixTreeStrategy recursiveStrategy;
 //    private final TermQueryPrefixTreeStrategy termStrategy;
 
-    private final GeometryJSON geometryJSON;
-
     private final Map<Integer, PrefixTreeStrategy> hashTreeLevels;
 
     // Tree Type : Geohash or quadTree
@@ -280,8 +281,6 @@ public class GeoMapper extends GeoShapeFieldMapper{
 //        this.defaultStrategy = resolveStrategy(defaultStrategyName);
 
         this.tree = tree;
-
-        geometryJSON = new GeometryJSON();
 
         this.hashTreeLevels = new HashMap<>();
         this.distanceErrorPct = distanceErrorPct;
@@ -433,6 +432,22 @@ public class GeoMapper extends GeoShapeFieldMapper{
         return prefixTreeStrategy;
     }
 
+    private Geometry getGeometryFromShape(Shape shape) {
+        if (shape instanceof ShapeCollection) {
+            GeometryFactory geometryFactory = JtsSpatialContext.GEO.getGeometryFactory();
+            Geometry [] geometries = new Geometry[((ShapeCollection) shape).size()];
+            int i = 0;
+            for(Object s :((ShapeCollection) shape).getShapes()) {
+                geometries[i++] = getGeometryFromShape((Shape)s);
+            }
+            return geometryFactory.createGeometryCollection(geometries);
+        } else if (shape instanceof JtsGeometry){
+            return ((JtsGeometry) shape).getGeom();
+        } else {
+            throw new MapperParsingException("failed to parse [" + names.fullName() + "]");
+        }
+    }
+
     @Override
     public void parse(ParseContext context) throws IOException {
         try {
@@ -447,12 +462,7 @@ public class GeoMapper extends GeoShapeFieldMapper{
 
             Shape shape = shapeBuilder.build();
 
-
-            String geoJson = shapeBuilder.toString();
-
-            geoJson = geoJson.replaceFirst(shapeBuilder.type().name().toLowerCase(), getGeoJsonType(shapeBuilder.type()));
-
-            Geometry geom = geometryJSON.read(geoJson);
+            Geometry geom = getGeometryFromShape(shape);
 
             Geometry centroid = geom.getCentroid();
 
@@ -510,27 +520,6 @@ public class GeoMapper extends GeoShapeFieldMapper{
 
         } catch (Exception e) {
             throw new MapperParsingException("failed to parse [" + names.fullName() + "]", e);
-        }
-    }
-
-    private String getGeoJsonType(ShapeBuilder.GeoShapeType geoType) throws IOException {
-        switch (geoType) {
-            case POINT:
-                return "Point";
-            case MULTIPOINT:
-                return "MultiPoint";
-            case LINESTRING:
-                return "LineString";
-            case MULTILINESTRING:
-                return "MultiLineString";
-            case POLYGON:
-                return "Polygon";
-            case MULTIPOLYGON:
-                return "MultiPolygon";
-            case GEOMETRYCOLLECTION:
-                return "GeometryCollection";
-            default:
-                throw new IOException("Geo Type unknown");
         }
     }
 
