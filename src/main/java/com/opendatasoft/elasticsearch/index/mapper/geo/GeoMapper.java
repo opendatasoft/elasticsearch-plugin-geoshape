@@ -441,10 +441,10 @@ public class GeoMapper extends GeoShapeFieldMapper{
                 geometries[i++] = getGeometryFromShape((Shape)s);
             }
             return geometryFactory.createGeometryCollection(geometries);
-        } else if (shape instanceof JtsGeometry){
+        } else if (shape instanceof JtsGeometry) {
             return ((JtsGeometry) shape).getGeom();
         } else {
-            throw new MapperParsingException("failed to parse [" + names.fullName() + "]");
+            return JtsSpatialContext.GEO.getGeometryFrom(shape);
         }
     }
 
