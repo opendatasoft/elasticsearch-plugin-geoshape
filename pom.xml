@@ -6,7 +6,7 @@
 
     <groupId>org.opendatasoft.elasticsearch</groupId>
     <artifactId>elasticsearch-geo-plugin</artifactId>
-    <version>1.6.0.4</version>
+    <version>1.6.0.5</version>
 
     <parent>
         <groupId>org.sonatype.oss</groupId>
