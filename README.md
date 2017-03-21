@@ -292,17 +292,15 @@ Example :
 }
 ```
 
-## Geo preview with shape simplification and conversion
+## Geo Simplify (geo shape simplification script)
 
-This script adds a generated field containing the simplified or converted geoshape for the requested field.
+This script adds a generated field containing the simplified geoshape for the requested field.
 
 It takes parameters that can passed in a `POST` request body:
- - `geoshapestringfield` (mandatory): `geo` field name. Must be of type `geo`
- - `simplify` : boolean for whether or not the shape should be simplified according to zoom level
- - `zoom` : the zoom level for simplification (1 giving the most simplified result, mandatory if simplify=true)
- - `output_format` : format of the output (can be `geojson`, `wkt` or `wkb`, defaults to `geojson`)
+ - `field` (mandatory): `geo` field name. Must be of type `geo`
+ - `zoom` (mandatory) : the zoom level for simplification, 1 giving the most simplified result
+ - `output_format` : format of the output, can be `geojson` (default), `wkt` or `wkb`
  - `algorithm` : algorithm used for simplification, can be `douglas_peucker` (default) or `topology_preserving`
- - `is_point` : boolean (defaults to false) used to indicate the shape is a point
 
 Example:
 
@@ -312,12 +310,11 @@ Example:
 {
   "script_fields": {
     "simplified": {
-      "script": "geopreview",
+      "script": "geo_simplify",
       "lang":"native",
       "params": {
-        "geoshapestringfield": "geo_shape",
-        "zoom": 3,
-        "simplify": true
+        "field": "geo_shape",
+        "zoom": 3
       }
     }
   }
@@ -334,9 +331,35 @@ Example:
     "failed": 0
   },
   "hits": {
-    "total": 1,
+    "total": 3,
     "max_score": 1,
     "hits": [
+      {
+        "_index": "test_index_geo",
+        "_type": "records",
+        "_id": "AVrxb8fMCjSOdtKpLj4q",
+        "_score": 1,
+        "fields": {
+          "simplified": [
+            {
+              "real_type": "Point",
+              "geom": "{\"type\":\"Point\",\"coordinates\":[-14,20]}",
+              "type": "Point"
+            }
+          ]
+        }
+      },
+      {
+        "_index": "test_index_geo",
+        "_type": "records",
+        "_id": "AVrxcBv4CjSOdtKpLj4r",
+        "_score": 1,
+        "fields": {
+          "simplified": [
+            {}
+          ]
+        }
+      },
       {
         "_index": "test_index_geo",
         "_type": "records",
