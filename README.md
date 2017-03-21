@@ -296,3 +296,69 @@ Example :
    ]
 }
 ```
+
+## Geo preview with shape simplification and conversion
+
+This script adds a generated field containing the simplified or converted geoshape for the requested field.
+
+It takes parameters that can passed in a `POST` request body:
+ - `geoshapestringfield` (mandatory): `geo` field name. Must be of type `geo`
+ - `simplify` : boolean for whether or not the shape should be simplified according to zoom level
+ - `zoom` : the zoom level for simplification (1 giving the most simplified result, mandatory if simplify=true)
+ - `output_format` : format of the output (can be `geojson`, `wkt` or `wkb`, defaults to `geojson`)
+ - `algorithm` : algorithm used for simplification, can be `douglas_peucker` (default) or `topology_preserving`
+ - `is_point` : boolean (defaults to false) used to indicate the shape is a point
+
+Example:
+
+```
+# POST /test_index_geo/records/_search
+
+{
+  "script_fields": {
+    "simplified": {
+      "script": "geopreview",
+      "lang":"native",
+      "params": {
+        "geoshapestringfield": "geo_shape",
+        "zoom": 3,
+        "simplify": true
+      }
+    }
+  }
+}
+
+# Response
+
+{
+  "took": 89,
+  "timed_out": false,
+  "_shards": {
+    "total": 5,
+    "successful": 5,
+    "failed": 0
+  },
+  "hits": {
+    "total": 1,
+    "max_score": 1,
+    "hits": [
+      {
+        "_index": "test_index_geo",
+        "_type": "records",
+        "_id": "AVrsDq2oNWoYxp2XjII_",
+        "_score": 1,
+        "fields": {
+          "simplified": [
+            {
+              "real_type": "Polygon",
+              "geom": "{\"type\":\"Polygon\",\"coordinates\":[[[-84.22119140625,34.985003130171066],[-84.32281494140625,34.9895035675793],[-84.29122924804688,35.21981940793435],[-84.04266357421875,35.27701633139884],[-84.01931762695312,35.41479572901859],[-83.88473510742186,35.516578738902936],[-83.49746704101562,35.563512051219696],[-82.96737670898438,35.793310688351724],[-82.91244506835938,35.92353244718235],[-82.69546508789062,36.04465753921525],[-82.61306762695312,36.060201412392914],[-82.5677490234375,35.951329861522666],[-82.35488891601562,36.117908916563685],[-82.03628540039062,36.12900165569652],[-81.86325073242188,36.33504067209607],[-81.70669555664062,36.33504067209607],[-81.68197631835938,36.58686302344181],[-75.79605102539062,36.54936246839778],[-75.3936767578125,35.639441068973916],[-75.487060546875,35.18727767598896],[-75.9210205078125,35.04798673426734],[-76.53076171875,34.53371242139567],[-76.761474609375,34.63320791137959],[-77.376708984375,34.45674800347809],[-77.5909423828125,34.3207552752374],[-77.9754638671875,33.73804486328907],[-78.11279296875,33.8521697014074],[-78.4808349609375,33.815666308702774],[-79.6728515625,34.8047829195724],[-80.782470703125,34.836349990763864],[-80.9307861328125,35.092945313732635],[-81.0516357421875,35.02999636902566],[-81.0516357421875,35.137879119634185],[-82.40295410156249,35.22318504970181],[-83.1060791015625,35.003003395276714],[-84.22119140625,34.985003130171066]],[[-75.5914306640625,35.74205383068037],[-75.706787109375,35.74205383068037],[-75.706787109375,35.634976650677295],[-76.0858154296875,35.29943548054543],[-76.4208984375,35.25907654252574],[-76.5252685546875,35.10642805736423],[-76.2066650390625,34.994003757575776],[-75.56396484375,35.32633026307483],[-75.5914306640625,35.74205383068037]]]}",
+              "type": "Polygon"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+```
+
