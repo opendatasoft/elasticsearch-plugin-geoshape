@@ -65,6 +65,6 @@ public class GeoPlugin extends AbstractPlugin {
     }
 
     public void onModule(ScriptModule module) {
-        module.registerScript("geopreview", OdsScriptFactory.class);
+        module.registerScript("geo_simplify", OdsScriptFactory.class);
     }
 }
