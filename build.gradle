@@ -44,6 +44,6 @@ checkstyleTest.enabled = true
 
 licenseFile = rootProject.file('LICENSE')
 noticeFile = rootProject.file('README.md')
-dependencyLicenses.enabled = false
+dependencyLicenses.enabled = true
 
-thirdPartyAudit.enabled = false
+thirdPartyAudit.enabled = true
