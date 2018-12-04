@@ -15,21 +15,21 @@ This is an `Ingest`, `Search` and `Script` plugin.
 
 ## Usage
 
-#### Ingest processor and indexing 
+### Ingest processor and indexing 
 A new processor `geo_extension` adds custom fields to the desired geo_shape data object at ingest time.
 Custom fields are:
-- wkb: from the geoJSON input field (can be used then to aggregate shapes)
-- type: geo shape type (Polygon, point, LineString, ...) for searching on a specific type
-- area: area of Shape
-- bbox: geo_point array containing topLeft and bottomRight points of shape envelope
-- centroid : geo_point representing shape centroid
-- hash: shape digest to perform exact request on shape (in other words: used as a primary key. we may want to use the wkt in the future?)
+- `wkb`: from the geoJSON input field (can be used then to aggregate shapes)
+- `type`: geo shape type (Polygon, point, LineString, ...) for searching on a specific type
+- `area`: area of Shape
+- `bbox`: geo_point array containing topLeft and bottomRight points of shape envelope
+- `centroid`: geo_point representing shape centroid
+- `hash`: shape digest to perform exact request on shape (in other words: used as a primary key. we may want to use the wkt in the future?)
 
 It also auto-fixes shapes that are invalid for elasticsearch but not for common GIS systems: the case where two identical
 geo_points are following each other in a shape. 
 
 
-##### Params
+#### Params
 Processor name: `geo_extension`.
 Processor params:
 - `geo_field_prefix`: the prefix of the geo_shape field. For example `geoshape` will match `geoshape1`, `geoshape_1`, etc. Wildcard usage is possible, e.g. `geoshape_*`. Default to `geoshape`.
@@ -40,7 +40,7 @@ Processor params:
 - `centroid_field`: the subfield name of the geo_shape centroid field. `false` to disable it (default to `true`), or any `[my_centroid_name]` to choose another subfield name. Default to `centroid`.
 
 
-##### Example
+#### Example
 ```
 
 PUT _ingest/pipeline/geo_extension
@@ -235,13 +235,13 @@ Note that the duplicated point has been deduplicated.
 
 
 
-#### Geoshape aggregation
+### Geoshape aggregation
 
 Geoshape aggregation based on auto-computed shape hash.
 
 
 
-##### Params
+#### Params
 - `field` (mandatory): the field used for aggregating. Must be of wkb type. E.g.: "geoshape_0.wkb".
 - `output_format`: the output_format in [`geojson`, `wkt`, `wkb`]. Default to `geojson`.
 - `simplify`:
@@ -251,7 +251,7 @@ Geoshape aggregation based on auto-computed shape hash.
 - `shard_size`: can be used to minimize the extra work that comes with bigger requested `size`. See elasticsearch official terms aggregation documentation for more explanation.
 
 
-##### Example
+#### Example
 ```
 GET main/_search?size=0
 {
@@ -291,19 +291,19 @@ Result:
 
 
 
-#### Geoshape simplify script
+### Geoshape simplify script
 
 Search script for simplifying shapes dynamically. 
 
 
-##### Script params
+#### Script params
 - `field`: the field to apply the script to.
 - `zoom`: the zoom level in range [0, 20]. 0 is the most simplified and 20 is the least. Default to 0.
 - `algorithm`: simplify algorithm in [`DOUGLAS_PEUCKER`, `TOPOLOGY_PRESERVING`]. Default to `DOUGLAS_PEUCKER`.
 - `output_format`: the output_format in [`geojson`, `wkt`, `wkb`]. Default to `geojson`.
 
 
-##### Example
+#### Example
 
 ```
 GET main/_search
