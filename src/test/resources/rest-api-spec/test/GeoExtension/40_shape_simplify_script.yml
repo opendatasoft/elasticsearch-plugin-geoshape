@@ -1,0 +1,162 @@
+---
+"Test geoshape simplify script":
+
+  # Create the pipeline and the mapping
+  - do:
+      ingest.put_pipeline:
+        id: "geo_extension"
+        body:  >
+          {
+            "description": "Add extra geo fields to geo_shape fields.",
+            "processors": [
+              {
+                "geo_extension": {
+                  "geo_field_prefix": "geoshape_*",
+                  "wkb_field": "true",
+                  "type_field": "true",
+                  "area_field": "true",
+                  "bbox_field": "true",
+                  "centroid_field": "true"
+                }
+              }
+            ]
+          }
+
+  - do:
+      indices.create:
+        index: test_index
+        body:
+          settings:
+            number_of_shards: "1"
+            number_of_replicas: "0"
+
+  - do:
+      cluster.health:
+        wait_for_status: green
+
+  - do:
+      indices.put_mapping:
+        index: test_index
+        type: doc
+        body:
+          doc:
+            dynamic_templates: [
+            {
+              "geoshapes": {
+                "match": "geoshape_*",
+                "mapping": {
+                  "properties": {
+                    "geoshape": {"type": "geo_shape"},
+                    "hash": {"type": "keyword"},
+                    "wkb": {"type": "binary", "doc_values": true},
+                    "type": {"type": "keyword"},
+                    "area": {"type": "half_float"},
+                    "bbox": {"type": "geo_point"},
+                    "centroid": {"type": "geo_point"}
+                  }
+                }
+              }
+            }
+            ]
+
+  - do:
+      index:
+        index: test_index
+        type: doc
+        pipeline: "geo_extension"
+        body: {
+          "geoshape_0": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  1.6809082031249998,
+                  49.05227025601607
+                ],
+                [
+                  2.021484375,
+                  48.596592251456705
+                ],
+                [
+                  3.262939453125,
+                  48.922499263758255
+                ],
+                [
+                  2.779541015625,
+                  49.196064000723794
+                ],
+                [
+                  2.0654296875,
+                  49.23194729854559
+                ],
+                [
+                  1.6809082031249998,
+                  49.05227025601607
+                ]
+              ]
+            ]
+          }
+        }
+
+  - do:
+      indices.refresh: {}
+
+
+  # test shape simplify: WKB output_format, zoom 8
+  - do:
+      search:
+        body:
+          script_fields:
+            simplified_shape:
+              script:
+                lang: "geo_extension_scripts"
+                source: "geo_simplify"
+                params:
+                  field: "geoshape_0"
+                  zoom: 20
+                  output_format: "wkb"
+
+  - match: { hits.total: 1 }
+  - match: { hits.hits.0.fields.simplified_shape.0.type: "Polygon" }
+  - match: { hits.hits.0.fields.simplified_shape.0.real_type: "Polygon" }
+  - match: { hits.hits.0.fields.simplified_shape.0.geom: "AAAAAAMAAAABAAAABkAALAAAAAAAQEhMXSKIhts/+uT//////0BIhrDKsBJAQACGAAAAAABASJ2wcvbTDkAGPIAAAAAAQEiZGKALhAxAChqAAAAAAEBIdhR0tDaAQAAsAAAAAABASExdIoiG2w==" }
+
+
+  # test shape simplify: WKT output_format, zoom 20
+  - do:
+      search:
+        body:
+          script_fields:
+            simplified_shape:
+              script:
+                lang: "geo_extension_scripts"
+                source: "geo_simplify"
+                params:
+                  field: "geoshape_0"
+                  zoom: 20
+                  output_format: "wkt"
+
+  - match: { hits.total: 1 }
+  - match: { hits.hits.0.fields.simplified_shape.0.type: "Polygon" }
+  - match: { hits.hits.0.fields.simplified_shape.0.real_type: "Polygon" }
+  - match: { hits.hits.0.fields.simplified_shape.0.geom: "POLYGON ((2.021484375 48.596592251456705, 1.6809082031249998 49.05227025601607, 2.0654296875 49.23194729854559, 2.779541015625 49.196064000723794, 3.262939453125 48.922499263758255, 2.021484375 48.596592251456705))" }
+
+
+  # test shape simplify: WKT output_format, zoom 1
+  - do:
+      search:
+        body:
+          script_fields:
+            simplified_shape:
+              script:
+                lang: "geo_extension_scripts"
+                source: "geo_simplify"
+                params:
+                  field: "geoshape_0"
+                  zoom: 1
+                  output_format: "wkt"
+
+  - match: { hits.total: 1 }
+  - match: { hits.hits.0.fields.simplified_shape.0.type: "SimplificationPoint" }
+  - match: { hits.hits.0.fields.simplified_shape.0.geom: "POINT EMPTY" }
+

@@ -1,0 +1,269 @@
+---
+"Test geoshape aggregation using geo extension pipeline":
+
+# Create the pipeline and the mapping
+  - do:
+      ingest.put_pipeline:
+        id: "geo_extension"
+        body:  >
+          {
+            "description": "Add extra geo fields to geo_shape fields.",
+            "processors": [
+              {
+                "geo_extension": {
+                  "geo_field_prefix": "geoshape_*",
+                  "wkb_field": "true",
+                  "type_field": "true",
+                  "area_field": "true",
+                  "bbox_field": "true",
+                  "centroid_field": "true"
+                }
+              }
+            ]
+          }
+
+  - do:
+      indices.create:
+        index: test_index
+        body:
+          settings:
+            number_of_shards: "1"
+            number_of_replicas: "0"
+
+  - do:
+      cluster.health:
+        wait_for_status: green
+
+  - do:
+      indices.put_mapping:
+        index: test_index
+        type: doc
+        body:
+          doc:
+            dynamic_templates: [
+              {
+                "geoshapes": {
+                  "match": "geoshape_*",
+                  "mapping": {
+                    "properties": {
+                      "geoshape": {"type": "geo_shape"},
+                      "hash": {"type": "keyword"},
+                      "wkb": {"type": "binary", "doc_values": true},
+                      "type": {"type": "keyword"},
+                      "area": {"type": "half_float"},
+                      "bbox": {"type": "geo_point"},
+                      "centroid": {"type": "geo_point"}
+                    }
+                  }
+                }
+              }
+            ]
+
+  - do:
+      index:
+        index: test_index
+        type: doc
+        pipeline: "geo_extension"
+        body: {
+          "geoshape_0": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  1.6809082031249998,
+                  49.05227025601607
+                ],
+                [
+                  2.021484375,
+                  48.596592251456705
+                ],
+                [
+                  3.262939453125,
+                  48.922499263758255
+                ],
+                [
+                  2.779541015625,
+                  49.196064000723794
+                ],
+                [
+                  2.0654296875,
+                  49.23194729854559
+                ],
+                [
+                  1.6809082031249998,
+                  49.05227025601607
+                ]
+              ]
+            ]
+          }
+        }
+
+  - do:
+      index:
+        index: test_index
+        type: doc
+        pipeline: "geo_extension"
+        body: {
+          "geoshape_0": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  1.6809082031249998,
+                  49.05227025601607
+                ],
+                [
+                  2.021484375,
+                  48.596592251456705
+                ],
+                [
+                  3.262939453125,
+                  47.922499263758255
+                ],
+                [
+                  2.779541015625,
+                  49.196064000723794
+                ],
+                [
+                  2.0654296875,
+                  49.23194729854559
+                ],
+                [
+                  1.6809082031249998,
+                  49.05227025601607
+                ]
+              ]
+            ]
+          }
+        }
+
+  - do:
+      indices.refresh: {}
+
+
+# test shape aggregation: basic
+  - do:
+      search:
+        body: {
+          "size" : 0,
+          "aggs" : {
+            "geo_preview" : {
+              "geoshape" : {
+                "field" : "geoshape_0.wkb",
+              }
+            }
+          }
+        }
+
+
+  - match: { hits.total: 2 }
+
+
+# test shape aggregation: WKT output_format, topology_preserving algorithm
+  - do:
+      search:
+        body: {
+          "size" : 0,
+          "aggs" : {
+            "geo_preview" : {
+              "geoshape" : {
+                "field" : "geoshape_0.wkb",
+                "output_format": "wkt",
+                "simplify": {
+                  "zoom": 20,
+                  "algorithm": "TOPOLOGY_PRESERVING"
+                }
+              }
+            }
+          }
+        }
+
+  - match: { hits.total: 2 }
+
+  - match: { aggregations.geo_preview.buckets.0.key: "POLYGON ((2.021484375 48.596592251456705, 3.262939453125 47.922499263758255, 2.779541015625 49.196064000723794, 2.0654296875 49.23194729854559, 1.6809082031249998 49.05227025601607, 2.021484375 48.596592251456705))" }
+  - match: { aggregations.geo_preview.buckets.0.digest: "-2520094226970255334" }
+  - match: { aggregations.geo_preview.buckets.0.type: "Polygon" }
+  - match: { aggregations.geo_preview.buckets.0.doc_count: 1 }
+
+  - match: { aggregations.geo_preview.buckets.1.key: "POLYGON ((2.021484375 48.596592251456705, 3.262939453125 48.922499263758255, 2.779541015625 49.196064000723794, 2.0654296875 49.23194729854559, 1.6809082031249998 49.05227025601607, 2.021484375 48.596592251456705))" }
+  - match: { aggregations.geo_preview.buckets.1.digest: "-5012816342630707936" }
+  - match: { aggregations.geo_preview.buckets.1.type: "Polygon" }
+  - match: { aggregations.geo_preview.buckets.1.doc_count: 1 }
+
+
+# test shape aggregation: WKB output_format, douglas_peucker algorithm
+  - do:
+      search:
+        body: {
+          "size" : 0,
+          "aggs" : {
+            "geo_preview" : {
+              "geoshape" : {
+                "field" : "geoshape_0.wkb",
+                "output_format": "wkb",
+                "simplify": {
+                  "zoom": 20,
+                  "algorithm": "douglas_peucker"
+                }
+              }
+            }
+          }
+        }
+
+  - match: { hits.total: 2 }
+
+  - match: { aggregations.geo_preview.buckets.0.key: "AAAAAAMAAAABAAAABkAALAAAAAAAQEhMXSKIhts/+uT//////0BIhrDKsBJAQACGAAAAAABASJ2wcvbTDkAGPIAAAAAAQEiZGKALhAxAChqAAAAAAEBH9hR0tDaAQAAsAAAAAABASExdIoiG2w==" }
+  - match: { aggregations.geo_preview.buckets.0.digest: "-2520094226970255334" }
+  - match: { aggregations.geo_preview.buckets.0.type: "Polygon" }
+  - match: { aggregations.geo_preview.buckets.0.doc_count: 1 }
+
+  - match: { aggregations.geo_preview.buckets.1.key: "AAAAAAMAAAABAAAABkAALAAAAAAAQEhMXSKIhts/+uT//////0BIhrDKsBJAQACGAAAAAABASJ2wcvbTDkAGPIAAAAAAQEiZGKALhAxAChqAAAAAAEBIdhR0tDaAQAAsAAAAAABASExdIoiG2w==" }
+  - match: { aggregations.geo_preview.buckets.1.digest: "-5012816342630707936" }
+  - match: { aggregations.geo_preview.buckets.1.type: "Polygon" }
+  - match: { aggregations.geo_preview.buckets.1.doc_count: 1 }
+
+
+# test shape aggregation: shard_size
+  - do:
+      search:
+        body: {
+          "size" : 0,
+          "aggs" : {
+            "geo_preview" : {
+              "geoshape" : {
+                "field" : "geoshape_0.wkb",
+                "size": 1,
+                "shard_size": 1
+                }
+              }
+            }
+          }
+
+  - match: { hits.total: 2 }
+  - match: { aggregations.geo_preview.buckets.0.doc_count: 1 }
+
+
+# test shape aggregation: zoom==1
+  - do:
+      search:
+        body: {
+          "size" : 0,
+          "aggs" : {
+            "geo_preview" : {
+              "geoshape" : {
+                "field" : "geoshape_0.wkb",
+                "output_format": "wkt",
+                "simplify": {
+                  "zoom": 1,
+                  "algorithm": "douglas_peucker"
+                }
+              }
+            }
+          }
+        }
+
+  - match: { hits.total: 2 }
+  - match: { aggregations.geo_preview.buckets.1.key: "POINT (2.021484375 48.596592251456705)" }
+  - match: { aggregations.geo_preview.buckets.1.digest: "-5012816342630707936" }
+  - match: { aggregations.geo_preview.buckets.1.type: "Polygon" }
+  - match: { aggregations.geo_preview.buckets.1.doc_count: 1 }
