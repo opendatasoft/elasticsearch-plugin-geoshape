@@ -19,7 +19,7 @@ apply plugin: 'idea'
 apply plugin: 'elasticsearch.esplugin'
 
 esplugin {
-    name 'geo_extension'
+    name 'elasticsearch-plugin-geoshape'
     description 'Add extra geo capabilities to default elastic geo_shape data type.'
     classname 'org.opendatasoft.elasticsearch.plugin.GeoExtensionPlugin'
     licenseFile = rootProject.file('LICENSE')
@@ -44,6 +44,6 @@ checkstyleTest.enabled = true
 
 licenseFile = rootProject.file('LICENSE')
 noticeFile = rootProject.file('README.md')
-dependencyLicenses.enabled = true
+dependencyLicenses.enabled = false
 
 thirdPartyAudit.enabled = true

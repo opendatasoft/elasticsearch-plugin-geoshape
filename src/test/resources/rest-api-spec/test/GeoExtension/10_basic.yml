@@ -1,4 +1,4 @@
-"Geo extension plugin installed":
+"Geoshape plugin installed":
   - do:
       cluster.state: {}
 
@@ -7,4 +7,4 @@
   - do:
       nodes.info: {}
 
-  - match: {nodes.$master.plugins.0.name: geo_extension}
+  - match: {nodes.$master.plugins.0.name: elasticsearch-plugin-geoshape}

@@ -16,7 +16,6 @@ import org.elasticsearch.ingest.Processor;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKBWriter;
 import org.locationtech.spatial4j.context.jts.JtsSpatialContext;
 import org.locationtech.spatial4j.exception.InvalidShapeException;
@@ -37,21 +36,24 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.elasticsearch.common.xcontent.XContentFactory.jsonBuilder;
+import static org.elasticsearch.ingest.IngestDocument.deepCopyMap;
 
 
 public class GeoExtensionProcessor extends AbstractProcessor {
     public static final String TYPE = "geo_extension";
 
     private final String geo_field_prefix;
+    private final String geo_field_path;
     private final String wkb_field;
     private final String type_field;
     private final String area_field;
     private final String bbox_field;
     private final String centroid_field;
 
-    private GeoExtensionProcessor(String tag, String geo_field_prefix, String wkb_field, String type_field, String area_field,
-                          String bbox_field, String centroid_field)  {
+    private GeoExtensionProcessor(String tag, String geo_field_path, String geo_field_prefix, String wkb_field,
+                                  String type_field, String area_field, String bbox_field, String centroid_field)  {
         super(tag);
+        this.geo_field_path = geo_field_path;
         this.geo_field_prefix = geo_field_prefix;
         this.wkb_field = wkb_field;
         this.type_field = type_field;
@@ -95,9 +97,9 @@ public class GeoExtensionProcessor extends AbstractProcessor {
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Object> removeFollowingDuplicatedPoints(Map<String, Object> geo_map) {
+    private Map<String, Object> removeFollowingDuplicatedPoints(Map<String, Object> old_geo_map) {
         Map<String, Object> new_geo_map = new HashMap<>();
-        for (Map.Entry<String, Object> geo_entry : geo_map.entrySet()) {
+        for (Map.Entry<String, Object> geo_entry : old_geo_map.entrySet()) {
             if (geo_entry.getKey().equals("coordinates")) {
                 ArrayList<ArrayList<ArrayList<Double>>> new_coordinates = new ArrayList<>();
                 for (Object old_coords_group : ((ArrayList) geo_entry.getValue())) {
@@ -120,20 +122,30 @@ public class GeoExtensionProcessor extends AbstractProcessor {
         return new_geo_map;
     }
 
-    private void cleanGeoSourceField(IngestDocument document, String cur_geo_source_field, Boolean patch_self_referencing) {
-        /* Elastic behavior on moving geoshape to a lower level geoshape_x.geoshape is ambiguous, and the HashMap sometimes
-        references itself during the copy  operation. That's wy we need patch_self_referencing for this case. */
-        document.removeField(cur_geo_source_field + ".type");
-        document.removeField(cur_geo_source_field + ".coordinates");
-        if (patch_self_referencing )
-            document.removeField(cur_geo_source_field + ".geoshape.geoshape");
+    private void setAndcleanGeoSourceField(IngestDocument document, String cur_geo_source_fullpath, Map<String, Object> geo_map) {
+        /* We need to move geo_shape fields (type, coordinates, etc.) to one lower level under geoshape_x.geo_shape. */
+
+        Map<String, Object> tmp_geo_map = deepCopyMap(geo_map);
+        for (Map.Entry<String, Object> geo_shape_field : tmp_geo_map.entrySet()) {
+            document.removeField(cur_geo_source_fullpath + "." + geo_shape_field.getKey());
+        }
+        document.setFieldValue(cur_geo_source_fullpath+".geo_shape", tmp_geo_map);
     }
 
-    private ArrayList<String> get_geo_shape_fields_of(IngestDocument document) {
+    @SuppressWarnings("unchecked")
+    private ArrayList<String> getGeoShapeFieldsFromDoc(IngestDocument document) {
         ArrayList<String> geo_objects_list = new ArrayList<>();
         Pattern re_pattern = Pattern.compile(geo_field_prefix + "(\\w|_\\w)");
         boolean is_geoshape;
-        for (String document_field_key : document.getSourceAndMetadata().keySet()) {
+        Object document_source;
+
+        if (geo_field_path == null) document_source = document.getSourceAndMetadata();
+        else document_source = document.getSourceAndMetadata().getOrDefault(geo_field_path, null);
+
+        if (document_source == null)
+            return geo_objects_list;
+
+        for (String document_field_key : ((Map<String, Object>) document_source).keySet()) {
             Matcher re_matcher = re_pattern.matcher(document_field_key);
             is_geoshape = re_matcher.matches();
             if (is_geoshape)
@@ -144,10 +156,14 @@ public class GeoExtensionProcessor extends AbstractProcessor {
 
     @Override
     @SuppressWarnings("unchecked")
-    public void execute(IngestDocument document) throws IOException, ParseException {
-        ArrayList<String> geo_objects_list = get_geo_shape_fields_of(document);
+    public void execute(IngestDocument document) throws IOException {
+        ArrayList<String> geo_objects_list = getGeoShapeFieldsFromDoc(document);
         for (String cur_geo_source_field : geo_objects_list) {
-            Object geo_object = document.getFieldValue(cur_geo_source_field, Object.class);
+            String cur_geo_source_fullpath;
+            if (geo_field_path == null) cur_geo_source_fullpath = cur_geo_source_field;
+            else cur_geo_source_fullpath = geo_field_path + '.' + cur_geo_source_field;
+
+            Object geo_object = document.getFieldValue(cur_geo_source_fullpath, Object.class);
             Map<String, Object> geo_map = (Map<String, Object>) geo_object;
             String geo_json = mapToXContent(geo_map);
             Object shapeBuilder = shapeBuilderFromString(geo_json);
@@ -167,22 +183,22 @@ public class GeoExtensionProcessor extends AbstractProcessor {
                 //  shapes bulk is corrupted and then records are not indexed
                 shape = ((ShapeBuilder) shapeBuilder).build();
             }
-            document.setFieldValue(cur_geo_source_field+".geoshape", geo_map);
-            cleanGeoSourceField(document, cur_geo_source_field, patch_self_referencing);
+            setAndcleanGeoSourceField(document, cur_geo_source_fullpath, geo_map);
 
             // compute and add extra geo sub-fields
             Geometry geom = getGeometryFromShape(shape);
             byte[] wkb = new WKBWriter().write(geom);  // elastic will auto-encode this as b64
 
-            document.setFieldValue(cur_geo_source_field + ".hash", String.valueOf(GeoUtils.getHashFromWKB(new BytesRef(wkb))));
-            if (!wkb_field.equals("false")) document.setFieldValue(cur_geo_source_field + "." + wkb_field, wkb);
-            if (!type_field.equals("false")) document.setFieldValue(cur_geo_source_field + "." + type_field, geom.getGeometryType());
-            if (!area_field.equals("false")) document.setFieldValue(cur_geo_source_field + "." + area_field, geom.getArea());
-            if (!centroid_field.equals("false")) document.setFieldValue(cur_geo_source_field + "." + centroid_field,
+            document.setFieldValue(cur_geo_source_fullpath + ".hash", String.valueOf(GeoUtils.getHashFromWKB(new BytesRef(wkb))));
+            if (!wkb_field.equals("false")) document.setFieldValue(cur_geo_source_fullpath + "." + wkb_field, wkb);
+            if (!type_field.equals("false")) document.setFieldValue(cur_geo_source_fullpath + "." + type_field, geom.getGeometryType());
+            if (!area_field.equals("false")) document.setFieldValue(cur_geo_source_fullpath + "." + area_field, geom.getArea());
+            if (!centroid_field.equals("false")) document.setFieldValue(cur_geo_source_fullpath + "." + centroid_field,
                     GeoUtils.getCentroidFromGeom(geom));
             if (!bbox_field.equals("false")) {
                 Coordinate[] coords = geom.getEnvelope().getCoordinates();
-                if (coords.length >= 4) document.setFieldValue(cur_geo_source_field + "." + bbox_field, GeoUtils.getBboxFromCoords(coords));
+                if (coords.length >= 4) document.setFieldValue(cur_geo_source_fullpath + "." + bbox_field,
+                        GeoUtils.getBboxFromCoords(coords));
             }
         }
     }
@@ -195,21 +211,23 @@ public class GeoExtensionProcessor extends AbstractProcessor {
     public static final class Factory implements Processor.Factory {
         @Override
         public GeoExtensionProcessor create(Map<String, Processor.Factory> registry, String processorTag,
-                                            Map<String, Object> config) throws Exception {
-            String geo_field_prefix = ConfigurationUtils.readStringProperty(TYPE, processorTag, config, "geo_field_prefix", "geoshape");
-            String wkb_field = ConfigurationUtils.readStringProperty(TYPE, processorTag, config, "wkb_field", "false");
+                                            Map<String, Object> config) {
+            String geo_field_path = ConfigurationUtils.readOptionalStringProperty(TYPE, processorTag, config, "geo_field_path");
+            String geo_field_prefix = ConfigurationUtils.readStringProperty(TYPE, processorTag, config, "geo_field_prefix", "geo_shape");
+            String wkb_field = ConfigurationUtils.readStringProperty(TYPE, processorTag, config, "wkb_field", "true");
             if (wkb_field.equals("true")) wkb_field = "wkb";
-            String type_field = ConfigurationUtils.readStringProperty(TYPE, processorTag, config, "type_field", "false");
+            String type_field = ConfigurationUtils.readStringProperty(TYPE, processorTag, config, "type_field", "true");
             if (type_field.equals("true")) type_field = "type";
-            String area_field = ConfigurationUtils.readStringProperty(TYPE, processorTag, config, "area_field", "false");
+            String area_field = ConfigurationUtils.readStringProperty(TYPE, processorTag, config, "area_field", "true");
             if (area_field.equals("true")) area_field = "area";
-            String bbox_field = ConfigurationUtils.readStringProperty(TYPE, processorTag, config, "bbox_field", "false");
+            String bbox_field = ConfigurationUtils.readStringProperty(TYPE, processorTag, config, "bbox_field", "true");
             if (bbox_field.equals("true")) bbox_field = "bbox";
-            String centroid_field = ConfigurationUtils.readStringProperty(TYPE, processorTag, config, "centroid_field", "false");
+            String centroid_field = ConfigurationUtils.readStringProperty(TYPE, processorTag, config, "centroid_field", "true");
             if (centroid_field.equals("true")) centroid_field = "centroid";
 
             return new GeoExtensionProcessor(
                     processorTag,
+                    geo_field_path,
                     geo_field_prefix,
                     wkb_field,
                     type_field,
