@@ -154,26 +154,24 @@ public class GeoExtensionProcessor extends AbstractProcessor {
         return geo_objects_list;
     }
 
-    @Override
     @SuppressWarnings("unchecked")
-    public void execute(IngestDocument document) throws IOException {
-        ArrayList<String> geo_objects_list = getGeoShapeFieldsFromDoc(document);
+    @Override
+    public IngestDocument execute(IngestDocument ingestDocument) throws IOException {
+        ArrayList<String> geo_objects_list = getGeoShapeFieldsFromDoc(ingestDocument);
         for (String cur_geo_source_field : geo_objects_list) {
             String cur_geo_source_fullpath;
             if (geo_field_path == null) cur_geo_source_fullpath = cur_geo_source_field;
             else cur_geo_source_fullpath = geo_field_path + '.' + cur_geo_source_field;
 
-            Object geo_object = document.getFieldValue(cur_geo_source_fullpath, Object.class);
+            Object geo_object = ingestDocument.getFieldValue(cur_geo_source_fullpath, Object.class);
             Map<String, Object> geo_map = (Map<String, Object>) geo_object;
             String geo_json = mapToXContent(geo_map);
             Object shapeBuilder = shapeBuilderFromString(geo_json);
 
             // fix shapes if needed
             Shape shape;
-            boolean patch_self_referencing = false;
             try {
                 shape = ((ShapeBuilder) shapeBuilder).build();
-                patch_self_referencing = true;
             }
             catch (InvalidShapeException e) {
                 geo_map = removeFollowingDuplicatedPoints(geo_map);
@@ -183,24 +181,31 @@ public class GeoExtensionProcessor extends AbstractProcessor {
                 //  shapes bulk is corrupted and then records are not indexed
                 shape = ((ShapeBuilder) shapeBuilder).build();
             }
-            setAndcleanGeoSourceField(document, cur_geo_source_fullpath, geo_map);
+            setAndcleanGeoSourceField(ingestDocument, cur_geo_source_fullpath, geo_map);
 
             // compute and add extra geo sub-fields
             Geometry geom = getGeometryFromShape(shape);
             byte[] wkb = new WKBWriter().write(geom);  // elastic will auto-encode this as b64
 
-            document.setFieldValue(cur_geo_source_fullpath + ".hash", String.valueOf(GeoUtils.getHashFromWKB(new BytesRef(wkb))));
-            if (!wkb_field.equals("false")) document.setFieldValue(cur_geo_source_fullpath + "." + wkb_field, wkb);
-            if (!type_field.equals("false")) document.setFieldValue(cur_geo_source_fullpath + "." + type_field, geom.getGeometryType());
-            if (!area_field.equals("false")) document.setFieldValue(cur_geo_source_fullpath + "." + area_field, geom.getArea());
-            if (!centroid_field.equals("false")) document.setFieldValue(cur_geo_source_fullpath + "." + centroid_field,
+            ingestDocument.setFieldValue(
+                    cur_geo_source_fullpath + ".hash", String.valueOf(GeoUtils.getHashFromWKB(new BytesRef(wkb))));
+            if (!wkb_field.equals("false")) ingestDocument.setFieldValue(
+                    cur_geo_source_fullpath + "." + wkb_field, wkb);
+            if (!type_field.equals("false")) ingestDocument.setFieldValue(
+                    cur_geo_source_fullpath + "." + type_field, geom.getGeometryType());
+            if (!area_field.equals("false")) ingestDocument.setFieldValue(
+                    cur_geo_source_fullpath + "." + area_field, geom.getArea());
+            if (!centroid_field.equals("false")) ingestDocument.setFieldValue(
+                    cur_geo_source_fullpath + "." + centroid_field,
                     GeoUtils.getCentroidFromGeom(geom));
             if (!bbox_field.equals("false")) {
                 Coordinate[] coords = geom.getEnvelope().getCoordinates();
-                if (coords.length >= 4) document.setFieldValue(cur_geo_source_fullpath + "." + bbox_field,
+                if (coords.length >= 4) ingestDocument.setFieldValue(
+                        cur_geo_source_fullpath + "." + bbox_field,
                         GeoUtils.getBboxFromCoords(coords));
             }
         }
+        return ingestDocument;
     }
 
     @Override
