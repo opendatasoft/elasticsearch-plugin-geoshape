@@ -11,12 +11,7 @@
             "processors": [
               {
                 "geo_extension": {
-                  "geo_field_prefix": "geo_shape_*",
-                  "wkb_field": "true",
-                  "type_field": "true",
-                  "area_field": "true",
-                  "bbox_field": "true",
-                  "centroid_field": "true"
+                  "field": "geo_shape"
                 }
               }
             ]
@@ -40,24 +35,24 @@
         type: doc
         body:
           doc:
-            dynamic_templates: [
-              {
-                "geo_shapes": {
-                  "match": "geo_shape_*",
-                  "mapping": {
-                    "properties": {
-                      "geo_shape": {"type": "geo_shape"},
-                      "hash": {"type": "keyword"},
-                      "wkb": {"type": "binary", "doc_values": true},
-                      "type": {"type": "keyword"},
-                      "area": {"type": "half_float"},
-                      "bbox": {"type": "geo_point"},
-                      "centroid": {"type": "geo_point"}
-                    }
-                  }
-                }
-              }
-            ]
+            properties:
+              geo_shape:
+                properties:
+                  geoshape:
+                    type: geo_shape
+                  hash:
+                    type: keyword
+                  wkb:
+                    type: binary
+                    doc_values: true
+                  type:
+                    type: keyword
+                  area:
+                    type: half_float
+                  bbox:
+                    type: geo_point
+                  centroid:
+                    type: geo_point
 
   - do:
       index:
@@ -65,7 +60,7 @@
         type: doc
         pipeline: "geo_extension"
         body: {
-          "geo_shape_0": {
+          "geo_shape": {
             "type": "Polygon",
             "coordinates": [
               [
@@ -104,7 +99,7 @@
         type: doc
         pipeline: "geo_extension"
         body: {
-          "geo_shape_0": {
+          "geo_shape": {
             "type": "Polygon",
             "coordinates": [
               [
@@ -149,7 +144,7 @@
           "aggs" : {
             "geo_preview" : {
               "geoshape" : {
-                "field" : "geo_shape_0.wkb",
+                "field" : "geo_shape.wkb",
               }
             }
           }
@@ -167,7 +162,7 @@
           "aggs" : {
             "geo_preview" : {
               "geoshape" : {
-                "field" : "geo_shape_0.wkb",
+                "field" : "geo_shape.wkb",
                 "output_format": "wkt",
                 "simplify": {
                   "zoom": 20,
@@ -199,7 +194,7 @@
           "aggs" : {
             "geo_preview" : {
               "geoshape" : {
-                "field" : "geo_shape_0.wkb",
+                "field" : "geo_shape.wkb",
                 "output_format": "wkb",
                 "simplify": {
                   "zoom": 20,
@@ -231,7 +226,7 @@
           "aggs" : {
             "geo_preview" : {
               "geoshape" : {
-                "field" : "geo_shape_0.wkb",
+                "field" : "geo_shape.wkb",
                 "size": 1,
                 "shard_size": 1
                 }
@@ -251,7 +246,7 @@
           "aggs" : {
             "geo_preview" : {
               "geoshape" : {
-                "field" : "geo_shape_0.wkb",
+                "field" : "geo_shape.wkb",
                 "output_format": "wkt",
                 "simplify": {
                   "zoom": 1,

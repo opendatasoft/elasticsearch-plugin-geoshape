@@ -11,12 +11,7 @@
             "processors": [
               {
                 "geo_extension": {
-                  "geo_field_prefix": "geo_shape_*",
-                  "wkb_field": "true",
-                  "type_field": "true",
-                  "area_field": "true",
-                  "bbox_field": "true",
-                  "centroid_field": "true"
+                  "field": "geo_shape_*"
                 }
               }
             ]

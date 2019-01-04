@@ -17,27 +17,28 @@ This is an `Ingest`, `Search` and `Script` plugin.
 
 ### Ingest processor and indexing 
 A new processor `geo_extension` adds custom fields to the desired geo_shape data object at ingest time.
-Custom fields are:
-- `wkb`: from the geoJSON input field (can be used then to aggregate shapes)
-- `type`: geo shape type (Polygon, point, LineString, ...) for searching on a specific type
-- `area`: area of Shape
-- `bbox`: geo_point array containing topLeft and bottomRight points of shape envelope
-- `centroid`: geo_point representing shape centroid
-- `hash`: shape digest to perform exact request on shape (in other words: used as a primary key. we may want to use the wkt in the future?)
-
-It also auto-fixes shapes that are invalid for elasticsearch but not for common GIS systems: the case where two identical
-geo_points are following each other in a shape. 
-
 
 #### Params
+
 Processor name: `geo_extension`.
-Processor params:
-- `geo_field_prefix`: the prefix of the geo_shape field. For example `geoshape` will match `geoshape1`, `geoshape_1`, etc. Wildcard usage is possible, e.g. `geoshape_*`. Default to `geoshape`.
-- `wkb_field`: the subfield name of the geo_shape wkb field. `false` to disable it (default to `true`), or any `[my_wkb_name]` to choose another subfield name. Default to `wkb`.
-- `type_field`: the subfield name of the geo_shape type field. `false` to disable it (default to `true`), or any `[my_type_name]` to choose another subfield name. Default to `type`.
-- `area_field`: the subfield name of the geo_shape area field. `false` to disable it (default to `true`), or any `[my_area_name]` to choose another subfield name. Default to `area`.
-- `bbox_field`: the subfield name of the geo_shape bbox field. `false` to disable it (default to `true`), or any `[my_bbox_name]` to choose another subfield name. Default to `bbox`.
-- `centroid_field`: the subfield name of the geo_shape centroid field. `false` to disable it (default to `true`), or any `[my_centroid_name]` to choose another subfield name. Default to `centroid`.
+
+|Name|Required|Default|Description|
+|----|--------|-------|-----------|
+| `field` | yes | - | The geo shape field to use. This parameter accepts wildcard to match multiple `geo_shape` fields.
+| `path`  | no  | - | The field that contains the field to expand. When using wildcard in `field`, matching will be done under this path only.
+| `fix_shape` | no | `true` |  Fix invalid shape. For the moment it only fixes duplicate consecutive coordinates in polygon (https://github.com/elastic/elasticsearch/issues/14014)
+| `wkb` | no | `true` | Compute wkb from shape field
+| `wkb_field` | no | `wkb` | name of wkb subfield
+| `type` | no | `true` | Compute geo shape type (Polygon, point, LineString, ...) 
+| `type_field` | no | `type` | name of type subfield
+| `area` | no | `true` | Compute area of shape
+| `area_field` | no | `area` | name of `area` subfield
+| `bbox` | no | `true` | Compute geo_point array containing topLeft and bottomRight points of shape envelope
+| `bbox_field` | no | `bbox` | name of `bbox` subfield
+| `centroid` | no | `true` | Compute geo_point representing shape centroid
+| `centroid_field` | no | `centroid` | name of `centroid` subfield
+| `hash` | no | `true` | Compute shape digest to perform exact request on shape (in other words: used as a primary key. we may want to use the wkt in the future?)
+| `hash_field` | no | `hash` | name of `hash` subfield
 
 
 #### Example
@@ -49,12 +50,7 @@ PUT _ingest/pipeline/geo_extension
   "processors": [
     {
       "geo_extension": {
-        "geo_field_prefix": "geoshape_*",
-        "wkb_field": "true",
-        "type_field": "true",
-        "area_field": "true",
-        "bbox_field": "true",
-        "centroid_field": "true"
+        "field": "geoshape_*"
       }
     }
   ]
@@ -346,7 +342,7 @@ Result:
 
 ## Installation
 
-Plugin versions are available for (at least) all minor versions of Elasticsearch since 6.0.
+Plugin versions are available for (at least) all minor versions of Elasticsearch since 6.3.
 
 The first 3 digits of plugin version is Elasticsearch versioning. The last digit is used for plugin versioning under an elasticsearch version.
 
