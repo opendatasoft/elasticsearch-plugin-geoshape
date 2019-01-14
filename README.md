@@ -26,7 +26,9 @@ Processor name: `geo_extension`.
 |----|--------|-------|-----------|
 | `field` | yes | - | The geo shape field to use. This parameter accepts wildcard to match multiple `geo_shape` fields.
 | `path`  | no  | - | The field that contains the field to expand. When using wildcard in `field`, matching will be done under this path only.
+| `shape_field` | no | `shape` | Name of sub `shape` field
 | `fix_shape` | no | `true` |  Fix invalid shape. For the moment it only fixes duplicate consecutive coordinates in polygon (https://github.com/elastic/elasticsearch/issues/14014)
+| `fixed_field` | no | `fixed_shape` | Name of sub `fixed_shape` field
 | `wkb` | no | `true` | Compute wkb from shape field
 | `wkb_field` | no | `wkb` | name of wkb subfield
 | `type` | no | `true` | Compute geo shape type (Polygon, point, LineString, ...) 

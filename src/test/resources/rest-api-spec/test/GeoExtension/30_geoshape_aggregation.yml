@@ -38,7 +38,7 @@
             properties:
               geo_shape:
                 properties:
-                  geoshape:
+                  shape:
                     type: geo_shape
                   hash:
                     type: keyword

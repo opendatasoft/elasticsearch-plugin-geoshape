@@ -41,7 +41,7 @@
                   "match": "geo_shape_*",
                   "mapping": {
                     "properties": {
-                      "geo_shape": {"type": "geo_shape"},
+                      "shape": {"type": "geo_shape"},
                       "hash": {"type": "keyword"},
                       "wkb": {"type": "binary", "doc_values": true},
                       "type": {"type": "keyword"},
@@ -59,7 +59,7 @@
 
   - match: {test_index.mappings.doc.dynamic_templates.0.geo_shapes.match: "geo_shape_*"}
 
-  - match: {test_index.mappings.doc.dynamic_templates.0.geo_shapes.mapping.properties.geo_shape.type: "geo_shape"}
+  - match: {test_index.mappings.doc.dynamic_templates.0.geo_shapes.mapping.properties.shape.type: "geo_shape"}
   - match: {test_index.mappings.doc.dynamic_templates.0.geo_shapes.mapping.properties.hash.type: "keyword"}
   - match: {test_index.mappings.doc.dynamic_templates.0.geo_shapes.mapping.properties.wkb.type: "binary"}
   - match: {test_index.mappings.doc.dynamic_templates.0.geo_shapes.mapping.properties.wkb.doc_values: true}
@@ -119,7 +119,7 @@
   - do:
       indices.get_mapping: {}
 
-  - match: {test_index.mappings.doc.properties.geo_shape_0.properties.geo_shape.type: "geo_shape"}
+  - match: {test_index.mappings.doc.properties.geo_shape_0.properties.shape.type: "geo_shape"}
   - match: {test_index.mappings.doc.properties.geo_shape_0.properties.hash.type: "keyword"}
   - match: {test_index.mappings.doc.properties.geo_shape_0.properties.wkb.type: "binary"}
   - match: {test_index.mappings.doc.properties.geo_shape_0.properties.wkb.doc_values: true}
@@ -136,9 +136,9 @@
           query:
             match_all: {}
 
-  - match: {hits.hits.0._source.geo_shape_0.geo_shape.coordinates.0.0: [1.6809082031249998, 49.05227025601607] }
-  - match: {hits.hits.0._source.geo_shape_0.geo_shape.coordinates.0.1: [2.021484375, 48.596592251456705] }
-  - match: {hits.hits.0._source.geo_shape_0.geo_shape.coordinates.0.2: [3.262939453125, 48.922499263758255] }
-  - match: {hits.hits.0._source.geo_shape_0.geo_shape.coordinates.0.3: [2.779541015625, 49.196064000723794] }
-  - match: {hits.hits.0._source.geo_shape_0.geo_shape.coordinates.0.4: [2.0654296875, 49.23194729854559] }
-  - match: {hits.hits.0._source.geo_shape_0.geo_shape.coordinates.0.5: [1.6809082031249998, 49.05227025601607] }
+  - match: {hits.hits.0._source.geo_shape_0.shape.coordinates.0.0: [1.6809082031249998, 49.05227025601607] }
+  - match: {hits.hits.0._source.geo_shape_0.shape.coordinates.0.1: [2.021484375, 48.596592251456705] }
+  - match: {hits.hits.0._source.geo_shape_0.shape.coordinates.0.2: [3.262939453125, 48.922499263758255] }
+  - match: {hits.hits.0._source.geo_shape_0.shape.coordinates.0.3: [2.779541015625, 49.196064000723794] }
+  - match: {hits.hits.0._source.geo_shape_0.shape.coordinates.0.4: [2.0654296875, 49.23194729854559] }
+  - match: {hits.hits.0._source.geo_shape_0.shape.coordinates.0.5: [1.6809082031249998, 49.05227025601607] }

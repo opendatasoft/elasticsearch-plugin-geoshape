@@ -14,9 +14,12 @@ import org.elasticsearch.ingest.AbstractProcessor;
 import org.elasticsearch.ingest.ConfigurationUtils;
 import org.elasticsearch.ingest.IngestDocument;
 import org.elasticsearch.ingest.Processor;
-import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKBWriter;
+import org.locationtech.jts.io.WKTReader;
+import org.locationtech.jts.io.WKTWriter;
 import org.locationtech.spatial4j.exception.InvalidShapeException;
 import org.locationtech.spatial4j.shape.Shape;
 import org.elasticsearch.common.geo.builders.ShapeBuilder;
@@ -25,11 +28,8 @@ import org.opendatasoft.elasticsearch.plugin.GeoUtils;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import static org.elasticsearch.ingest.IngestDocument.deepCopyMap;
 
 
 public class GeoExtensionProcessor extends AbstractProcessor {
@@ -37,7 +37,8 @@ public class GeoExtensionProcessor extends AbstractProcessor {
 
     private final String field;
     private final String path;
-    private final boolean fix;
+    private final String shapeField;
+    private final String fixedField;
     private final String wkbField;
     private final String hashField;
     private final String typeField;
@@ -45,50 +46,20 @@ public class GeoExtensionProcessor extends AbstractProcessor {
     private final String bboxField;
     private final String centroidField;
 
-    private GeoExtensionProcessor(String tag, String field, String path, boolean fix, String wkbField, String hashField,
-                                  String typeField, String areaField, String bboxField, String centroidField)  {
+    private GeoExtensionProcessor(String tag, String field, String path, String shapeField, String fixedField,
+                                  String wkbField, String hashField, String typeField, String areaField,
+                                  String bboxField, String centroidField)  {
         super(tag);
         this.field = field;
         this.path = path;
-        this.fix = fix;
+        this.shapeField = shapeField;
+        this.fixedField = fixedField;
         this.wkbField = wkbField;
         this.hashField = hashField;
         this.typeField = typeField;
         this.areaField = areaField;
         this.bboxField = bboxField;
         this.centroidField = centroidField;
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> removeFollowingDuplicatedPoints(Map<String, Object> oldGeoMap) {
-        Map<String, Object> geoMap = new HashMap<>();
-        geoMap.put("type", oldGeoMap.get("type"));
-
-        List<List<List<Double>>> newCoordinates = new ArrayList<>();
-        for (List<List<Double>> bound: (List<List<List<Double>>>) oldGeoMap.get("coordinates")) {
-            List<List<Double>> newBound = new ArrayList<>();
-            List<Double> lastCoordinates = null;
-            for(List<Double> coordinates: bound) {
-                if (lastCoordinates == null || ! lastCoordinates.equals(coordinates)) {
-                    newBound.add(coordinates);
-                    lastCoordinates = coordinates;
-                }
-            }
-            newCoordinates.add(newBound);
-        }
-        geoMap.put("coordinates", newCoordinates);
-
-        return geoMap;
-    }
-
-    private void setAndcleanGeoSourceField(IngestDocument document, String geoShapeField, Map<String, Object> geo_map) {
-        /* We need to move geo_shape fields (type, coordinates, etc.) to one lower level under geoshape_x.geo_shape. */
-
-        Map<String, Object> tmp_geo_map = deepCopyMap(geo_map);
-        for (Map.Entry<String, Object> geo_shape_field : tmp_geo_map.entrySet()) {
-            document.removeField(geoShapeField + "." + geo_shape_field.getKey());
-        }
-        document.setFieldValue(geoShapeField+".geo_shape", tmp_geo_map);
     }
 
     @SuppressWarnings("unchecked")
@@ -114,8 +85,8 @@ public class GeoExtensionProcessor extends AbstractProcessor {
         return fields;
     }
 
-    private ShapeBuilder<?,?> getShapeBuilderFromMap(Map<String, Object> geoMap) throws IOException{
-        XContentBuilder contentBuilder = JsonXContent.contentBuilder().map(geoMap);
+    private ShapeBuilder<?,?> getShapeBuilderFromObject(Object object) throws IOException{
+        XContentBuilder contentBuilder = JsonXContent.contentBuilder().value(object);
 
         XContentParser parser = JsonXContent.jsonXContent.createParser(
                 NamedXContentRegistry.EMPTY, DeprecationHandler.THROW_UNSUPPORTED_OPERATION,
@@ -128,13 +99,13 @@ public class GeoExtensionProcessor extends AbstractProcessor {
 
     @SuppressWarnings("unchecked")
     @Override
-    public IngestDocument execute(IngestDocument ingestDocument) throws IOException {
+    public IngestDocument execute(IngestDocument ingestDocument) throws IOException, ParseException {
         List<String> geo_objects_list = getGeoShapeFieldsFromDoc(ingestDocument);
         for (String geoShapeField : geo_objects_list) {
 
-            Map<String, Object> geoMap = ingestDocument.getFieldValue(geoShapeField, Map.class);
+            Object geoShapeObject = ingestDocument.getFieldValue(geoShapeField, Object.class);
 
-            ShapeBuilder<?,?> shapeBuilder = getShapeBuilderFromMap(geoMap);
+            ShapeBuilder<?,?> shapeBuilder = getShapeBuilderFromObject(geoShapeObject);
 
             Shape shape = null;
             try {
@@ -142,23 +113,25 @@ public class GeoExtensionProcessor extends AbstractProcessor {
             }
             catch (InvalidShapeException ignored) {}
 
-            // fix shapes if needed
-            if (shape == null && fix) {
-                geoMap = removeFollowingDuplicatedPoints(geoMap);
-                shapeBuilder = getShapeBuilderFromMap(geoMap);
-                try {
-                    shape = shapeBuilder.build();
-                } catch (InvalidShapeException ignored) {}
-            }
-
-            if (shape == null) {
+            if (shape == null && fixedField == null) {
                 throw new IllegalArgumentException("unable to parse shape [" + shapeBuilder.toWKT() + "]");
             }
 
-            setAndcleanGeoSourceField(ingestDocument, geoShapeField, geoMap);
+            Geometry geom = new WKTReader().read(shapeBuilder.toWKT());
+
+            // fix shapes if needed
+            if (shape == null && fixedField != null) {
+                geom = GeoUtils.removeDuplicateCoordinates(geom);
+            }
+
+            ingestDocument.removeField(geoShapeField);
+            ingestDocument.setFieldValue(geoShapeField + "." + shapeField, geoShapeObject);
+
+            if (fixedField != null) {
+                ingestDocument.setFieldValue(geoShapeField + "." + fixedField, new WKTWriter().write(geom));
+            }
 
             // compute and add extra geo sub-fields
-            Geometry geom = ShapeBuilder.SPATIAL_CONTEXT.getShapeFactory().getGeometryFrom(shape);
             byte[] wkb = new WKBWriter().write(geom);  // elastic will auto-encode this as b64
 
             if (hashField != null) ingestDocument.setFieldValue(
@@ -191,10 +164,15 @@ public class GeoExtensionProcessor extends AbstractProcessor {
         public GeoExtensionProcessor create(Map<String, Processor.Factory> registry, String processorTag,
                                             Map<String, Object> config) {
             String field = ConfigurationUtils.readStringProperty(TYPE, processorTag, config, "field");
-
             String path = ConfigurationUtils.readOptionalStringProperty(TYPE, processorTag, config, "path");
 
+            String shapeField = ConfigurationUtils.readStringProperty(TYPE, processorTag, config, "shape_field", "shape");
+
             boolean fix = ConfigurationUtils.readBooleanProperty(TYPE, processorTag, config, "fix_shape", true);
+            String fixedField = null;
+            if (fix) {
+                fixedField = ConfigurationUtils.readStringProperty(TYPE, processorTag, config, "fixed_field", "fixed_shape");
+            }
 
             boolean needWkb = ConfigurationUtils.readBooleanProperty(TYPE, processorTag, config, "wkb", true);
             String wkbField = null;
@@ -236,7 +214,8 @@ public class GeoExtensionProcessor extends AbstractProcessor {
                     processorTag,
                     field,
                     path,
-                    fix,
+                    shapeField,
+                    fixedField,
                     wkbField,
                     hashField,
                     typeField,
