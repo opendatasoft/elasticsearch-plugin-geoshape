@@ -17,9 +17,7 @@ import org.locationtech.jts.io.WKTWriter;
 import org.locationtech.jts.io.geojson.GeoJsonWriter;
 import org.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.InternalGeoShape;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.Base64;
 import java.util.List;
 
 public class GeoUtils {
@@ -73,8 +71,7 @@ public class GeoUtils {
                 Geometry geom = new WKBReader().read(wkb.bytes);
                 return new WKTWriter().write(geom);
             case WKB:
-                byte[] wkb_b64 = Base64.getEncoder().encode(wkb.bytes);
-                return new String(wkb_b64, StandardCharsets.UTF_8);
+                return WKBWriter.toHex(wkb.bytes);
             default:
                 Geometry geo = new WKBReader().read(wkb.bytes);
                 return geoJsonWriter.write(geo);
@@ -86,9 +83,7 @@ public class GeoUtils {
             case WKT:
                 return new WKTWriter().write(geom);
             case WKB:
-                WKBWriter wkbWriter = new WKBWriter();
-                byte[] wkb_b64 = Base64.getEncoder().encode(wkbWriter.write(geom));
-                return new String(wkb_b64, StandardCharsets.UTF_8);
+                return WKBWriter.toHex(new WKBWriter().write(geom));
             default:
                 return geoJsonWriter.write(geom);
         }

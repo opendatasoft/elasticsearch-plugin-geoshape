@@ -117,7 +117,7 @@ public class ScriptGeoSimplify implements ScriptEngine {
 
                     BytesRef wkb;
                     try {
-                        ScriptDocValues<?> values_list = getDoc().get(field + ".wkb");
+                        ScriptDocValues<?> values_list = getDoc().get(field);
                         wkb = (BytesRef) values_list.get(0);
                     }
                     catch (Exception e) {
@@ -130,13 +130,13 @@ public class ScriptGeoSimplify implements ScriptEngine {
                         String realType = geom.getGeometryType();
                         geom = getSimplifiedShape(geom);
                         if (!geom.isEmpty()) {
-                            resMap.put("geom", GeoUtils.exportGeoTo(geom, output_format, geoJsonWriter));
+                            resMap.put("shape", GeoUtils.exportGeoTo(geom, output_format, geoJsonWriter));
                             resMap.put("type", geom.getGeometryType());
                             resMap.put("real_type", realType);
                         } else {
                             // If the simplified polygon is empty because it was too small, return a point
                             Geometry point = geometryFactory.createPoint(geom.getCoordinate());
-                            resMap.put("geom", GeoUtils.exportGeoTo(point, output_format, geoJsonWriter));
+                            resMap.put("shape", GeoUtils.exportGeoTo(point, output_format, geoJsonWriter));
                             resMap.put("type", "SimplificationPoint");
                         }
                     } catch (ParseException e) {

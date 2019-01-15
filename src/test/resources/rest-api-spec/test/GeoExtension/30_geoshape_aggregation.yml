@@ -144,7 +144,7 @@
           "aggs" : {
             "geo_preview" : {
               "geoshape" : {
-                "field" : "geo_shape.wkb",
+                "field" : "geo_shape.wkb"
               }
             }
           }
@@ -165,7 +165,7 @@
                 "field" : "geo_shape.wkb",
                 "output_format": "wkt",
                 "simplify": {
-                  "zoom": 20,
+                  "zoom": 10,
                   "algorithm": "TOPOLOGY_PRESERVING"
                 }
               }
@@ -175,13 +175,13 @@
 
   - match: { hits.total: 2 }
 
-  - match: { aggregations.geo_preview.buckets.0.key: "POLYGON ((2.021484375 48.596592251456705, 3.262939453125 47.922499263758255, 2.779541015625 49.196064000723794, 2.0654296875 49.23194729854559, 1.6809082031249998 49.05227025601607, 2.021484375 48.596592251456705))" }
-  - match: { aggregations.geo_preview.buckets.0.digest: "-2520094226970255334" }
+  - match: { aggregations.geo_preview.buckets.0.key: "POLYGON ((1.6809082031249998 49.05227025601607, 2.021484375 48.596592251456705, 3.262939453125 47.922499263758255, 2.779541015625 49.196064000723794, 2.0654296875 49.23194729854559, 1.6809082031249998 49.05227025601607))" }
+  - match: { aggregations.geo_preview.buckets.0.digest: "8770521770055325294" }
   - match: { aggregations.geo_preview.buckets.0.type: "Polygon" }
   - match: { aggregations.geo_preview.buckets.0.doc_count: 1 }
 
-  - match: { aggregations.geo_preview.buckets.1.key: "POLYGON ((2.021484375 48.596592251456705, 3.262939453125 48.922499263758255, 2.779541015625 49.196064000723794, 2.0654296875 49.23194729854559, 1.6809082031249998 49.05227025601607, 2.021484375 48.596592251456705))" }
-  - match: { aggregations.geo_preview.buckets.1.digest: "-5012816342630707936" }
+  - match: { aggregations.geo_preview.buckets.1.key: "POLYGON ((1.6809082031249998 49.05227025601607, 2.021484375 48.596592251456705, 3.262939453125 48.922499263758255, 2.779541015625 49.196064000723794, 2.0654296875 49.23194729854559, 1.6809082031249998 49.05227025601607))" }
+  - match: { aggregations.geo_preview.buckets.1.digest: "-2606195138796513579" }
   - match: { aggregations.geo_preview.buckets.1.type: "Polygon" }
   - match: { aggregations.geo_preview.buckets.1.doc_count: 1 }
 
@@ -197,7 +197,7 @@
                 "field" : "geo_shape.wkb",
                 "output_format": "wkb",
                 "simplify": {
-                  "zoom": 20,
+                  "zoom": 10,
                   "algorithm": "douglas_peucker"
                 }
               }
@@ -207,13 +207,13 @@
 
   - match: { hits.total: 2 }
 
-  - match: { aggregations.geo_preview.buckets.0.key: "AAAAAAMAAAABAAAABkAALAAAAAAAQEhMXSKIhts/+uT//////0BIhrDKsBJAQACGAAAAAABASJ2wcvbTDkAGPIAAAAAAQEiZGKALhAxAChqAAAAAAEBH9hR0tDaAQAAsAAAAAABASExdIoiG2w==" }
-  - match: { aggregations.geo_preview.buckets.0.digest: "-2520094226970255334" }
+  - match: { aggregations.geo_preview.buckets.0.key: "000000000300000001000000063FFAE4FFFFFFFFFF404886B0CAB01240400086000000000040489DB072F6D30E40063C800000000040489918A00B840C400A1A80000000004047F61474B4368040002C000000000040484C5D228886DB3FFAE4FFFFFFFFFF404886B0CAB01240" }
+  - match: { aggregations.geo_preview.buckets.0.digest: "8770521770055325294" }
   - match: { aggregations.geo_preview.buckets.0.type: "Polygon" }
   - match: { aggregations.geo_preview.buckets.0.doc_count: 1 }
 
-  - match: { aggregations.geo_preview.buckets.1.key: "AAAAAAMAAAABAAAABkAALAAAAAAAQEhMXSKIhts/+uT//////0BIhrDKsBJAQACGAAAAAABASJ2wcvbTDkAGPIAAAAAAQEiZGKALhAxAChqAAAAAAEBIdhR0tDaAQAAsAAAAAABASExdIoiG2w==" }
-  - match: { aggregations.geo_preview.buckets.1.digest: "-5012816342630707936" }
+  - match: { aggregations.geo_preview.buckets.1.key: "000000000300000001000000063FFAE4FFFFFFFFFF404886B0CAB01240400086000000000040489DB072F6D30E40063C800000000040489918A00B840C400A1A80000000004048761474B4368040002C000000000040484C5D228886DB3FFAE4FFFFFFFFFF404886B0CAB01240" }
+  - match: { aggregations.geo_preview.buckets.1.digest: "-2606195138796513579" }
   - match: { aggregations.geo_preview.buckets.1.type: "Polygon" }
   - match: { aggregations.geo_preview.buckets.1.doc_count: 1 }
 
@@ -258,7 +258,7 @@
         }
 
   - match: { hits.total: 2 }
-  - match: { aggregations.geo_preview.buckets.1.key: "POINT (2.021484375 48.596592251456705)" }
-  - match: { aggregations.geo_preview.buckets.1.digest: "-5012816342630707936" }
+  - match: { aggregations.geo_preview.buckets.1.key: "POINT (1.6809082031249998 49.05227025601607)" }
+  - match: { aggregations.geo_preview.buckets.1.digest: "-2606195138796513579" }
   - match: { aggregations.geo_preview.buckets.1.type: "Polygon" }
   - match: { aggregations.geo_preview.buckets.1.doc_count: 1 }

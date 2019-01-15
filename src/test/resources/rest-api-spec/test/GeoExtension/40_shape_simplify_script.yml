@@ -41,7 +41,7 @@
                 "match": "geo_shape_*",
                 "mapping": {
                   "properties": {
-                    "geo_shape": {"type": "geo_shape"},
+                    "shape": {"type": "geo_shape"},
                     "hash": {"type": "keyword"},
                     "wkb": {"type": "binary", "doc_values": true},
                     "type": {"type": "keyword"},
@@ -107,14 +107,14 @@
                 lang: "geo_extension_scripts"
                 source: "geo_simplify"
                 params:
-                  field: "geo_shape_0"
-                  zoom: 20
+                  field: "geo_shape_0.wkb"
+                  zoom: 10
                   output_format: "wkb"
 
   - match: { hits.total: 1 }
   - match: { hits.hits.0.fields.simplified_shape.0.type: "Polygon" }
   - match: { hits.hits.0.fields.simplified_shape.0.real_type: "Polygon" }
-  - match: { hits.hits.0.fields.simplified_shape.0.geom: "AAAAAAMAAAABAAAABkAALAAAAAAAQEhMXSKIhts/+uT//////0BIhrDKsBJAQACGAAAAAABASJ2wcvbTDkAGPIAAAAAAQEiZGKALhAxAChqAAAAAAEBIdhR0tDaAQAAsAAAAAABASExdIoiG2w==" }
+  - match: { hits.hits.0.fields.simplified_shape.0.shape: "000000000300000001000000063FFAE4FFFFFFFFFF404886B0CAB01240400086000000000040489DB072F6D30E40063C800000000040489918A00B840C400A1A80000000004048761474B4368040002C000000000040484C5D228886DB3FFAE4FFFFFFFFFF404886B0CAB01240" }
 
 
   # test shape simplify: WKT output_format, zoom 20
@@ -127,14 +127,14 @@
                 lang: "geo_extension_scripts"
                 source: "geo_simplify"
                 params:
-                  field: "geo_shape_0"
-                  zoom: 20
+                  field: "geo_shape_0.wkb"
+                  zoom: 10
                   output_format: "wkt"
 
   - match: { hits.total: 1 }
   - match: { hits.hits.0.fields.simplified_shape.0.type: "Polygon" }
   - match: { hits.hits.0.fields.simplified_shape.0.real_type: "Polygon" }
-  - match: { hits.hits.0.fields.simplified_shape.0.geom: "POLYGON ((2.021484375 48.596592251456705, 1.6809082031249998 49.05227025601607, 2.0654296875 49.23194729854559, 2.779541015625 49.196064000723794, 3.262939453125 48.922499263758255, 2.021484375 48.596592251456705))" }
+  - match: { hits.hits.0.fields.simplified_shape.0.shape: "POLYGON ((1.6809082031249998 49.05227025601607, 2.0654296875 49.23194729854559, 2.779541015625 49.196064000723794, 3.262939453125 48.922499263758255, 2.021484375 48.596592251456705, 1.6809082031249998 49.05227025601607))" }
 
 
   # test shape simplify: WKT output_format, zoom 1
@@ -147,11 +147,11 @@
                 lang: "geo_extension_scripts"
                 source: "geo_simplify"
                 params:
-                  field: "geo_shape_0"
+                  field: "geo_shape_0.wkb"
                   zoom: 1
                   output_format: "wkt"
 
   - match: { hits.total: 1 }
   - match: { hits.hits.0.fields.simplified_shape.0.type: "SimplificationPoint" }
-  - match: { hits.hits.0.fields.simplified_shape.0.geom: "POINT EMPTY" }
+  - match: { hits.hits.0.fields.simplified_shape.0.shape: "POINT EMPTY" }
 
