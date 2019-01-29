@@ -105,6 +105,10 @@ public class GeoExtensionProcessor extends AbstractProcessor {
 
             Object geoShapeObject = ingestDocument.getFieldValue(geoShapeField, Object.class);
 
+            if (geoShapeObject == null) {
+                continue;
+            }
+
             ShapeBuilder<?,?> shapeBuilder = getShapeBuilderFromObject(geoShapeObject);
 
             Shape shape = null;
