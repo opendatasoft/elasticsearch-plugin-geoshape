@@ -113,7 +113,7 @@ public class GeoExtensionProcessor extends AbstractProcessor {
 
             Shape shape = null;
             try {
-                shape = shapeBuilder.build();
+                shape = shapeBuilder.buildS4J();
             }
             catch (InvalidShapeException ignored) {}
 
