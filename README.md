@@ -349,7 +349,7 @@ Plugin versions are available for (at least) all minor versions of Elasticsearch
 The first 3 digits of plugin version is Elasticsearch versioning. The last digit is used for plugin versioning under an elasticsearch version.
 
 To install it, launch this command in Elasticsearch directory replacing the url by the correct link for your Elasticsearch version (see table)
-`bin/plugin --install geoshape-plugin --url "https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v6.6.1.0/elasticsearch-plugin-geoshape-6.6.1.0.zip"`
+`bin/plugin --install geoshape-plugin --url "https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v6.6.2.0/elasticsearch-plugin-geoshape-6.6.2.0.zip"`
 
 | elasticsearch version | plugin version | plugin url |
 | --------------------- | -------------- | ---------- |
@@ -357,7 +357,7 @@ To install it, launch this command in Elasticsearch directory replacing the url 
 | 6.3.2 | 6.3.2.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v6.3.2.0/elasticsearch-plugin-geoshape-6.3.2.0.zip |
 | 6.4.3 | 6.4.3.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v6.4.3.0/elasticsearch-plugin-geoshape-6.4.3.0.zip |
 | 6.5.4 | 6.5.4.2 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v6.5.4.2/elasticsearch-plugin-geoshape-6.5.4.2.zip |
-| 6.6.1 | 6.6.1.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v6.6.1.0/elasticsearch-plugin-geoshape-6.6.1.0.zip |
+| 6.6.2 | 6.6.2.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v6.6.2.0/elasticsearch-plugin-geoshape-6.6.2.0.zip |
 
 
 ## License
