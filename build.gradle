@@ -10,13 +10,15 @@ buildscript {
     }
 }
 
-
 group = 'org.elasticsearch.plugin'
-version = plugin_version
+version = "${plugin_version}"
 
 apply plugin: 'java'
 apply plugin: 'idea'
 apply plugin: 'elasticsearch.esplugin'
+
+licenseFile = rootProject.file('LICENSE')
+noticeFile = rootProject.file('README.md')
 
 esplugin {
     name 'elasticsearch-plugin-geoshape'
@@ -34,7 +36,7 @@ dependencies {
     compile group: 'com.googlecode.json-simple', name: 'json-simple', version: '1.1.1'
 }
 
-test.enabled = true
+unitTest.enabled = false
 
 // Skip license headers check
 licenseHeaders.enabled = false
@@ -42,8 +44,6 @@ licenseHeaders.enabled = false
 // Use elasticsearch checkstyle rules
 checkstyleTest.enabled = true
 
-licenseFile = rootProject.file('LICENSE')
-noticeFile = rootProject.file('README.md')
 dependencyLicenses.enabled = false
 
 thirdPartyAudit.enabled = true
