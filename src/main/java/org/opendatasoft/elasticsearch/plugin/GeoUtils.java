@@ -26,8 +26,14 @@ public class GeoUtils {
     }
 
     public static List<GeoPoint> getBboxFromCoords(Coordinate[] coords) {
-        GeoPoint topLeft = new GeoPoint(coords[0].y, coords[0].x);
-        GeoPoint bottomRight = new GeoPoint(coords[2].y, coords[2].x);
+        GeoPoint topLeft = new GeoPoint(
+                org.elasticsearch.common.geo.GeoUtils.normalizeLat(coords[0].y),
+                org.elasticsearch.common.geo.GeoUtils.normalizeLon(coords[0].x)
+        );
+        GeoPoint bottomRight = new GeoPoint(
+                org.elasticsearch.common.geo.GeoUtils.normalizeLat(coords[2].y),
+                org.elasticsearch.common.geo.GeoUtils.normalizeLon(coords[2].x)
+        );
         return Arrays.asList(topLeft, bottomRight);
     }
 
