@@ -32,32 +32,29 @@
   - do:
       indices.put_mapping:
         index: test_index
-        type: doc
         body:
-          doc:
-            properties:
-              geo_shape:
-                properties:
-                  shape:
-                    type: geo_shape
-                  hash:
-                    type: keyword
-                  wkb:
-                    type: binary
-                    doc_values: true
-                  type:
-                    type: keyword
-                  area:
-                    type: half_float
-                  bbox:
-                    type: geo_point
-                  centroid:
-                    type: geo_point
+          properties:
+            geo_shape:
+              properties:
+                shape:
+                  type: geo_shape
+                hash:
+                  type: keyword
+                wkb:
+                  type: binary
+                  doc_values: true
+                type:
+                  type: keyword
+                area:
+                  type: half_float
+                bbox:
+                  type: geo_point
+                centroid:
+                  type: geo_point
 
   - do:
       index:
         index: test_index
-        type: doc
         pipeline: "geo_extension"
         body: {
           "geo_shape": {
@@ -96,7 +93,6 @@
   - do:
       index:
         index: test_index
-        type: doc
         pipeline: "geo_extension"
         body: {
           "geo_shape": {
@@ -139,6 +135,7 @@
 # test shape aggregation: basic
   - do:
       search:
+        rest_total_hits_as_int: true
         body: {
           "size" : 0,
           "aggs" : {
@@ -157,6 +154,7 @@
 # test shape aggregation: WKT output_format, topology_preserving algorithm
   - do:
       search:
+        rest_total_hits_as_int: true
         body: {
           "size" : 0,
           "aggs" : {
@@ -189,6 +187,7 @@
 # test shape aggregation: WKB output_format, douglas_peucker algorithm
   - do:
       search:
+        rest_total_hits_as_int: true
         body: {
           "size" : 0,
           "aggs" : {
@@ -221,6 +220,7 @@
 # test shape aggregation: shard_size
   - do:
       search:
+        rest_total_hits_as_int: true
         body: {
           "size" : 0,
           "aggs" : {
@@ -241,6 +241,7 @@
 # test shape aggregation: zoom==1
   - do:
       search:
+        rest_total_hits_as_int: true
         body: {
           "size" : 0,
           "aggs" : {

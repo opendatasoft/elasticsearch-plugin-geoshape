@@ -32,32 +32,29 @@
   - do:
       indices.put_mapping:
         index: test_index
-        type: doc
         body:
-          doc:
-            dynamic_templates: [
-            {
-              "geo_shapes": {
-                "match": "geo_shape_*",
-                "mapping": {
-                  "properties": {
-                    "shape": {"type": "geo_shape"},
-                    "hash": {"type": "keyword"},
-                    "wkb": {"type": "binary", "doc_values": true},
-                    "type": {"type": "keyword"},
-                    "area": {"type": "half_float"},
-                    "bbox": {"type": "geo_point"},
-                    "centroid": {"type": "geo_point"}
-                  }
+          dynamic_templates: [
+          {
+            "geo_shapes": {
+              "match": "geo_shape_*",
+              "mapping": {
+                "properties": {
+                  "shape": {"type": "geo_shape"},
+                  "hash": {"type": "keyword"},
+                  "wkb": {"type": "binary", "doc_values": true},
+                  "type": {"type": "keyword"},
+                  "area": {"type": "half_float"},
+                  "bbox": {"type": "geo_point"},
+                  "centroid": {"type": "geo_point"}
                 }
               }
             }
-            ]
+          }
+        ]
 
   - do:
       index:
         index: test_index
-        type: doc
         pipeline: "geo_extension"
         body: {
           "geo_shape_0": {
@@ -100,6 +97,7 @@
   # test shape simplify: WKB output_format, zoom 8
   - do:
       search:
+        rest_total_hits_as_int: true
         body:
           script_fields:
             simplified_shape:
@@ -120,6 +118,7 @@
   # test shape simplify: WKT output_format, zoom 20
   - do:
       search:
+        rest_total_hits_as_int: true
         body:
           script_fields:
             simplified_shape:
@@ -140,6 +139,7 @@
   # test shape simplify: WKT output_format, zoom 1
   - do:
       search:
+        rest_total_hits_as_int: true
         body:
           script_fields:
             simplified_shape:

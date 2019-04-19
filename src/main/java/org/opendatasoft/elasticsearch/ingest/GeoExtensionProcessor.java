@@ -85,7 +85,7 @@ public class GeoExtensionProcessor extends AbstractProcessor {
         return fields;
     }
 
-    private ShapeBuilder<?,?> getShapeBuilderFromObject(Object object) throws IOException{
+    private ShapeBuilder<?,?, ?> getShapeBuilderFromObject(Object object) throws IOException{
         XContentBuilder contentBuilder = JsonXContent.contentBuilder().value(object);
 
         XContentParser parser = JsonXContent.jsonXContent.createParser(
@@ -109,7 +109,7 @@ public class GeoExtensionProcessor extends AbstractProcessor {
                 continue;
             }
 
-            ShapeBuilder<?,?> shapeBuilder = getShapeBuilderFromObject(geoShapeObject);
+            ShapeBuilder<?,?, ?> shapeBuilder = getShapeBuilderFromObject(geoShapeObject);
 
             Shape shape = null;
             try {

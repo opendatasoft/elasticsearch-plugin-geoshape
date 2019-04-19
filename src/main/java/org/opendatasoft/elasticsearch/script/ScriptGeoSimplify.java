@@ -6,7 +6,7 @@ import org.elasticsearch.index.fielddata.ScriptDocValues;
 import org.elasticsearch.script.ScriptContext;
 import org.elasticsearch.script.ScriptEngine;
 import org.elasticsearch.script.ScriptException;
-import org.elasticsearch.script.SearchScript;
+import org.elasticsearch.script.FieldScript;
 import org.elasticsearch.search.lookup.SearchLookup;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
@@ -36,13 +36,13 @@ public class ScriptGeoSimplify implements ScriptEngine {
     @Override
     public <T> T compile(String scriptName, String scriptSource,
                          ScriptContext<T> context, Map<String, String> params) {
-        if (!context.equals(SearchScript.CONTEXT)) {
+        if (!context.equals(FieldScript.CONTEXT)) {
             throw new IllegalArgumentException(getType()
                     + " scripts cannot be used for context ["
                     + context.name + "]");
         }
         if ("geo_simplify".equals(scriptName)) {
-            SearchScript.Factory factory = GeoSearchLeafFactory::new;
+            FieldScript.Factory factory = GeoSearchLeafFactory::new;
             return context.factoryClazz.cast(factory);
         }
         throw new IllegalArgumentException("Unknown script name " + scriptSource);
@@ -53,7 +53,7 @@ public class ScriptGeoSimplify implements ScriptEngine {
         // optionally close resources
     }
 
-    private static class GeoSearchLeafFactory implements SearchScript.LeafFactory {
+    private static class GeoSearchLeafFactory implements FieldScript.LeafFactory {
         private final Map<String, Object> params;
         private final SearchLookup lookup;
         private final String field;
@@ -109,10 +109,10 @@ public class ScriptGeoSimplify implements ScriptEngine {
         }
 
         @Override
-        public SearchScript newInstance(LeafReaderContext context) {
-            return new SearchScript(params, lookup, context) {
+        public FieldScript newInstance(LeafReaderContext context) {
+            return new FieldScript(params, lookup, context) {
                 @Override
-                public Object run() {
+                public Object execute() {
                     Map<String, String> resMap = new HashMap<>();
 
                     BytesRef wkb;
@@ -147,17 +147,9 @@ public class ScriptGeoSimplify implements ScriptEngine {
                     return resMap;
                 }
 
-                @Override
-                public double runAsDouble() {
-                    return 0;
-                }
             };
         }
 
-        @Override
-        public boolean needs_score() {
-            return false;
-        }
     }
 
 }
