@@ -157,6 +157,11 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder<ValuesSource
         }
         return this;
     }
+    
+    @Override
+    protected boolean serializeTargetValueType() {
+        return true;
+    }
 
     /**
      * Sets the size - indicating how many term buckets should be returned
