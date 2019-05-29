@@ -123,7 +123,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder<ValuesSource
         bucketCountThresholds.writeTo(out);
         out.writeBoolean(must_simplify);
         out.writeString(output_format.name());
-        out.writeOptionalVInt(simplify_zoom);
+        out.writeInt(simplify_zoom);
         out.writeString(simplify_algorithm.name());
     }
 
@@ -157,7 +157,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder<ValuesSource
         }
         return this;
     }
-    
+
     @Override
     protected boolean serializeTargetValueType() {
         return true;
@@ -217,7 +217,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder<ValuesSource
      */
     @Override
     protected int innerHashCode() {
-        return Objects.hash(output_format, must_simplify, simplify_zoom, simplify_algorithm);
+        return Objects.hash(output_format, must_simplify, simplify_zoom, simplify_algorithm, bucketCountThresholds);
     }
 
     @Override
