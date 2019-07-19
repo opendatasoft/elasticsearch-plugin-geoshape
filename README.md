@@ -359,7 +359,7 @@ To install it, launch this command in Elasticsearch directory replacing the url 
 | 6.5.4 | 6.5.4.2 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v6.5.4.2/elasticsearch-plugin-geoshape-6.5.4.2.zip |
 | 6.6.2 | 6.6.2.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v6.6.2.0/elasticsearch-plugin-geoshape-6.6.2.0.zip |
 | 6.7.1 | 6.7.1.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v6.7.1.0/elasticsearch-plugin-geoshape-6.7.1.0.zip |
-| 6.8.0 | 6.8.0.3 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v6.8.0.3/elasticsearch-plugin-geoshape-6.8.0.3.zip |
+| 6.8.1 | 6.8.1.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v6.8.1.0/elasticsearch-plugin-geoshape-6.8.1.0.zip |
 | 7.0.1 | 7.0.1.2 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.0.1.2/elasticsearch-plugin-geoshape-7.0.1.2.zip |
 | 7.1.0 | 7.1.0.3 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.1.0.3/elasticsearch-plugin-geoshape-7.1.0.3.zip |
 
