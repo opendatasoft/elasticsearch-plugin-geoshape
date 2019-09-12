@@ -216,12 +216,16 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder<ValuesSource
      * Used for caching requests, amongst other things.
      */
     @Override
-    protected int innerHashCode() {
-        return Objects.hash(output_format, must_simplify, simplify_zoom, simplify_algorithm, bucketCountThresholds);
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), output_format, must_simplify, simplify_zoom, simplify_algorithm, bucketCountThresholds);
     }
 
     @Override
-    protected boolean innerEquals(Object obj) {
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (obj == null || getClass() != obj.getClass()) return false;
+        if (!super.equals(obj)) return false;
+
         GeoShapeBuilder other = (GeoShapeBuilder) obj;
         return Objects.equals(output_format, other.output_format)
                 && Objects.equals(must_simplify, other.must_simplify)

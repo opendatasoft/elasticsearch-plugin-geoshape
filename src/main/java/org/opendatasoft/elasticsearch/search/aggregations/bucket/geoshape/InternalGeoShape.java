@@ -72,7 +72,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
             realType = in.readString();
             area = in.readDouble();
             docCount = in.readLong();
-            aggregations = InternalAggregations.readAggregations(in);
+            aggregations = new InternalAggregations(in);
         }
 
         /**
@@ -291,12 +291,16 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
     }
 
     @Override
-    protected int doHashCode() {
-        return Objects.hash(buckets, output_format, requiredSize, shardSize);
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), buckets, output_format, requiredSize, shardSize);
     }
 
     @Override
-    protected boolean doEquals(Object obj) {
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (obj == null || getClass() != obj.getClass()) return false;
+        if (!super.equals(obj)) return false;
+
         InternalGeoShape that = (InternalGeoShape) obj;
         return Objects.equals(buckets, that.buckets)
                 && Objects.equals(output_format, that.output_format)
