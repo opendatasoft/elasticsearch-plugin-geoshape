@@ -9,7 +9,7 @@ This is an `Ingest`, `Search` and `Script` plugin.
 
 ## Installation
 
-`bin/plugin --install geoshape-plugin --url https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.3.1.0/elasticsearch-plugin-geoshape-7.3.1.0.zip"`
+`bin/plugin --install geoshape-plugin --url https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.3.1.1/elasticsearch-plugin-geoshape-7.3.1.1.zip"`
 
 
 
@@ -24,8 +24,9 @@ Processor name: `geo_extension`.
 
 |Name|Required|Default|Description|
 |----|--------|-------|-----------|
-| `field` | yes | - | The geo shape field to use. This parameter accepts wildcard to match multiple `geo_shape` fields.
-| `path`  | no  | - | The field that contains the field to expand. When using wildcard in `field`, matching will be done under this path only.
+| `field` | yes | - | The geo shape field to use. This parameter accepts wildcard to match multiple `geo_shape` fields
+| `path`  | no  | - | The field that contains the field to expand. When using wildcard in `field`, matching will be done under this path only
+| `keep_original_shape` | no | `true` | Keep the original unfixed shape in a `shape` field
 | `shape_field` | no | `shape` | Name of sub `shape` field
 | `fix_shape` | no | `true` |  Fix invalid shape. For the moment it only fixes duplicate consecutive coordinates in polygon (https://github.com/elastic/elasticsearch/issues/14014)
 | `fixed_field` | no | `fixed_shape` | Name of sub `fixed_shape` field
@@ -349,7 +350,7 @@ Plugin versions are available for (at least) all minor versions of Elasticsearch
 The first 3 digits of plugin version is Elasticsearch versioning. The last digit is used for plugin versioning under an elasticsearch version.
 
 To install it, launch this command in Elasticsearch directory replacing the url by the correct link for your Elasticsearch version (see table)
-`bin/plugin --install geoshape-plugin --url "https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.3.1.0/elasticsearch-plugin-geoshape-7.3.1.0.zip"`
+`bin/plugin --install geoshape-plugin --url "https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.3.1.1/elasticsearch-plugin-geoshape-7.3.1.1.zip"`
 
 | elasticsearch version | plugin version | plugin url |
 | --------------------- | -------------- | ---------- |
@@ -363,7 +364,7 @@ To install it, launch this command in Elasticsearch directory replacing the url 
 | 7.0.1 | 7.0.1.2 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.0.1.2/elasticsearch-plugin-geoshape-7.0.1.2.zip |
 | 7.1.1 | 7.1.1.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.1.1.0/elasticsearch-plugin-geoshape-7.1.1.0.zip |
 | 7.2.0 | 7.2.0.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.2.0.0/elasticsearch-plugin-geoshape-7.2.0.0.zip |
-| 7.3.1 | 7.3.1.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.3.1.0/elasticsearch-plugin-geoshape-7.3.1.0.zip |
+| 7.3.1 | 7.3.1.1 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.3.1.1/elasticsearch-plugin-geoshape-7.3.1.1.zip |
 
 
 ## License

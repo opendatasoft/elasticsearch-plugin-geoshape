@@ -37,6 +37,7 @@ public class GeoExtensionProcessor extends AbstractProcessor {
 
     private final String field;
     private final String path;
+    private final Boolean keepShape;
     private final String shapeField;
     private final String fixedField;
     private final String wkbField;
@@ -46,12 +47,13 @@ public class GeoExtensionProcessor extends AbstractProcessor {
     private final String bboxField;
     private final String centroidField;
 
-    private GeoExtensionProcessor(String tag, String field, String path, String shapeField, String fixedField,
-                                  String wkbField, String hashField, String typeField, String areaField,
-                                  String bboxField, String centroidField)  {
+    private GeoExtensionProcessor(String tag, String field, String path, Boolean keepShape, String shapeField,
+                                  String fixedField, String wkbField, String hashField, String typeField,
+                                  String areaField, String bboxField, String centroidField)  {
         super(tag);
         this.field = field;
         this.path = path;
+        this.keepShape = keepShape;
         this.shapeField = shapeField;
         this.fixedField = fixedField;
         this.wkbField = wkbField;
@@ -129,7 +131,10 @@ public class GeoExtensionProcessor extends AbstractProcessor {
             }
 
             ingestDocument.removeField(geoShapeField);
-            ingestDocument.setFieldValue(geoShapeField + "." + shapeField, geoShapeObject);
+
+            if (keepShape) {
+                ingestDocument.setFieldValue(geoShapeField + "." + shapeField, geoShapeObject);
+            }
 
             if (fixedField != null) {
                 ingestDocument.setFieldValue(geoShapeField + "." + fixedField, new WKTWriter().write(geom));
@@ -170,6 +175,7 @@ public class GeoExtensionProcessor extends AbstractProcessor {
             String field = ConfigurationUtils.readStringProperty(TYPE, processorTag, config, "field");
             String path = ConfigurationUtils.readOptionalStringProperty(TYPE, processorTag, config, "path");
 
+            boolean keep_shape = ConfigurationUtils.readBooleanProperty(TYPE, processorTag, config, "keep_original_shape", true);
             String shapeField = ConfigurationUtils.readStringProperty(TYPE, processorTag, config, "shape_field", "shape");
 
             boolean fix = ConfigurationUtils.readBooleanProperty(TYPE, processorTag, config, "fix_shape", true);
@@ -218,6 +224,7 @@ public class GeoExtensionProcessor extends AbstractProcessor {
                     processorTag,
                     field,
                     path,
+                    keep_shape,
                     shapeField,
                     fixedField,
                     wkbField,
