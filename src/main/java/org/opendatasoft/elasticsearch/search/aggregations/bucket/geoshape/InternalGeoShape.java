@@ -132,21 +132,6 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
             return aggregations;
         }
 
-        InternalBucket reduce(List<InternalBucket> buckets, ReduceContext context) {
-            List<InternalAggregations> aggregationsList = new ArrayList<>(buckets.size());
-            InternalBucket reduced = null;
-            for (InternalBucket bucket : buckets) {
-                if (reduced == null) {
-                    reduced = bucket;
-                } else {
-                    reduced.docCount += bucket.docCount;
-                }
-                aggregationsList.add(bucket.aggregations);
-            }
-            reduced.aggregations = InternalAggregations.reduce(aggregationsList, context);
-            return reduced;
-        }
-
         @Override
         public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
             builder.startObject();
@@ -257,7 +242,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         BucketPriorityQueue ordered = new BucketPriorityQueue(size);
         for (LongObjectPagedHashMap.Cursor<List<InternalBucket>> cursor : buckets) {
             List<InternalBucket> sameCellBuckets = cursor.value;
-            ordered.insertWithOverflow(sameCellBuckets.get(0).reduce(sameCellBuckets, reduceContext));
+            ordered.insertWithOverflow(reduceBucket(sameCellBuckets, reduceContext));
         }
         buckets.close();
         InternalBucket[] list = new InternalBucket[ordered.size()];
@@ -269,6 +254,21 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
                 pipelineAggregators(), getMetaData());
     }
 
+    @Override
+    public InternalBucket reduceBucket(List<InternalBucket> buckets, ReduceContext context) {
+        List<InternalAggregations> aggregationsList = new ArrayList<>(buckets.size());
+        InternalBucket reduced = null;
+        for (InternalBucket bucket : buckets) {
+            if (reduced == null) {
+                reduced = bucket;
+            } else {
+                reduced.docCount += bucket.docCount;
+            }
+            aggregationsList.add(bucket.aggregations);
+        }
+        reduced.aggregations = InternalAggregations.reduce(aggregationsList, context);
+        return reduced;
+    }
 
     @Override
     public XContentBuilder doXContentBody(XContentBuilder builder, Params params) throws IOException {

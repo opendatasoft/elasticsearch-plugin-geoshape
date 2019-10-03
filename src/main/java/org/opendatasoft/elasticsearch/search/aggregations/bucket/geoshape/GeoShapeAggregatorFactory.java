@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Map;
 
 
-class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory<ValuesSource, GeoShapeAggregatorFactory> {
+class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory<ValuesSource> {
 
     private InternalGeoShape.OutputFormat output_format;
     private boolean must_simplify;
@@ -33,7 +33,7 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory<ValuesSour
                                    GeoShape.Algorithm algorithm,
                                    GeoShapeAggregator.BucketCountThresholds bucketCountThresholds,
                                    SearchContext context,
-                                   AggregatorFactory<?> parent,
+                                   AggregatorFactory parent,
                                    AggregatorFactories.Builder subFactoriesBuilder,
                                    Map<String, Object> metaData
     ) throws IOException {
