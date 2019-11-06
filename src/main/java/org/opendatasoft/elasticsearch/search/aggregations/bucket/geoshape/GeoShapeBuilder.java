@@ -1,5 +1,6 @@
 package org.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape;
 
+import org.elasticsearch.Version;
 import org.elasticsearch.common.ParseField;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
@@ -159,7 +160,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder<ValuesSource
     }
 
     @Override
-    protected boolean serializeTargetValueType() {
+    protected boolean serializeTargetValueType(Version version) {
         return true;
     }
 
@@ -191,10 +192,10 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder<ValuesSource
     }
 
     @Override
-    protected ValuesSourceAggregatorFactory<ValuesSource, ?> innerBuild(
+    protected ValuesSourceAggregatorFactory<ValuesSource> innerBuild(
             SearchContext context,
             ValuesSourceConfig<ValuesSource> config,
-            AggregatorFactory<?> parent,
+            AggregatorFactory parent,
             AggregatorFactories.Builder subFactoriesBuilder) throws IOException {
         return new GeoShapeAggregatorFactory(
                 name, config, output_format, must_simplify, simplify_zoom, simplify_algorithm,
