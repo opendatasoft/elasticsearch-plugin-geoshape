@@ -9,7 +9,7 @@ This is an `Ingest`, `Search` and `Script` plugin.
 
 ## Installation
 
-`bin/plugin --install geoshape-plugin --url https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.3.2.0/elasticsearch-plugin-geoshape-7.3.2.0.zip"`
+`bin/plugin --install geoshape-plugin --url https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.4.0.0/elasticsearch-plugin-geoshape-7.4.0.0.zip"`
 
 
 
@@ -350,7 +350,7 @@ Plugin versions are available for (at least) all minor versions of Elasticsearch
 The first 3 digits of plugin version is Elasticsearch versioning. The last digit is used for plugin versioning under an elasticsearch version.
 
 To install it, launch this command in Elasticsearch directory replacing the url by the correct link for your Elasticsearch version (see table)
-`bin/plugin --install geoshape-plugin --url "https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.3.2.0/elasticsearch-plugin-geoshape-7.3.2.0.zip"`
+`bin/plugin --install geoshape-plugin --url "https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.4.0.0/elasticsearch-plugin-geoshape-7.4.0.0.zip"`
 
 | elasticsearch version | plugin version | plugin url |
 | --------------------- | -------------- | ---------- |
@@ -365,6 +365,7 @@ To install it, launch this command in Elasticsearch directory replacing the url 
 | 7.1.1 | 7.1.1.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.1.1.0/elasticsearch-plugin-geoshape-7.1.1.0.zip |
 | 7.2.0 | 7.2.0.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.2.0.0/elasticsearch-plugin-geoshape-7.2.0.0.zip |
 | 7.3.2 | 7.3.2.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.3.2.0/elasticsearch-plugin-geoshape-7.3.2.0.zip |
+| 7.4.0 | 7.4.0.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.4.0.0/elasticsearch-plugin-geoshape-7.4.0.0.zip |
 
 
 ## License
