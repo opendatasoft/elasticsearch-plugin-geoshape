@@ -1,5 +1,6 @@
 package org.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape;
 
+import org.elasticsearch.index.query.QueryShardContext;
 import org.elasticsearch.search.aggregations.Aggregator;
 import org.elasticsearch.search.aggregations.AggregatorFactories;
 import org.elasticsearch.search.aggregations.AggregatorFactory;
@@ -32,7 +33,7 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory<ValuesSour
                                    int zoom,
                                    GeoShape.Algorithm algorithm,
                                    GeoShapeAggregator.BucketCountThresholds bucketCountThresholds,
-                                   SearchContext context,
+                                   QueryShardContext context,
                                    AggregatorFactory parent,
                                    AggregatorFactories.Builder subFactoriesBuilder,
                                    Map<String, Object> metaData
@@ -47,6 +48,7 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory<ValuesSour
 
     @Override
     protected Aggregator createUnmapped(
+            SearchContext searchContext,
             Aggregator parent,
             List<PipelineAggregator> pipelineAggregators,
             Map<String,
@@ -54,7 +56,7 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory<ValuesSour
         final InternalAggregation aggregation = new InternalGeoShape(name, new ArrayList<>(), output_format,
                 bucketCountThresholds.getRequiredSize(), bucketCountThresholds.getShardSize(),
                 pipelineAggregators, metaData);
-        return new NonCollectingAggregator(name, context, parent, factories, pipelineAggregators, metaData) {
+        return new NonCollectingAggregator(name, searchContext, parent, factories, pipelineAggregators, metaData) {
             @Override
             public InternalAggregation buildEmptyAggregation() { return aggregation; }
         };
@@ -62,14 +64,14 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory<ValuesSour
 
     @Override
     protected Aggregator doCreateInternal(
-            ValuesSource valuesSource, Aggregator parent,
+            ValuesSource valuesSource, SearchContext searchContext, Aggregator parent,
             boolean collectsFromSingleBucket, List<PipelineAggregator> pipelineAggregators,
             Map<String, Object> metaData) throws IOException {
         GeoShapeAggregator.BucketCountThresholds bucketCountThresholds = new
                 GeoShapeAggregator.BucketCountThresholds(this.bucketCountThresholds);
         bucketCountThresholds.ensureValidity();
         return new GeoShapeAggregator(
-                name, factories, context, valuesSource, output_format, must_simplify, zoom, algorithm,
+                name, factories, searchContext, valuesSource, output_format, must_simplify, zoom, algorithm,
                 bucketCountThresholds, parent, pipelineAggregators, metaData);
     }
 }

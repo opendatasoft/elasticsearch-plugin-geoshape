@@ -7,6 +7,7 @@ import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.xcontent.ObjectParser;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentParser;
+import org.elasticsearch.index.query.QueryShardContext;
 import org.elasticsearch.search.aggregations.AggregationBuilder;
 import org.elasticsearch.search.aggregations.AggregatorFactories;
 import org.elasticsearch.search.aggregations.AggregatorFactories.Builder;
@@ -19,7 +20,6 @@ import org.elasticsearch.search.aggregations.support.ValuesSourceConfig;
 import org.elasticsearch.search.aggregations.support.ValuesSourceParserHelper;
 import org.elasticsearch.search.aggregations.support.ValuesSourceType;
 import org.elasticsearch.search.aggregations.support.ValueType;
-import org.elasticsearch.search.internal.SearchContext;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -193,13 +193,13 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder<ValuesSource
 
     @Override
     protected ValuesSourceAggregatorFactory<ValuesSource> innerBuild(
-            SearchContext context,
+            QueryShardContext queryShardContext,
             ValuesSourceConfig<ValuesSource> config,
             AggregatorFactory parent,
             AggregatorFactories.Builder subFactoriesBuilder) throws IOException {
         return new GeoShapeAggregatorFactory(
                 name, config, output_format, must_simplify, simplify_zoom, simplify_algorithm,
-                bucketCountThresholds, context, parent, subFactoriesBuilder, metaData);
+                bucketCountThresholds, queryShardContext, parent, subFactoriesBuilder, metaData);
     }
 
     @Override
