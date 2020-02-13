@@ -3,10 +3,10 @@ package org.opendatasoft.elasticsearch.script;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.util.BytesRef;
 import org.elasticsearch.index.fielddata.ScriptDocValues;
+import org.elasticsearch.script.FieldScript;
 import org.elasticsearch.script.ScriptContext;
 import org.elasticsearch.script.ScriptEngine;
 import org.elasticsearch.script.ScriptException;
-import org.elasticsearch.script.FieldScript;
 import org.elasticsearch.search.lookup.SearchLookup;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
@@ -23,11 +23,14 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 import static org.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.GeoShape.Algorithm.TOPOLOGY_PRESERVING;
 
 
 public class ScriptGeoSimplify implements ScriptEngine {
+    public static final ScriptContext<GeoSearchLeafFactory> CONTEXT = new ScriptContext<>("geo_simplify", GeoSearchLeafFactory.class);
+
     @Override
     public String getType() {
         return "geo_extension_scripts";
@@ -46,6 +49,11 @@ public class ScriptGeoSimplify implements ScriptEngine {
             return context.factoryClazz.cast(factory);
         }
         throw new IllegalArgumentException("Unknown script name " + scriptSource);
+    }
+
+    @Override
+    public Set<ScriptContext<?>> getSupportedContexts() {
+        return Collections.singleton(CONTEXT);
     }
 
     @Override

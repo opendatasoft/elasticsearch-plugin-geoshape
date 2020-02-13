@@ -218,7 +218,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
      * Reduces the given aggregations to a single one and returns it.
      */
     @Override
-    public InternalGeoShape doReduce(List<InternalAggregation> aggregations, ReduceContext reduceContext) {
+    public InternalGeoShape reduce(List<InternalAggregation> aggregations, ReduceContext reduceContext) {
         LongObjectPagedHashMap<List<InternalBucket>> buckets = null;
 
         for (InternalAggregation aggregation : aggregations) {
