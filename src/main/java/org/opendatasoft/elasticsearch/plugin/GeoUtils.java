@@ -73,8 +73,7 @@ public class GeoUtils {
         /*
         This is a simplified formula for
         double meterByPixel = GeoUtils.getMeterByPixel(zoom, lat);
-        double tol = GeoUtils.getDecimalDegreeFromMeter(meterByPixel * pixelTolerance, lat);
-        when pixelTolerance == 1
+        double tol = GeoUtils.getDecimalDegreeFromMeter(meterByPixel, lat);
          */
         return 360 / (256 * Math.pow(2, zoom));
     }

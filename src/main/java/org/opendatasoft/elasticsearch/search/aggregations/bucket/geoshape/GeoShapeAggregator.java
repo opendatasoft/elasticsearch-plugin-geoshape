@@ -202,10 +202,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
     }
 
     private Geometry getSimplifiedShape(Geometry geometry) {
-        double lat = geometry.getCentroid().getCoordinate().y;
-        double meterByPixel = GeoUtils.getMeterByPixel(zoom, lat);
-
-        double tol = GeoUtils.getDecimalDegreeFromMeter(meterByPixel * pixelTolerance, lat);
+        double tol = pixelTolerance * GeoUtils.getToleranceFromZoom(zoom);
 
         switch (algorithm) {
             case TOPOLOGY_PRESERVING:
