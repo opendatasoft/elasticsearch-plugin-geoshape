@@ -69,6 +69,16 @@ public class GeoUtils {
         return meter * 360 / (org.elasticsearch.common.geo.GeoUtils.EARTH_EQUATOR * Math.cos(Math.toRadians(latitude)));
     }
 
+    public static double getToleranceFromZoom(int zoom) {
+        /*
+        This is a simplified formula for
+        double meterByPixel = GeoUtils.getMeterByPixel(zoom, lat);
+        double tol = GeoUtils.getDecimalDegreeFromMeter(meterByPixel * pixelTolerance, lat);
+        when pixelTolerance == 1
+         */
+        return 360 / (256 * Math.pow(2, zoom));
+    }
+
 
     public static String exportWkbTo(BytesRef wkb, InternalGeoShape.OutputFormat output_format, GeoJsonWriter geoJsonWriter)
             throws ParseException {
