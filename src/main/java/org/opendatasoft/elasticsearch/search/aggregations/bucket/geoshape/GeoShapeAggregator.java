@@ -46,7 +46,6 @@ public class GeoShapeAggregator extends BucketsAggregator {
     private int zoom;
     private GeoShape.Algorithm algorithm;
 
-    private int pixelTolerance;
     private WKBReader wkbReader;
     private final GeometryFactory geometryFactory;
 
@@ -74,7 +73,6 @@ public class GeoShapeAggregator extends BucketsAggregator {
         bucketOrds = new BytesRefHash(1, context.bigArrays());
         this.bucketCountThresholds = bucketCountThresholds;
 
-        pixelTolerance = 1;
         this.wkbReader = new WKBReader();
         this.geometryFactory = new GeometryFactory();
     }
@@ -202,10 +200,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
     }
 
     private Geometry getSimplifiedShape(Geometry geometry) {
-        double lat = geometry.getCentroid().getCoordinate().y;
-        double meterByPixel = GeoUtils.getMeterByPixel(zoom, lat);
-
-        double tol = GeoUtils.getDecimalDegreeFromMeter(meterByPixel * pixelTolerance, lat);
+        double tol = GeoUtils.getToleranceFromZoom(zoom);
 
         switch (algorithm) {
             case TOPOLOGY_PRESERVING:

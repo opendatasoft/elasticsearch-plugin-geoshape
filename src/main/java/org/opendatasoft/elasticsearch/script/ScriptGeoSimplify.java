@@ -96,7 +96,7 @@ public class ScriptGeoSimplify implements ScriptEngine {
             this.lookup = lookup;
             field = params.get("field").toString();
             int zoom = (int) params.get("zoom");
-            tolerance = 360 / (256 * Math.pow(zoom, 3));
+            tolerance = GeoUtils.getToleranceFromZoom(zoom);
 
             output_format = InternalGeoShape.OutputFormat.GEOJSON;
             if (params.containsKey("output_format")) {
