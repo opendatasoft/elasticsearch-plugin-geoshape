@@ -97,6 +97,30 @@ public class GeoExtensionProcessor extends AbstractProcessor {
         return ShapeParser.parse(parser);
     }
 
+    /**
+    * Try to validate the shape (using Spatial4J as Elasticsearch does internally)
+    */
+    private String checkShape(ShapeBuilder<?,?> shapeBuilder) throws IllegalArgumentException {
+        Shape validated_shape;
+        try {
+            validated_shape = shapeBuilder.buildS4J();
+        }
+        catch (InvalidShapeException error) {
+                if (error.toString().contains("shape has duplicate consecutive coordinates")) {
+                    // we can fix this error: do not raise
+                    return "duplicated_coordinates_error";
+                }
+                else
+                    throw new IllegalArgumentException("unable to parse shape [" + shapeBuilder.toWKT() + "]");
+        }
+
+        if (validated_shape == null && fixedField == null) {
+            throw new IllegalArgumentException("unable to parse shape [" + shapeBuilder.toWKT() + "]");
+        }
+
+        return (validated_shape != null) ? "true" : "false";
+    }
+
     @SuppressWarnings("unchecked")
     @Override
     public IngestDocument execute(IngestDocument ingestDocument) throws IOException, ParseException {
@@ -110,22 +134,14 @@ public class GeoExtensionProcessor extends AbstractProcessor {
             }
 
             ShapeBuilder<?,?> shapeBuilder = getShapeBuilderFromObject(geoShapeObject);
-
-            Shape shape = null;
-            try {
-                shape = shapeBuilder.buildS4J();
-            }
-            catch (InvalidShapeException ignored) {}
-
-            if (shape == null && fixedField == null) {
-                throw new IllegalArgumentException("unable to parse shape [" + shapeBuilder.toWKT() + "]");
-            }
+            String are_shapes_valid = checkShape(shapeBuilder);
 
             Geometry geom = new WKTReader().read(shapeBuilder.toWKT());
 
             // fix shapes if needed
-            if (shape == null && fixedField != null) {
+            if (are_shapes_valid.equals("duplicated_coordinates_error") && fixedField != null) {
                 geom = GeoUtils.removeDuplicateCoordinates(geom);
+                checkShape(shapeBuilder);  // check the shapes again
             }
 
             ingestDocument.removeField(geoShapeField);
