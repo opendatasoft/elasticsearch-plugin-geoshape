@@ -12,20 +12,17 @@ import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKBReader;
-import org.locationtech.jts.io.geojson.GeoJsonWriter;
+// fixme: uncomment
+//import org.locationtech.jts.io.geojson.GeoJsonWriter;
 import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import org.locationtech.jts.simplify.TopologyPreservingSimplifier;
 import org.opendatasoft.elasticsearch.plugin.GeoUtils;
-import org.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.GeoShape;
-import org.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.InternalGeoShape;
 
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-
-import static org.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.GeoShape.Algorithm.TOPOLOGY_PRESERVING;
 
 
 public class ScriptGeoSimplify implements ScriptEngine {
@@ -66,14 +63,15 @@ public class ScriptGeoSimplify implements ScriptEngine {
         private final SearchLookup lookup;
         private final String field;
         private final double tolerance;
-        InternalGeoShape.OutputFormat output_format;
-        GeoShape.Algorithm algorithm;
+        GeoUtils.OutputFormat output_format;
+        GeoUtils.SimplifyAlgorithm algorithm;
 //        private final int geojson_decimals;
-        GeoJsonWriter geoJsonWriter;
+        // fixme: uncomment
+//        GeoJsonWriter geoJsonWriter;
 
 
         private Geometry getSimplifiedShape(Geometry geometry) {
-            if (algorithm == TOPOLOGY_PRESERVING)
+            if (algorithm == GeoUtils.SimplifyAlgorithm.TOPOLOGY_PRESERVING)
                 return TopologyPreservingSimplifier.simplify(geometry, tolerance);
             else
                 return DouglasPeuckerSimplifier.simplify(geometry, tolerance);
@@ -98,22 +96,23 @@ public class ScriptGeoSimplify implements ScriptEngine {
             int zoom = (int) params.get("zoom");
             tolerance = 360 / (256 * Math.pow(zoom, 3));
 
-            output_format = InternalGeoShape.OutputFormat.GEOJSON;
+            output_format = GeoUtils.OutputFormat.GEOJSON;
             if (params.containsKey("output_format")) {
                 String string_output_format = params.get("output_format").toString();
                 if (string_output_format != null)
-                    output_format = InternalGeoShape.OutputFormat.valueOf(string_output_format.toUpperCase(Locale.getDefault()));
+                    output_format = GeoUtils.OutputFormat.valueOf(string_output_format.toUpperCase(Locale.getDefault()));
             }
 
-            algorithm = GeoShape.Algorithm.DOUGLAS_PEUCKER;
+            algorithm = GeoUtils.SimplifyAlgorithm.DOUGLAS_PEUCKER;
             if (params.containsKey("algorithm")) {
                 String algorithm_string = params.get("algorithm").toString();
                 if (algorithm_string != null)
-                    algorithm = GeoShape.Algorithm.valueOf(algorithm_string.toUpperCase(Locale.getDefault()));
+                    algorithm = GeoUtils.SimplifyAlgorithm.valueOf(algorithm_string.toUpperCase(Locale.getDefault()));
             }
 
 //            geojson_decimals = 20;
-            geoJsonWriter = new GeoJsonWriter();
+            // fixme: uncomment
+//            geoJsonWriter = new GeoJsonWriter();
         }
 
         @Override
@@ -138,13 +137,15 @@ public class ScriptGeoSimplify implements ScriptEngine {
                         String realType = geom.getGeometryType();
                         geom = getSimplifiedShape(geom);
                         if (!geom.isEmpty()) {
-                            resMap.put("shape", GeoUtils.exportGeoTo(geom, output_format, geoJsonWriter));
+                            // fixme: uncomment
+//                            resMap.put("shape", GeoUtils.exportGeoTo(geom, output_format, geoJsonWriter));
                             resMap.put("type", geom.getGeometryType());
                             resMap.put("real_type", realType);
                         } else {
                             // If the simplified polygon is empty because it was too small, return a point
                             Geometry point = geometryFactory.createPoint(geom.getCoordinate());
-                            resMap.put("shape", GeoUtils.exportGeoTo(point, output_format, geoJsonWriter));
+                            // fixme: uncomment
+//                            resMap.put("shape", GeoUtils.exportGeoTo(point, output_format, geoJsonWriter));
                             resMap.put("type", "SimplificationPoint");
                         }
                     } catch (ParseException e) {

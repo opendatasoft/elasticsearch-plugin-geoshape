@@ -47,10 +47,10 @@ public class GeoExtensionProcessor extends AbstractProcessor {
     private final String bboxField;
     private final String centroidField;
 
-    private GeoExtensionProcessor(String tag, String field, String path, Boolean keepShape, String shapeField,
+    private GeoExtensionProcessor(String tag, String description, String field, String path, Boolean keepShape, String shapeField,
                                   String fixedField, String wkbField, String hashField, String typeField,
                                   String areaField, String bboxField, String centroidField)  {
-        super(tag);
+        super(tag, description);
         this.field = field;
         this.path = path;
         this.keepShape = keepShape;
@@ -171,6 +171,7 @@ public class GeoExtensionProcessor extends AbstractProcessor {
     public static final class Factory implements Processor.Factory {
         @Override
         public GeoExtensionProcessor create(Map<String, Processor.Factory> registry, String processorTag,
+                                            String description,
                                             Map<String, Object> config) {
             String field = ConfigurationUtils.readStringProperty(TYPE, processorTag, config, "field");
             String path = ConfigurationUtils.readOptionalStringProperty(TYPE, processorTag, config, "path");
@@ -222,6 +223,7 @@ public class GeoExtensionProcessor extends AbstractProcessor {
 
             return new GeoExtensionProcessor(
                     processorTag,
+                    description,
                     field,
                     path,
                     keep_shape,
