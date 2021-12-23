@@ -1,3 +1,11 @@
+Disclaimer: This 7.10 build is a Work in Progress
+==================================
+
+todo:
+- fix simplify script: org.locationtech.jts.io.geojson packaged is required but requires json-simple:1.1.1 which requires junit:4.10 which conflicts with elastic 4.12 requirement
+- fix commented tests in 20_geo_ingest_processor.yml
+
+
 Elasticsearch GeoShape Plugin
 ==================================
 
@@ -11,6 +19,10 @@ This is an `Ingest`, `Search` and `Script` plugin.
 
 `bin/plugin --install geoshape-plugin --url https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.6.0.0/elasticsearch-plugin-geoshape-7.6.0.0.zip"`
 
+
+## Build
+-----
+Built with Java 15 and gradle 6.6.1 (but you should use the packaged gradlew included in this repo anyway).
 
 
 ## Usage
