@@ -17,13 +17,28 @@ apply plugin: 'java'
 apply plugin: 'idea'
 apply plugin: 'elasticsearch.esplugin'
 
+// license of this project
 licenseFile = rootProject.file('LICENSE')
 noticeFile = rootProject.file('README.md')
 
-// remove this again after 7.3.1
-configurations.restSpec.withDependencies { dependencies ->
-    dependencies.clear()
-    dependencies.add(project.dependencies.create("org.elasticsearch:rest-api-spec:${elastic_version}"))
+publishing {
+    publications {
+        // add license information to generated poms
+        all {
+            pom.withXml { XmlProvider xml ->
+                Node node = xml.asNode()
+
+                Node license = node.appendNode('licenses').appendNode('license')
+                license.appendNode('name', 'The MIT License (MIT)')
+                license.appendNode('url', './LICENSE')
+                license.appendNode('distribution', 'repo')
+
+                Node developer = node.appendNode('developers').appendNode('developer')
+                developer.appendNode('name', 'Opendatasoft')
+                developer.appendNode('url', 'https://www.opendatasoft.com/')
+            }
+        }
+    }
 }
 
 esplugin {
@@ -35,11 +50,19 @@ esplugin {
 }
 
 
+// dependencies for production but also test code
 dependencies {
+//    implementation 'org.jetbrains:annotations:20.1.0'
     compile "org.elasticsearch:elasticsearch:${elastic_version}"
-    // WARNING: jts-io-common version has to be identical to the elastic:jts one (here: 1.15.0)
-    compile group: 'org.locationtech.jts.io', name: 'jts-io-common', version: '1.15.0'
-    compile group: 'com.googlecode.json-simple', name: 'json-simple', version: '1.1.1'
+
+    // fixme: uncomment
+//    // jts-io-common compile dependency
+//    compile group: 'com.googlecode.json-simple', name: 'json-simple', version: '1.1.1'
+//
+//    // WARNING: jts-io-common is needed for org.locationtech.jts.io.geojson
+//    //   its version has to to be identical to the elastic:jts one (here: 1.15.0)
+//    compile group: 'org.locationtech.jts.io', name: 'jts-io-common', version: '1.15.0'
+
 }
 
 test.enabled = false
