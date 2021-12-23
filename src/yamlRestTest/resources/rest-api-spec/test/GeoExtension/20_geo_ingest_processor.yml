@@ -1,0 +1,138 @@
+---
+"Test geo extension pipeline and dynamic mapping":
+
+# Create the pipeline
+  - do:
+      ingest.put_pipeline:
+        id: "geo_extension"
+        body:  >
+          {
+            "description": "Add extra geo fields to geo_shape fields.",
+            "processors": [
+              {
+                "geo_extension": {
+                  "field": "geo_shape_*"
+                }
+              }
+            ]
+          }
+  - match: { acknowledged: true }
+
+  - do:
+      ingest.get_pipeline:
+        id: "geo_extension"
+  - match: { geo_extension.description: "Add extra geo fields to geo_shape fields." }
+
+
+# fixme: fix tests below, I don't understand why dynamic_templates does not accept geo_shape type...
+## Test geo extension dynamic mapping
+#  - do:
+#      indices.create:
+#        index: test_index
+#
+#  - do:
+#      indices.put_mapping:
+#        index: test_index
+#        body:
+#          dynamic_templates: [
+#            {
+#              "geo_shapes": {
+#                "match": "geo_shape_*",
+#                "mapping": {
+#                  "properties": {
+#                    "shape": {"enabled": false},
+#                    "fixed_shape": {"type": "geo_shape"},
+#                    "hash": {"type": "keyword"},
+#                    "wkb": {"type": "binary", "doc_values": true},
+#                    "type": {"type": "keyword"},
+#                    "area": {"type": "half_float"},
+#                    "bbox": {"type": "geo_point"},
+#                    "centroid": {"type": "geo_point"}
+#                  }
+#                }
+#              }
+#            }
+#          ]
+#
+#  - do:
+#      indices.get_mapping: {}
+#
+#  - match: {test_index.mappings.dynamic_templates.0.geo_shapes.match: "geo_shape_*"}
+#
+#  - match: {test_index.mappings.dynamic_templates.0.geo_shapes.mapping.properties.fixed_shape.type: "geo_shape"}
+#  - match: {test_index.mappings.dynamic_templates.0.geo_shapes.mapping.properties.hash.type: "keyword"}
+#  - match: {test_index.mappings.dynamic_templates.0.geo_shapes.mapping.properties.wkb.type: "binary"}
+#  - match: {test_index.mappings.dynamic_templates.0.geo_shapes.mapping.properties.wkb.doc_values: true}
+#  - match: {test_index.mappings.dynamic_templates.0.geo_shapes.mapping.properties.type.type: "keyword"}
+#  - match: {test_index.mappings.dynamic_templates.0.geo_shapes.mapping.properties.area.type: "half_float"}
+#  - match: {test_index.mappings.dynamic_templates.0.geo_shapes.mapping.properties.bbox.type: "geo_point"}
+#  - match: {test_index.mappings.dynamic_templates.0.geo_shapes.mapping.properties.centroid.type: "geo_point"}
+#
+#
+## Test that mapping is correct after a document POST
+#  - do:
+#      index:
+#        index: test_index
+#        pipeline: "geo_extension"
+#        body: {
+#          "geo_shape_0": {
+#            "type": "Polygon",
+#            "coordinates": [
+#              [
+#                [
+#                  1.6809082031249998,
+#                  49.05227025601607
+#                ],
+#                [
+#                  2.021484375,
+#                  48.596592251456705
+#                ],
+#                [
+#                  2.021484375,
+#                  48.596592251456705
+#                ],
+#                [
+#                  3.262939453125,
+#                  48.922499263758255
+#                ],
+#                [
+#                  2.779541015625,
+#                  49.196064000723794
+#                ],
+#                [
+#                  2.0654296875,
+#                  49.23194729854559
+#                ],
+#                [
+#                  1.6809082031249998,
+#                  49.05227025601607
+#                ]
+#              ]
+#            ]
+#          }
+#        }
+#
+#  - do:
+#      indices.refresh: {}
+#
+#  - do:
+#      indices.get_mapping: {}
+#
+#  - match: {test_index.mappings.properties.geo_shape_0.properties.fixed_shape.type: "geo_shape"}
+#  - match: {test_index.mappings.properties.geo_shape_0.properties.hash.type: "keyword"}
+#  - match: {test_index.mappings.properties.geo_shape_0.properties.wkb.type: "binary"}
+#  - match: {test_index.mappings.properties.geo_shape_0.properties.wkb.doc_values: true}
+#  - match: {test_index.mappings.properties.geo_shape_0.properties.type.type: "keyword"}
+#  - match: {test_index.mappings.properties.geo_shape_0.properties.area.type: "half_float"}
+#  - match: {test_index.mappings.properties.geo_shape_0.properties.bbox.type: "geo_point"}
+#  - match: {test_index.mappings.properties.geo_shape_0.properties.centroid.type: "geo_point"}
+#
+#
+## Test that the shape has been fixed
+#  - do:
+#      search:
+#        body:
+#          query:
+#            match_all: {}
+#
+#  - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "POLYGON ((1.6809082031249998 49.05227025601607, 2.021484375 48.596592251456705, 3.262939453125 48.922499263758255, 2.779541015625 49.196064000723794, 2.0654296875 49.23194729854559, 1.6809082031249998 49.05227025601607))" }

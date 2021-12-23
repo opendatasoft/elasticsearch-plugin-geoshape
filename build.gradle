@@ -16,6 +16,7 @@ version = "${plugin_version}"
 apply plugin: 'java'
 apply plugin: 'idea'
 apply plugin: 'elasticsearch.esplugin'
+apply plugin: 'elasticsearch.yaml-rest-test'
 
 // license of this project
 licenseFile = rootProject.file('LICENSE')
@@ -54,6 +55,8 @@ esplugin {
 dependencies {
 //    implementation 'org.jetbrains:annotations:20.1.0'
     compile "org.elasticsearch:elasticsearch:${elastic_version}"
+    // required for ESClientYamlSuiteTestCase; fixes "RestApiYamlIT > initializationError"
+    yamlRestTestImplementation "org.apache.logging.log4j:log4j-core:${versions.log4j}"
 
     // fixme: uncomment
 //    // jts-io-common compile dependency
@@ -76,3 +79,7 @@ checkstyleTest.enabled = true
 dependencyLicenses.enabled = false
 
 thirdPartyAudit.enabled = true
+
+// fixes "Could not find org.elasticsearch.test:logger-usage:7.10.2"
+//  see https://github.com/elastic/elasticsearch/issues/65247
+loggerUsageCheck.enabled = false
