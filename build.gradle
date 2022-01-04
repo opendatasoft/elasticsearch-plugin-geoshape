@@ -83,3 +83,10 @@ thirdPartyAudit.enabled = true
 // fixes "Could not find org.elasticsearch.test:logger-usage:7.10.2"
 //  see https://github.com/elastic/elasticsearch/issues/65247
 loggerUsageCheck.enabled = false
+
+// Make sure the ES distribution used for rest tests is the open source variant
+// Otherwise weirds errors occur (like the geo_shape type is not handled)
+// This may be due to licensing issues (?)
+testClusters.all {
+    testDistribution = 'oss'
+}
