@@ -10,11 +10,11 @@ import org.locationtech.jts.geom.MultiPolygon;
 import org.locationtech.jts.geom.CoordinateList;
 import org.locationtech.jts.geom.GeometryCollection;
 import org.locationtech.jts.geom.LinearRing;
-//import org.locationtech.jts.io.ParseException;
-//import org.locationtech.jts.io.WKBReader;
-//import org.locationtech.jts.io.WKBWriter;
-//import org.locationtech.jts.io.WKTWriter;
-//import org.locationtech.jts.io.geojson.GeoJsonWriter;
+import org.locationtech.jts.io.ParseException;
+import org.locationtech.jts.io.WKBReader;
+import org.locationtech.jts.io.WKBWriter;
+import org.locationtech.jts.io.WKTWriter;
+import org.locationtech.jts.io.geojson.GeoJsonWriter;
 
 import java.util.Arrays;
 import java.util.List;
@@ -80,32 +80,30 @@ public class GeoUtils {
     }
 
 
-    // fixme: uncomment
-//    public static String exportWkbTo(BytesRef wkb, OutputFormat output_format, GeoJsonWriter geoJsonWriter)
-//            throws ParseException {
-//        switch (output_format) {
-//            case WKT:
-//                Geometry geom = new WKBReader().read(wkb.bytes);
-//                return new WKTWriter().write(geom);
-//            case WKB:
-//                return WKBWriter.toHex(wkb.bytes);
-//            default:
-//                Geometry geo = new WKBReader().read(wkb.bytes);
-//                return geoJsonWriter.write(geo);
-//        }
-//    }
+    public static String exportWkbTo(BytesRef wkb, OutputFormat output_format, GeoJsonWriter geoJsonWriter)
+            throws ParseException {
+        switch (output_format) {
+            case WKT:
+                Geometry geom = new WKBReader().read(wkb.bytes);
+                return new WKTWriter().write(geom);
+            case WKB:
+                return WKBWriter.toHex(wkb.bytes);
+            default:
+                Geometry geo = new WKBReader().read(wkb.bytes);
+                return geoJsonWriter.write(geo);
+        }
+    }
 
-    // fixme: uncomment
-//    public static String exportGeoTo(Geometry geom, OutputFormat outputFormat, GeoJsonWriter geoJsonWriter) {
-//        switch (outputFormat) {
-//            case WKT:
-//                return new WKTWriter().write(geom);
-//            case WKB:
-//                return WKBWriter.toHex(new WKBWriter().write(geom));
-//            default:
-//                return geoJsonWriter.write(geom);
-//        }
-//    }
+    public static String exportGeoTo(Geometry geom, OutputFormat outputFormat, GeoJsonWriter geoJsonWriter) {
+        switch (outputFormat) {
+            case WKT:
+                return new WKTWriter().write(geom);
+            case WKB:
+                return WKBWriter.toHex(new WKBWriter().write(geom));
+            default:
+                return geoJsonWriter.write(geom);
+        }
+    }
 
     public static Geometry removeDuplicateCoordinates(Geometry geom) {
         if (geom.isEmpty()) {

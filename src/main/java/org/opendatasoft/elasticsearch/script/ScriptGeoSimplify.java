@@ -12,8 +12,7 @@ import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKBReader;
-// fixme: uncomment
-//import org.locationtech.jts.io.geojson.GeoJsonWriter;
+import org.locationtech.jts.io.geojson.GeoJsonWriter;
 import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import org.locationtech.jts.simplify.TopologyPreservingSimplifier;
 import org.opendatasoft.elasticsearch.plugin.GeoUtils;
@@ -66,8 +65,7 @@ public class ScriptGeoSimplify implements ScriptEngine {
         GeoUtils.OutputFormat output_format;
         GeoUtils.SimplifyAlgorithm algorithm;
 //        private final int geojson_decimals;
-        // fixme: uncomment
-//        GeoJsonWriter geoJsonWriter;
+        GeoJsonWriter geoJsonWriter;
 
 
         private Geometry getSimplifiedShape(Geometry geometry) {
@@ -111,8 +109,7 @@ public class ScriptGeoSimplify implements ScriptEngine {
             }
 
 //            geojson_decimals = 20;
-            // fixme: uncomment
-//            geoJsonWriter = new GeoJsonWriter();
+            geoJsonWriter = new GeoJsonWriter();
         }
 
         @Override
@@ -135,17 +132,17 @@ public class ScriptGeoSimplify implements ScriptEngine {
                     try {
                         Geometry geom = new WKBReader().read(wkb.bytes);
                         String realType = geom.getGeometryType();
-                        geom = getSimplifiedShape(geom);
-                        if (!geom.isEmpty()) {
-                            // fixme: uncomment
-//                            resMap.put("shape", GeoUtils.exportGeoTo(geom, output_format, geoJsonWriter));
-                            resMap.put("type", geom.getGeometryType());
+                        Geometry simplifiedGeom = getSimplifiedShape(geom);
+                        if (!simplifiedGeom.isEmpty()) {
+                            resMap.put("shape", GeoUtils.exportGeoTo(simplifiedGeom, output_format, geoJsonWriter));
+                            resMap.put("type", simplifiedGeom.getGeometryType());
                             resMap.put("real_type", realType);
                         } else {
                             // If the simplified polygon is empty because it was too small, return a point
-                            Geometry point = geometryFactory.createPoint(geom.getCoordinate());
-                            // fixme: uncomment
-//                            resMap.put("shape", GeoUtils.exportGeoTo(point, output_format, geoJsonWriter));
+                            resMap.put("shape", GeoUtils.exportGeoTo(
+                                    geometryFactory.createPoint(geom.getCoordinate()),
+                                    output_format,
+                                    geoJsonWriter));
                             resMap.put("type", "SimplificationPoint");
                         }
                     } catch (ParseException e) {

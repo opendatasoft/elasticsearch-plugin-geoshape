@@ -24,7 +24,6 @@
   - match: { geo_extension.description: "Add extra geo fields to geo_shape fields." }
 
 
-# fixme: fix tests below, I don't understand why dynamic_templates does not accept geo_shape type...
 # Test geo extension dynamic mapping
   - do:
       indices.create:

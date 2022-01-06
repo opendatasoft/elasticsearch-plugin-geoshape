@@ -51,6 +51,13 @@ esplugin {
 }
 
 
+// exclude junit from implementation to resolve a version conflict (but not from tests)
+configurations {
+    implementation {
+        exclude(group: 'junit', module: 'junit')
+    }
+}
+
 // dependencies for production but also test code
 dependencies {
 //    implementation 'org.jetbrains:annotations:20.1.0'
@@ -58,14 +65,9 @@ dependencies {
     // required for ESClientYamlSuiteTestCase; fixes "RestApiYamlIT > initializationError"
     yamlRestTestImplementation "org.apache.logging.log4j:log4j-core:${versions.log4j}"
 
-    // fixme: uncomment
-//    // jts-io-common compile dependency
-//    compile group: 'com.googlecode.json-simple', name: 'json-simple', version: '1.1.1'
-//
-//    // WARNING: jts-io-common is needed for org.locationtech.jts.io.geojson
-//    //   its version has to to be identical to the elastic:jts one (here: 1.15.0)
-//    compile group: 'org.locationtech.jts.io', name: 'jts-io-common', version: '1.15.0'
-
+    // WARNING: jts-io-common is needed for org.locationtech.jts.io.geojson
+    //   its version has to to be identical to the elastic:jts one (here: 1.15.0)
+    compile group: 'org.locationtech.jts.io', name: 'jts-io-common', version: '1.15.0'
 }
 
 test.enabled = false
