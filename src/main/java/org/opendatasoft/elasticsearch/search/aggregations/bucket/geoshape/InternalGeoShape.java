@@ -42,19 +42,19 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         protected BytesRef wkb;
         protected String wkbHash;
         protected String realType;
-        protected double area;
+        protected double perimeter;
         long bucketOrd;
         protected long docCount;
-        protected InternalAggregations aggregations;
+        protected InternalAggregations subAggregations;
 
-        public InternalBucket(BytesRef wkb, String wkbHash, String realType, double area,
-                              long docCount, InternalAggregations aggregations) {
+        public InternalBucket(BytesRef wkb, String wkbHash, String realType, double perimeter,
+                              long docCount, InternalAggregations subAggregations) {
             this.wkb = wkb;
             this.wkbHash = wkbHash;
             this.realType = realType;
             this.docCount = docCount;
-            this.aggregations = aggregations;
-            this.area = area;
+            this.subAggregations = subAggregations;
+            this.perimeter = perimeter;
         }
 
         /**
@@ -64,9 +64,9 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
             wkb = in.readBytesRef();
             wkbHash = in.readString();
             realType = in.readString();
-            area = in.readDouble();
+            perimeter = in.readDouble();
             docCount = in.readLong();
-            aggregations = InternalAggregations.readFrom(in);
+            subAggregations = InternalAggregations.readFrom(in);
         }
 
         /**
@@ -77,9 +77,9 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
             out.writeBytesRef(wkb);
             out.writeString(wkbHash);
             out.writeString(realType);
-            out.writeDouble(area);
+            out.writeDouble(perimeter);
             out.writeLong(docCount);
-            aggregations.writeTo(out);
+            subAggregations.writeTo(out);
         }
 
         @Override
@@ -123,14 +123,14 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
 
         @Override
         public Aggregations getAggregations() {
-            return aggregations;
+            return subAggregations;
         }
 
         @Override
         public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
             builder.startObject();
             builder.field(CommonFields.DOC_COUNT.getPreferredName(), docCount);
-            aggregations.toXContentInternal(builder, params);
+            subAggregations.toXContentInternal(builder, params);
             builder.endObject();
             return builder;
         }
@@ -199,7 +199,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
     @Override
     public InternalBucket createBucket(InternalAggregations aggregations, InternalBucket prototype) {
         return new InternalBucket(prototype.wkb, prototype.wkbHash, prototype.realType,
-                prototype.area, prototype.docCount, aggregations);
+                prototype.perimeter, prototype.docCount, aggregations);
     }
 
     @Override
@@ -257,9 +257,9 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
             } else {
                 reduced.docCount += bucket.docCount;
             }
-            aggregationsList.add(bucket.aggregations);
+            aggregationsList.add(bucket.subAggregations);
         }
-        reduced.aggregations = InternalAggregations.reduce(aggregationsList, context);
+        reduced.subAggregations = InternalAggregations.reduce(aggregationsList, context);
         return reduced;
     }
 
@@ -310,7 +310,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         @Override
         protected boolean lessThan(InternalBucket o1, InternalBucket o2) {
 
-            double i = o2.area - o1.area;
+            double i = o2.perimeter - o1.perimeter;
             if (i == 0) {
                 i = o2.compareTo(o1);
                 if (i == 0) {

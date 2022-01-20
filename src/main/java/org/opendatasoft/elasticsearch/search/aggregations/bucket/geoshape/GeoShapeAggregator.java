@@ -144,7 +144,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
                 spare.wkbHash = String.valueOf(GeoUtils.getHashFromWKB(spare.wkb));
 
                 if (GeoUtils.wkbIsPoint(spare.wkb.bytes)) {
-                    spare.area = 0;
+                    spare.perimeter = 0;
                     spare.realType = "Point";
                 } else {
                     Geometry geom;
@@ -155,7 +155,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
                         continue;
                     }
 
-                    spare.area = geom.getLength();
+                    spare.perimeter = geom.getLength();
                     spare.realType = geom.getGeometryType();
 
                 }
@@ -178,12 +178,11 @@ public class GeoShapeAggregator extends BucketsAggregator {
                 if (must_simplify) {
                     geom = simplifyGeoShape(geom);
                     bucket.wkb = new BytesRef(new WKBWriter().write(geom));
-                    bucket.area = geom.getLength();
+                    bucket.perimeter = geom.getLength();
 
                 }
 
-                //bucket.aggregations = bucketAggregations(bucket.bucketOrd);
-                list[i] = bucket;
+                topBucketsPerOrd[ordIdx][i] = bucket;
             }
 
             results[ordIdx] = new InternalGeoShape(name, Arrays.asList(list), output_format, bucketCountThresholds.getRequiredSize(),
