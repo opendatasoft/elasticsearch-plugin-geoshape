@@ -131,6 +131,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
             assert owningBucketOrdinals[ordIdx] == 0;
 
             final int size = (int) Math.min(bucketOrds.size(), bucketCountThresholds.getShardSize());
+            // We will insert buckets in a priority queue with a capacity of up to N=size elements
             InternalGeoShape.BucketPriorityQueue ordered = new InternalGeoShape.BucketPriorityQueue(size);
 
             InternalGeoShape.InternalBucket spare = null;
@@ -140,6 +141,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
                 }
                 bucketOrds.get(i, spare.wkb);
 
+                // FIXME: why do we need a deepCopy here ?
                 spare.wkb = BytesRef.deepCopyOf(spare.wkb);
                 spare.wkbHash = String.valueOf(GeoUtils.getHashFromWKB(spare.wkb));
 
@@ -165,7 +167,8 @@ public class GeoShapeAggregator extends BucketsAggregator {
                 spare = ordered.insertWithOverflow(spare);
             }
 
-            final InternalGeoShape.InternalBucket[] list = new InternalGeoShape.InternalBucket[ordered.size()];
+            // Once we get the top N results, we can compute a simplification
+            topBucketsPerOrd[ordIdx] = new InternalGeoShape.InternalBucket[ordered.size()];
             for (int i = ordered.size() - 1; i >= 0; --i) {
                 final InternalGeoShape.InternalBucket bucket = ordered.pop();
 
@@ -185,9 +188,16 @@ public class GeoShapeAggregator extends BucketsAggregator {
                 topBucketsPerOrd[ordIdx][i] = bucket;
             }
 
-            results[ordIdx] = new InternalGeoShape(name, Arrays.asList(list), output_format, bucketCountThresholds.getRequiredSize(),
+            results[ordIdx] = new InternalGeoShape(name, Arrays.asList(topBucketsPerOrd[ordIdx]), output_format, bucketCountThresholds.getRequiredSize(),
                     bucketCountThresholds.getShardSize(), metadata());
         }
+
+        // Build sub-aggregations
+        buildSubAggsForAllBuckets(
+                topBucketsPerOrd,
+                b -> b.bucketOrd,
+                (b, aggregations) -> b.subAggregations = aggregations
+        );
         return results;
     }
 

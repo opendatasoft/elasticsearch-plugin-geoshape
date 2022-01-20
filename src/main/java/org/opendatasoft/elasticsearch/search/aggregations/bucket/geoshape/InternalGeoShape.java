@@ -301,6 +301,8 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
                 && Objects.equals(shardSize, that.shardSize);
     }
 
+    // The priority queue is used to retain the top N buckets (i.e. shapes)
+    // Buckets are here ordered by area (!) then by hash
     static class BucketPriorityQueue extends PriorityQueue<InternalBucket> {
 
         BucketPriorityQueue(int size) {
