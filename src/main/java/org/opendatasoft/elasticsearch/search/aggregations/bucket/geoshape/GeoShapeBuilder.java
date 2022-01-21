@@ -256,5 +256,13 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
     public String getType() {
         return NAME;
     }
+
+    public static void registerAggregators(ValuesSourceRegistry.Builder builder) {
+        builder.register(
+                GeoShapeBuilder.REGISTRY_KEY,
+                CoreValuesSourceType.BYTES,
+                GeoShapeAggregator::new,
+                true);
+    }
 }
 

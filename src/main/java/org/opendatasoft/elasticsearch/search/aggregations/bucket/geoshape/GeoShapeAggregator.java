@@ -188,8 +188,13 @@ public class GeoShapeAggregator extends BucketsAggregator {
                 topBucketsPerOrd[ordIdx][i] = bucket;
             }
 
-            results[ordIdx] = new InternalGeoShape(name, Arrays.asList(topBucketsPerOrd[ordIdx]), output_format, bucketCountThresholds.getRequiredSize(),
-                    bucketCountThresholds.getShardSize(), metadata());
+            results[ordIdx] = new InternalGeoShape(
+                    name,
+                    Arrays.asList(topBucketsPerOrd[ordIdx]),
+                    output_format,
+                    bucketCountThresholds.getRequiredSize(),
+                    bucketCountThresholds.getShardSize(),
+                    metadata());
         }
 
         // Build sub-aggregations

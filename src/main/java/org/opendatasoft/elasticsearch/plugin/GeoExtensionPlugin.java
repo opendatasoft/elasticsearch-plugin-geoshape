@@ -43,6 +43,7 @@ public class GeoExtensionPlugin extends Plugin implements IngestPlugin, ScriptPl
                         GeoShapeBuilder::new,
                         GeoShapeBuilder::parse)
                         .addResultReader(InternalGeoShape::new)
+                        .setAggregatorRegistrar(GeoShapeBuilder::registerAggregators)
         );
 
         return r;
