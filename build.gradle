@@ -1,8 +1,10 @@
+repositories {
+    mavenCentral()
+    mavenLocal()
+}
 buildscript {
     repositories {
-        mavenLocal()
         mavenCentral()
-        jcenter()
     }
 
     dependencies {
@@ -19,10 +21,11 @@ apply plugin: 'elasticsearch.esplugin'
 apply plugin: 'elasticsearch.yaml-rest-test'
 
 // license of this project
-licenseFile = rootProject.file('LICENSE')
-noticeFile = rootProject.file('README.md')
+//licenseFile = rootProject.file('LICENSE')
+//noticeFile = rootProject.file('README.md')
 
-publishing {
+// FIXME "publishing" does not seem to exist anymore in gradle 7
+/*publishing {
     publications {
         // add license information to generated poms
         all {
@@ -41,6 +44,8 @@ publishing {
         }
     }
 }
+*/
+
 
 esplugin {
     name 'elasticsearch-plugin-geoshape'
@@ -60,35 +65,40 @@ configurations {
 
 // dependencies for production but also test code
 dependencies {
+    implementation files('libs/legacy-geo-7.16.3.jar')
 //    implementation 'org.jetbrains:annotations:20.1.0'
-    compile "org.elasticsearch:elasticsearch:${elastic_version}"
+    implementation "org.elasticsearch:elasticsearch:7.16.3"
+    // https://mvnrepository.com/artifact/org.elasticsearch/elasticsearch-x-content
+    implementation 'org.elasticsearch:elasticsearch-x-content:7.16.3'
+
     // required for ESClientYamlSuiteTestCase; fixes "RestApiYamlIT > initializationError"
-    yamlRestTestImplementation "org.apache.logging.log4j:log4j-core:${versions.log4j}"
+    //yamlRestTestImplementation "org.apache.logging.log4j:log4j-core:${versions.log4j}"
 
     // WARNING: jts-io-common is needed for org.locationtech.jts.io.geojson
     //   its version has to to be identical to the elastic:jts one (here: 1.15.0)
-    compile group: 'org.locationtech.jts.io', name: 'jts-io-common', version: '1.15.0'
+    implementation group: 'org.locationtech.jts.io', name: 'jts-io-common', version: '1.15.0'
 }
 
 test.enabled = false
 
 // Skip license headers check
-licenseHeaders.enabled = false
+//licenseHeaders.enabled = false
 
 // Use elasticsearch checkstyle rules
-checkstyleTest.enabled = true
+//checkstyleTest.enabled = true
 
-dependencyLicenses.enabled = false
+//dependencyLicenses.enabled = false
 
-thirdPartyAudit.enabled = true
+//thirdPartyAudit.enabled = true
 
 // fixes "Could not find org.elasticsearch.test:logger-usage:7.10.2"
 //  see https://github.com/elastic/elasticsearch/issues/65247
-loggerUsageCheck.enabled = false
+//loggerUsageCheck.enabled = false
 
 // Make sure the ES distribution used for rest tests is the open source variant
 // Otherwise weirds errors occur (like the geo_shape type is not handled)
 // This may be due to licensing issues (?)
-testClusters.all {
+/*testClusters.all {
     testDistribution = 'oss'
 }
+*/

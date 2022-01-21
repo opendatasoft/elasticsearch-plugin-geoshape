@@ -1,13 +1,14 @@
 package org.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape;
 
 import org.elasticsearch.Version;
-import org.elasticsearch.common.ParseField;
+import org.elasticsearch.index.query.SearchExecutionContext;
+import org.elasticsearch.search.aggregations.support.AggregationContext;
+import org.elasticsearch.xcontent.ParseField;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
-import org.elasticsearch.common.xcontent.ObjectParser;
-import org.elasticsearch.common.xcontent.XContentBuilder;
-import org.elasticsearch.common.xcontent.XContentParser;
-import org.elasticsearch.index.query.QueryShardContext;
+import org.elasticsearch.xcontent.ObjectParser;
+import org.elasticsearch.xcontent.XContentBuilder;
+import org.elasticsearch.xcontent.XContentParser;
 import org.elasticsearch.search.aggregations.AggregationBuilder;
 import org.elasticsearch.search.aggregations.AggregatorFactories;
 import org.elasticsearch.search.aggregations.AggregatorFactories.Builder;
@@ -178,7 +179,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
 
     @Override
     protected ValuesSourceType defaultValueSourceType() {
-        return CoreValuesSourceType.BYTES;
+        return CoreValuesSourceType.KEYWORD;
     }
 
     /**
@@ -210,7 +211,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
 
     @Override
     protected ValuesSourceAggregatorFactory innerBuild(
-            QueryShardContext queryShardContext,
+            AggregationContext queryShardContext,
             ValuesSourceConfig config,
             AggregatorFactory parent,
             AggregatorFactories.Builder subFactoriesBuilder) throws IOException {
@@ -260,7 +261,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
     public static void registerAggregators(ValuesSourceRegistry.Builder builder) {
         builder.register(
                 GeoShapeBuilder.REGISTRY_KEY,
-                CoreValuesSourceType.BYTES,
+                CoreValuesSourceType.KEYWORD,
                 GeoShapeAggregator::new,
                 true);
     }
