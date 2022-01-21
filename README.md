@@ -248,7 +248,10 @@ Note that the duplicated point has been deduplicated.
 
 ### Geoshape aggregation
 
-Geoshape aggregation based on auto-computed shape hash.
+This aggregation creates a buket for each input shape (based on the hash of its WKB representation) and compute a simplified version of the shape in the bucket.
+The simplification part is similar to what is done with the simplify script.
+The `size` parameter allows you to retain only the biggest (longer) N shapes.
+Moreover, compared to regular search results, results of an aggregation can be [cached by ElasticSearch](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-aggregations.html#agg-caches).
 
 
 
@@ -258,7 +261,7 @@ Geoshape aggregation based on auto-computed shape hash.
 - `simplify`:
   - `zoom`: the zoom level in range [0, 20]. 0 is the most simplified and 20 is the least. Default to 0.
   - `algorithm`: simplify algorithm in [`DOUGLAS_PEUCKER`, `TOPOLOGY_PRESERVING`]. Default to `DOUGLAS_PEUCKER`.
-- `size`: can be set to define how many term buckets should be returned out of the overall terms list. See elasticsearch official terms aggregation documentation for more explanation.
+- `size`: can be set to define how many buckets should be returned. See elasticsearch official terms aggregation documentation for more explanation. Buckets are ordered by the length (perimeter for polygons) of their shape, longer shapes first.
 - `shard_size`: can be used to minimize the extra work that comes with bigger requested `size`. See elasticsearch official terms aggregation documentation for more explanation.
 
 
