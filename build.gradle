@@ -1,16 +1,23 @@
-repositories {
-    mavenCentral()
-    mavenLocal()
-}
 buildscript {
     repositories {
         mavenCentral()
+
     }
 
     dependencies {
         classpath "org.elasticsearch.gradle:build-tools:${elastic_version}"
     }
 }
+
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+    maven {
+            url "https://repo1.maven.org/maven2"
+    }
+}
+
 
 group = 'org.elasticsearch.plugin'
 version = "${plugin_version}"
@@ -19,33 +26,6 @@ apply plugin: 'java'
 apply plugin: 'idea'
 apply plugin: 'elasticsearch.esplugin'
 apply plugin: 'elasticsearch.yaml-rest-test'
-
-// license of this project
-//licenseFile = rootProject.file('LICENSE')
-//noticeFile = rootProject.file('README.md')
-
-// FIXME "publishing" does not seem to exist anymore in gradle 7
-/*publishing {
-    publications {
-        // add license information to generated poms
-        all {
-            pom.withXml { XmlProvider xml ->
-                Node node = xml.asNode()
-
-                Node license = node.appendNode('licenses').appendNode('license')
-                license.appendNode('name', 'The MIT License (MIT)')
-                license.appendNode('url', './LICENSE')
-                license.appendNode('distribution', 'repo')
-
-                Node developer = node.appendNode('developers').appendNode('developer')
-                developer.appendNode('name', 'Opendatasoft')
-                developer.appendNode('url', 'https://www.opendatasoft.com/')
-            }
-        }
-    }
-}
-*/
-
 
 esplugin {
     name 'elasticsearch-plugin-geoshape'
@@ -63,42 +43,39 @@ configurations {
     }
 }
 
-// dependencies for production but also test code
 dependencies {
-    implementation files('libs/legacy-geo-7.16.3.jar')
-//    implementation 'org.jetbrains:annotations:20.1.0'
-    implementation "org.elasticsearch:elasticsearch:7.16.3"
-    // https://mvnrepository.com/artifact/org.elasticsearch/elasticsearch-x-content
-    implementation 'org.elasticsearch:elasticsearch-x-content:7.16.3'
+    implementation "org.elasticsearch:elasticsearch:${elastic_version}"
 
-    // required for ESClientYamlSuiteTestCase; fixes "RestApiYamlIT > initializationError"
-    //yamlRestTestImplementation "org.apache.logging.log4j:log4j-core:${versions.log4j}"
+    // We ship the legacy geo archive with sources,
+    // because the compilation stage needs to resolve symbols
+    // However this archive is not included in the final plugin bundle, since
+    // legacy geo and its dependencies (JTS) are already present at runtime
+    // with ES (see the jar/manifest rule below)
+    compileOnly files('libs/legacy-geo-7.16.3.jar')
 
-    // WARNING: jts-io-common is needed for org.locationtech.jts.io.geojson
-    //   its version has to to be identical to the elastic:jts one (here: 1.15.0)
+    // jts.io.common is not part of ES and will be shipped with this plugin
     implementation group: 'org.locationtech.jts.io', name: 'jts-io-common', version: '1.15.0'
+
+    yamlRestTestImplementation "org.elasticsearch.test:framework:${elastic_version}"
+    yamlRestTestImplementation "org.apache.logging.log4j:log4j-core:2.17.1"
 }
 
-test.enabled = false
+// Since this plugin is meant to be loaded in an ES 7.16 instance,
+// we can "link" it to existing classes through a class path without adding other archives
+// to the plugin bundle
+jar {
+    manifest {
+         attributes(
+                "Class-Path": "../../modules/legacy-geo/legacy-geo-7.16.3.jar ../../modules/legacy-geo/jts-core-1.15.0.jar ../../modules/legacy-geo/spatial4j-0.7.jar")
 
-// Skip license headers check
-//licenseHeaders.enabled = false
+    }
+}
 
-// Use elasticsearch checkstyle rules
-//checkstyleTest.enabled = true
-
-//dependencyLicenses.enabled = false
-
-//thirdPartyAudit.enabled = true
-
-// fixes "Could not find org.elasticsearch.test:logger-usage:7.10.2"
-//  see https://github.com/elastic/elasticsearch/issues/65247
-//loggerUsageCheck.enabled = false
-
-// Make sure the ES distribution used for rest tests is the open source variant
+// Make sure the ES distribution used for rest tests is the "complete" variant
 // Otherwise weirds errors occur (like the geo_shape type is not handled)
-// This may be due to licensing issues (?)
-/*testClusters.all {
-    testDistribution = 'oss'
+testClusters.configureEach {
+    testDistribution = 'DEFAULT'
+    // disable security to disable failing warnings
+    setting 'xpack.security.enabled', 'false'
 }
-*/
+
