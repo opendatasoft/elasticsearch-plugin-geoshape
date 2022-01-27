@@ -137,7 +137,7 @@
                   zoom: 1
                   algorithm: DOUGLAS_PEUCKER
 
-  - match: {hits.hits.0.fields.simplified.0.shape: "{\"type\":\"Point\",\"coordinates\":[-3.385849,47.74428718],\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:0\"}}}" }
+  - match: {hits.hits.0.fields.simplified.0.shape: "{\"type\":\"Point\",\"coordinates\":[-3.3889389,47.73770713],\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:0\"}}}" }
 
 # With topology preservation
   - do:
@@ -156,7 +156,7 @@
                   zoom: 1
                   algorithm: TOPOLOGY_PRESERVING
 
-  - match: {hits.hits.0.fields.simplified.0.shape: "{\"type\":\"Polygon\",\"coordinates\":[[[-3.385849,47.74428718],[-3.3889389,47.73770713],[-3.37778091,47.73851525],[-3.385849,47.74428718]]],\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:0\"}}}"}
+  - match: {hits.hits.0.fields.simplified.0.shape: "{\"type\":\"Polygon\",\"coordinates\":[[[-3.3889389,47.73770713],[-3.37778091,47.73851525],[-3.385849,47.74428718],[-3.3889389,47.73770713]]],\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:0\"}}}"}
 
 # simplification of a linestring
   - do:

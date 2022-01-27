@@ -23,6 +23,7 @@ import org.locationtech.jts.io.WKTWriter;
 import org.locationtech.spatial4j.exception.InvalidShapeException;
 import org.locationtech.spatial4j.shape.Shape;
 import org.elasticsearch.legacygeo.builders.ShapeBuilder;
+import org.locationtech.spatial4j.shape.jts.JtsGeometry;
 import org.opendatasoft.elasticsearch.plugin.GeoUtils;
 
 
@@ -115,6 +116,7 @@ public class GeoExtensionProcessor extends AbstractProcessor {
 
             Shape shape = null;
             try {
+                // buildS4J will try to build a clean geometry
                 shape = shapeBuilder.buildS4J();
             }
             catch (InvalidShapeException ignored) {}
@@ -123,11 +125,17 @@ public class GeoExtensionProcessor extends AbstractProcessor {
                 throw new IllegalArgumentException("unable to parse shape [" + shapeBuilder.toWKT() + "]");
             }
 
-            Geometry geom = new WKTReader().read(shapeBuilder.toWKT());
-
-            // fix shapes if needed
-            if (shape == null && fixedField != null) {
-                geom = GeoUtils.removeDuplicateCoordinates(geom);
+            Geometry geom = null;
+            if (shape != null && (shape instanceof JtsGeometry)) {
+                geom = ((JtsGeometry) shape).getGeom();
+            }
+            else {
+                // If buildS4J failed to build a geometry
+                geom = new WKTReader().read(shapeBuilder.toWKT());
+                // fix shapes if needed
+                if (fixedField != null) {
+                    geom = GeoUtils.removeDuplicateCoordinates(geom);
+                }
             }
 
             ingestDocument.removeField(geoShapeField);
