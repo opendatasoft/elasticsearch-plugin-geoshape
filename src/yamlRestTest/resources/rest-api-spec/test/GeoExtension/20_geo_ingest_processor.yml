@@ -74,6 +74,7 @@
         index: test_index
         pipeline: "geo_extension"
         body: {
+          "id": 1,
           "geo_shape_0": {
             "type": "Polygon",
             "coordinates": [
@@ -132,6 +133,57 @@
       search:
         body:
           query:
-            match_all: {}
+            term:
+              id: 1
 
   - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "POLYGON ((2.021484375 48.596592251456705, 3.262939453125 48.922499263758255, 2.779541015625 49.196064000723794, 2.0654296875 49.23194729854559, 1.6809082031249998 49.05227025601607, 2.021484375 48.596592251456705))" }
+
+# Test shape accross dateline is warped correctly
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: {
+          "id": 2,
+          "geo_shape_0": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                    110.74218749999999,
+                    -82.16644600847728
+                ],
+                [
+                    132.890625,
+                    -83.71554430601263
+                ],
+                [
+                    132.890625,
+                    -83.71554430601263
+                ],
+                [
+                    213.75,
+                    -83.94227191521858
+                ],
+                [
+                    110.74218749999999,
+                    -82.16644600847728
+                ]
+              ]
+            ]
+          }
+        }
+
+  - do:
+      indices.refresh: {}
+
+
+# Test that the shape has been fixed
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 2
+
+  - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "MULTIPOLYGON (((180 -83.84763778268045, 180 -83.36043134509174, 110.74218749999999 -82.16644600847728, 132.890625 -83.71554430601263, 180 -83.84763778268045)), ((-180 -83.36043134509174, -180 -83.84763778268045, -146.25 -83.94227191521858, -180 -83.36043134509174)))" }

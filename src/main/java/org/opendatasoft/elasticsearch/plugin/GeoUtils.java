@@ -124,41 +124,4 @@ public class GeoUtils {
 
         return geom;
     }
-
-    public static Polygon removeDuplicateCoordinates(Polygon polygon) {
-        LinearRing polygonShell = removeDuplicateCoordinates((LinearRing) polygon.getExteriorRing());
-        LinearRing[] holes = new LinearRing[polygon.getNumInteriorRing()];
-        for (int i = 0; i < polygon.getNumInteriorRing(); i++) {
-            holes[i] = removeDuplicateCoordinates((LinearRing) polygon.getInteriorRingN(i));
-        }
-        return polygon.getFactory().createPolygon(polygonShell, holes);
-    }
-
-    public static LinearRing removeDuplicateCoordinates(LinearRing linearRing) {
-        return linearRing.getFactory().createLinearRing(
-                new CoordinateList(linearRing.getCoordinates(), false).toCoordinateArray()
-        );
-    }
-
-    public static MultiPolygon removeDuplicateCoordinates(MultiPolygon multiPolygon) {
-
-        Polygon[] polygons = new Polygon[multiPolygon.getNumGeometries()];
-
-        for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
-            polygons[i] = (Polygon) removeDuplicateCoordinates(multiPolygon.getGeometryN(i));
-        }
-
-        return multiPolygon.getFactory().createMultiPolygon(polygons);
-    }
-
-    public static GeometryCollection removeDuplicateCoordinates(GeometryCollection geometryCollection) {
-
-        Geometry[] geometries = new Geometry[geometryCollection.getNumGeometries()];
-
-        for (int i = 0; i < geometryCollection.getNumGeometries(); i++) {
-            geometries[i] = removeDuplicateCoordinates(geometryCollection.getGeometryN(i));
-        }
-
-        return geometryCollection.getFactory().createGeometryCollection(geometries);
-    }
 }
