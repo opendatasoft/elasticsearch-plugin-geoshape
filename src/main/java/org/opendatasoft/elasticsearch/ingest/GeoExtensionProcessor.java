@@ -3,6 +3,7 @@ package org.opendatasoft.elasticsearch.ingest;
 
 import org.apache.lucene.util.BytesRef;
 import org.elasticsearch.common.bytes.BytesReference;
+import org.elasticsearch.legacygeo.XShapeCollection;
 import org.elasticsearch.legacygeo.parsers.ShapeParser;
 import org.elasticsearch.common.regex.Regex;
 import org.elasticsearch.xcontent.XContentBuilder;
@@ -16,12 +17,19 @@ import org.elasticsearch.ingest.IngestDocument;
 import org.elasticsearch.ingest.Processor;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.LineString;
+import org.locationtech.jts.geom.MultiPolygon;
+import org.locationtech.jts.geom.Point;
+import org.locationtech.jts.geom.Polygon;
+import org.locationtech.jts.geom.PrecisionModel;
 import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKBWriter;
 import org.locationtech.jts.io.WKTWriter;
 import org.locationtech.spatial4j.shape.Shape;
 import org.elasticsearch.legacygeo.builders.ShapeBuilder;
 import org.locationtech.spatial4j.shape.jts.JtsGeometry;
+import org.locationtech.spatial4j.shape.jts.JtsPoint;
 import org.opendatasoft.elasticsearch.plugin.GeoUtils;
 
 
@@ -118,7 +126,48 @@ public class GeoExtensionProcessor extends AbstractProcessor {
             // - dateline warping (enforce lon in [-180,180])
             Shape shape = shapeBuilder.buildS4J();
 
-            Geometry geom = ((JtsGeometry) shape).getGeom();
+            Geometry geom = null;
+            PrecisionModel precisionModel = new PrecisionModel(PrecisionModel.FLOATING);
+            GeometryFactory geomFactory = new GeometryFactory(precisionModel, 0);
+            String altWKT = null;
+            if (shape instanceof JtsPoint) {
+                geom = ((JtsPoint)shape).getGeom();
+            }
+            else if (shape instanceof JtsGeometry) {
+                geom = ((JtsGeometry) shape).getGeom();
+            }
+            else if (shape instanceof XShapeCollection) {
+                List<?> shapes = ((XShapeCollection) shape).getShapes();
+                switch (shapeBuilder.type()) {
+                    case MULTIPOINT:
+                        Point[] points = new Point[shapes.size()];
+                        for (int i = 0; i < shapes.size(); i++) {
+                            points[i] = (Point)((JtsPoint)(shapes.get(i))).getGeom();
+                        }
+                        geom = geomFactory.createMultiPoint(points);
+                        // ES wants multipoint without extra parenthesis between points
+                        altWKT = new WKTWriter().write(geom).replace("((","(").replace("))",")").replace("), (",", ");
+                        break;
+                    case MULTILINESTRING:
+                        LineString[] ls = new LineString[shapes.size()];
+                        for (int i = 0; i < shapes.size(); i++) {
+                            ls[i] = (LineString)((JtsGeometry)(shapes.get(i))).getGeom();
+                        }
+                        geom = geomFactory.createMultiLineString(ls);
+                        break;
+                    case MULTIPOLYGON:
+                        Polygon[] polygons = new Polygon[shapes.size()];
+                        for (int i = 0; i < shapes.size(); i++) {
+                            polygons[i] = (Polygon)((JtsGeometry)(shapes.get(i))).getGeom();
+                        }
+                        geom = geomFactory.createMultiPolygon(polygons);
+                        break;
+                }
+            }
+
+            if (geom == null) {
+                throw new IllegalArgumentException("Unable to parse shape [" + shapeBuilder.toWKT() + "]");
+            }
 
             ingestDocument.removeField(geoShapeField);
 
@@ -127,7 +176,8 @@ public class GeoExtensionProcessor extends AbstractProcessor {
             }
 
             if (fixedField != null) {
-                ingestDocument.setFieldValue(geoShapeField + "." + fixedField, new WKTWriter().write(geom));
+                ingestDocument.setFieldValue(geoShapeField + "." + fixedField,
+                        altWKT != null ? altWKT : new WKTWriter().write(geom));
             }
 
             // compute and add extra geo sub-fields

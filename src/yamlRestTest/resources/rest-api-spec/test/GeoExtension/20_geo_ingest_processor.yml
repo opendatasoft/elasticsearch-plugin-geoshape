@@ -138,13 +138,214 @@
 
   - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "POLYGON ((2.021484375 48.596592251456705, 3.262939453125 48.922499263758255, 2.779541015625 49.196064000723794, 2.0654296875 49.23194729854559, 1.6809082031249998 49.05227025601607, 2.021484375 48.596592251456705))" }
 
-# Test shape accross dateline is warped correctly
+# Test Point
   - do:
       index:
         index: test_index
         pipeline: "geo_extension"
         body: {
           "id": 2,
+          "geo_shape_0": {
+            "type": "Point",
+            "coordinates": [
+                    110.74218749999999,
+                    -82.16644600847728
+            ]
+          }
+        }
+
+  - do:
+      indices.refresh: {}
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 2
+
+  - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "POINT (110.74218749999999 -82.16644600847728)"}
+
+# Test Linestring
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: {
+          "id": 3,
+          "geo_shape_0": {
+            "type": "LineString",
+            "coordinates": [
+              [
+                110.74218749999999,
+                -82.16644600847728
+              ],
+              [
+                  132.890625,
+                  -83.71554430601263
+              ]
+            ]
+          }
+        }
+
+  - do:
+      indices.refresh: {}
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 3
+
+  - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "LINESTRING (110.74218749999999 -82.16644600847728, 132.890625 -83.71554430601263)"}
+
+# Test MultiPoint
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: {
+          "id": 4,
+          "geo_shape_0": {
+            "type": "MultiPoint",
+            "coordinates": [
+              [
+                  110.74218749999999,
+                  -82.16644600847728
+              ],
+              [
+                  132.890625,
+                  -83.71554430601263
+              ]
+            ]
+          }
+        }
+
+  - do:
+      indices.refresh: {}
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 4
+
+  - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "MULTIPOINT (110.74218749999999 -82.16644600847728, 132.890625 -83.71554430601263)"}
+
+# Test MultiLineString
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: {
+          "id": 5,
+          "geo_shape_0": {
+            "type": "MultiLineString",
+            "coordinates": [
+              [[
+                  110.74218749999999,
+                  -82.16644600847728
+              ],
+              [
+                  132.890625,
+                  -83.71554430601263
+              ]],
+              [[
+                  132.890625,
+                  -83.71554430601263
+              ],
+              [
+                  140,
+                  -83.94227191521858
+              ]]
+            ]
+          }
+        }
+
+  - do:
+      indices.refresh: {}
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 5
+
+  - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "MULTILINESTRING ((110.74218749999999 -82.16644600847728, 132.890625 -83.71554430601263), (132.890625 -83.71554430601263, 140 -83.94227191521858))"}
+
+
+# Test MultiPolygon
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: {
+          "id": 6,
+          "geo_shape_0": {
+      "type": "MultiPolygon",
+      "coordinates": [[
+          [
+            [
+              -2.26318359375,
+              48.125767833701666
+            ],
+            [
+              -1.8814086914062498,
+              48.156925112380684
+            ],
+            [
+              -1.9033813476562498,
+              48.31060120649363
+            ],
+            [
+              -2.26318359375,
+              48.125767833701666
+            ]
+          ]
+        ],[
+          [
+            [
+                -1.78802490234375,
+                48.23930899024907
+            ],
+            [
+                -1.7660522460937498,
+                48.123934463666366
+            ],
+            [
+                -1.5985107421875,
+                48.1789071002632
+            ],
+            [
+                -1.78802490234375,
+                48.23930899024907
+            ]
+          ]]
+        ]
+        }}
+
+  - do:
+      indices.refresh: {}
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 6
+
+  - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "MULTIPOLYGON (((-1.8814086914062498 48.156925112380684, -1.9033813476562498 48.31060120649363, -2.26318359375 48.125767833701666, -1.8814086914062498 48.156925112380684)), ((-1.7660522460937498 48.123934463666366, -1.5985107421875 48.1789071002632, -1.78802490234375 48.23930899024907, -1.7660522460937498 48.123934463666366)))"}
+
+# Test shape accross dateline is warped correctly
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: {
+          "id": 7,
           "geo_shape_0": {
             "type": "Polygon",
             "coordinates": [
@@ -184,6 +385,6 @@
         body:
           query:
             term:
-              id: 2
+              id: 7
 
   - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "MULTIPOLYGON (((180 -83.84763778268045, 180 -83.36043134509174, 110.74218749999999 -82.16644600847728, 132.890625 -83.71554430601263, 180 -83.84763778268045)), ((-180 -83.36043134509174, -180 -83.84763778268045, -146.25 -83.94227191521858, -180 -83.36043134509174)))" }
