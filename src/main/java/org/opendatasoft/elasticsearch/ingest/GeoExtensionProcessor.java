@@ -149,18 +149,13 @@ public class GeoExtensionProcessor extends AbstractProcessor {
                         altWKT = new WKTWriter().write(geom).replace("((","(").replace("))",")").replace("), (",", ");
                         break;
                     case MULTILINESTRING:
-                        LineString[] ls = new LineString[shapes.size()];
-                        for (int i = 0; i < shapes.size(); i++) {
-                            ls[i] = (LineString)((JtsGeometry)(shapes.get(i))).getGeom();
-                        }
-                        geom = geomFactory.createMultiLineString(ls);
-                        break;
                     case MULTIPOLYGON:
-                        Polygon[] polygons = new Polygon[shapes.size()];
+                    case GEOMETRYCOLLECTION:
+                        ArrayList<Geometry> geoms = new ArrayList<>(shapes.size());
                         for (int i = 0; i < shapes.size(); i++) {
-                            polygons[i] = (Polygon)((JtsGeometry)(shapes.get(i))).getGeom();
+                            geoms.add(((JtsGeometry)(shapes.get(i))).getGeom());
                         }
-                        geom = geomFactory.createMultiPolygon(polygons);
+                        geom = geomFactory.buildGeometry(geoms);
                         break;
                 }
             }
