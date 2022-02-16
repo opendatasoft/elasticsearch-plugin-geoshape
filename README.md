@@ -9,7 +9,7 @@ This is an `Ingest`, `Search` and `Script` plugin.
 
 ## Installation
 
-`bin/elasticsearch-plugin https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.16.3.0/elasticsearch-plugin-geoshape-7.16.3.0.zip"`
+`bin/elasticsearch-plugin https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.0.0/elasticsearch-plugin-geoshape-7.17.0.0.zip"`
 
 
 ## Build
@@ -355,7 +355,7 @@ Result:
 The first 3 digits of the plugin version is the corresponding Elasticsearch version. The last digit is used for plugin versioning.
 
 To install it, launch this command in Elasticsearch directory replacing the url by the correct link for your Elasticsearch version (see table)
-`bin/elasticsearch-plugin https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.16.3.0/elasticsearch-plugin-geoshape-7.16.3.0.zip"`
+`bin/elasticsearch-plugin https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.0.0/elasticsearch-plugin-geoshape-7.17.0.0.zip"`
 
 | elasticsearch version | plugin version | plugin url |
 | --------------------- | -------------- | ---------- |
@@ -373,7 +373,7 @@ To install it, launch this command in Elasticsearch directory replacing the url 
 | 7.4.0 | 7.4.0.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.4.0.0/elasticsearch-plugin-geoshape-7.4.0.0.zip |
 | 7.5.1 | 7.5.1.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.5.1.0/elasticsearch-plugin-geoshape-7.5.1.0.zip |
 | 7.6.0 | 7.6.0.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.6.0.0/elasticsearch-plugin-geoshape-7.6.0.0.zip |
-| 7.16.3 | 7.16.3.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.16.3.0/elasticsearch-plugin-geoshape-7.16.3.0.zip |
+| 7.17.0 | 7.17.0.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.0.0/elasticsearch-plugin-geoshape-7.17.0.0.zip |
 
 
 ## License
