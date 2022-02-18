@@ -240,7 +240,7 @@ Note that the duplicated point has been deduplicated.
 
 ### Geoshape aggregation
 
-This aggregation creates a buket for each input shape (based on the hash of its WKB representation) and compute a simplified version of the shape in the bucket.
+This aggregation creates a bucket for each input shape (based on the hash of its WKB representation) and compute a simplified version of the shape in the bucket.
 The simplification part is similar to what is done with the simplify script.
 The `size` parameter allows you to retain only the biggest (longer) N shapes.
 Moreover, compared to regular search results, results of an aggregation can be [cached by ElasticSearch](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-aggregations.html#agg-caches).
