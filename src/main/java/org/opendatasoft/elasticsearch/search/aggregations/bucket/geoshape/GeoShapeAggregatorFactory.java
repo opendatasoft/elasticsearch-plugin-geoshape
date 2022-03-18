@@ -1,7 +1,5 @@
 package org.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape;
 
-import org.elasticsearch.index.query.SearchExecutionContext;
-import org.elasticsearch.search.aggregations.Aggregation;
 import org.elasticsearch.search.aggregations.Aggregator;
 import org.elasticsearch.search.aggregations.AggregatorFactories;
 import org.elasticsearch.search.aggregations.AggregatorFactory;
@@ -12,7 +10,6 @@ import org.elasticsearch.search.aggregations.support.AggregationContext;
 import org.elasticsearch.search.aggregations.support.ValuesSource;
 import org.elasticsearch.search.aggregations.support.ValuesSourceAggregatorFactory;
 import org.elasticsearch.search.aggregations.support.ValuesSourceConfig;
-import org.elasticsearch.search.internal.SearchContext;
 import org.opendatasoft.elasticsearch.plugin.GeoUtils;
 
 import java.io.IOException;

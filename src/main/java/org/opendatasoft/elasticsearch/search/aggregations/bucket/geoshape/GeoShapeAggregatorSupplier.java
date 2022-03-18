@@ -5,7 +5,6 @@ import org.elasticsearch.search.aggregations.AggregatorFactories;
 import org.elasticsearch.search.aggregations.CardinalityUpperBound;
 import org.elasticsearch.search.aggregations.support.AggregationContext;
 import org.elasticsearch.search.aggregations.support.ValuesSource;
-import org.elasticsearch.search.internal.SearchContext;
 import org.opendatasoft.elasticsearch.plugin.GeoUtils;
 
 import java.io.IOException;
