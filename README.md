@@ -9,7 +9,7 @@ This is an `Ingest`, `Search` and `Script` plugin.
 
 ## Installation
 
-`bin/elasticsearch-plugin https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.0.0/elasticsearch-plugin-geoshape-7.17.0.0.zip"`
+`bin/elasticsearch-plugin https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.1.0/elasticsearch-plugin-geoshape-7.17.1.0.zip"`
 
 
 ## Build
@@ -63,26 +63,27 @@ PUT _ingest/pipeline/geo_extension
   ]
 }
 PUT main
-PUT main/_mapping
 {
-  "dynamic_templates": [
-    {
-      "geoshapes": {
-        "match": "geoshape_*",
-        "mapping": {
-          "properties": {
-            "geoshape": {"type": "geo_shape"},
-            "hash": {"type": "keyword"},
-            "wkb": {"type": "binary", "doc_values": true},
-            "type": {"type": "keyword"},
-            "area": {"type": "half_float"},
-            "bbox": {"type": "geo_point"},
-            "centroid": {"type": "geo_point"}
+  "mappings": {
+    "dynamic_templates": [
+      {
+        "geoshapes": {
+          "match": "geoshape_*",
+          "mapping": {
+            "properties": {
+              "geoshape": {"type": "geo_shape"},
+              "hash": {"type": "keyword"},
+              "wkb": {"type": "binary", "doc_values": true},
+              "type": {"type": "keyword"},
+              "area": {"type": "half_float"},
+              "bbox": {"type": "geo_point"},
+              "centroid": {"type": "geo_point"}
+            }
           }
         }
       }
-    }
-  ]
+    ]
+  }
 }
 GET main/_mapping
 ```
@@ -134,7 +135,7 @@ Result:
 
 Document indexing with shape fixing:
 ```
-POST main/_doc
+POST main/_doc?pipeline=geo_extension
 {
   "geoshape_0": {
     "type": "Polygon",
@@ -172,7 +173,7 @@ POST main/_doc
     ]
   }
 }
-GET main/_search?pipeline=geo_extension
+GET main/_search
 ```
 
 Result:
@@ -355,7 +356,7 @@ Result:
 The first 3 digits of the plugin version is the corresponding Elasticsearch version. The last digit is used for plugin versioning.
 
 To install it, launch this command in Elasticsearch directory replacing the url by the correct link for your Elasticsearch version (see table)
-`bin/elasticsearch-plugin https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.0.0/elasticsearch-plugin-geoshape-7.17.0.0.zip"`
+`bin/elasticsearch-plugin https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.1.0/elasticsearch-plugin-geoshape-7.17.1.0.zip"`
 
 | elasticsearch version | plugin version | plugin url |
 | --------------------- | -------------- | ---------- |
@@ -373,7 +374,31 @@ To install it, launch this command in Elasticsearch directory replacing the url 
 | 7.4.0 | 7.4.0.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.4.0.0/elasticsearch-plugin-geoshape-7.4.0.0.zip |
 | 7.5.1 | 7.5.1.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.5.1.0/elasticsearch-plugin-geoshape-7.5.1.0.zip |
 | 7.6.0 | 7.6.0.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.6.0.0/elasticsearch-plugin-geoshape-7.6.0.0.zip |
-| 7.17.0 | 7.17.0.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.0.0/elasticsearch-plugin-geoshape-7.17.0.0.zip |
+| 7.17.1 | 7.17.1.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.1.0/elasticsearch-plugin-geoshape-7.17.1.0.zip |
+
+
+
+## Development Environment Setup
+
+Build the plugin using gradle:
+```sh
+./gradlew build
+```
+
+or
+```sh
+./gradlew assemble  # (to avoid the test suite)
+```
+
+Then the following command will start a dockerized ES and will install the previously built plugin:
+```sh
+docker-compose up
+```
+
+Please be careful during development: you'll need to manually rebuild the .zip using `./gradlew build` on each code
+change before running `docker-compose` up again.
+
+> NOTE: In `docker-compose.yml` you can uncomment the debug env and attach a REMOTE JVM on `*:5005` to debug the plugin.
 
 
 ## License
