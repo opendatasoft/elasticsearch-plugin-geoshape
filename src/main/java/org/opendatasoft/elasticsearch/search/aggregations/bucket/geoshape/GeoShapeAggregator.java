@@ -7,20 +7,20 @@ import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.io.stream.Writeable;
-import org.elasticsearch.common.lease.Releasables;
 import org.elasticsearch.common.util.BytesRefHash;
-import org.elasticsearch.common.xcontent.ToXContentFragment;
-import org.elasticsearch.common.xcontent.XContentBuilder;
+import org.elasticsearch.core.Releasables;
 import org.elasticsearch.index.fielddata.SortedBinaryDocValues;
 import org.elasticsearch.search.aggregations.Aggregator;
 import org.elasticsearch.search.aggregations.AggregatorFactories;
+import org.elasticsearch.search.aggregations.CardinalityUpperBound;
 import org.elasticsearch.search.aggregations.InternalAggregation;
 import org.elasticsearch.search.aggregations.LeafBucketCollector;
 import org.elasticsearch.search.aggregations.LeafBucketCollectorBase;
 import org.elasticsearch.search.aggregations.bucket.BucketsAggregator;
-import org.elasticsearch.search.aggregations.pipeline.PipelineAggregator;
+import org.elasticsearch.search.aggregations.support.AggregationContext;
 import org.elasticsearch.search.aggregations.support.ValuesSource;
-import org.elasticsearch.search.internal.SearchContext;
+import org.elasticsearch.xcontent.ToXContentFragment;
+import org.elasticsearch.xcontent.XContentBuilder;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.io.ParseException;
@@ -32,7 +32,6 @@ import org.opendatasoft.elasticsearch.plugin.GeoUtils;
 
 import java.io.IOException;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -41,7 +40,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
     private final ValuesSource valuesSource;
     private final BytesRefHash bucketOrds;
     private final BucketCountThresholds bucketCountThresholds;
-    private InternalGeoShape.OutputFormat output_format;
+    private GeoUtils.OutputFormat output_format;
     private boolean must_simplify;
     private int zoom;
     private GeoShape.Algorithm algorithm;
@@ -53,18 +52,18 @@ public class GeoShapeAggregator extends BucketsAggregator {
     public GeoShapeAggregator(
             String name,
             AggregatorFactories factories,
-            SearchContext context,
+            AggregationContext context,
             ValuesSource valuesSource,
-            InternalGeoShape.OutputFormat output_format,
+            GeoUtils.OutputFormat output_format,
             boolean must_simplify,
             int zoom,
             GeoShape.Algorithm algorithm,
             BucketCountThresholds bucketCountThresholds,
             Aggregator parent,
-            List<PipelineAggregator> pipelineAggregators,
+            CardinalityUpperBound cardinalityUpperBound,
             Map<String, Object> metaData
     ) throws IOException {
-        super(name, factories, context, parent, pipelineAggregators, metaData);
+        super(name, factories, context, parent, cardinalityUpperBound, metaData);
         this.valuesSource = valuesSource;
         this.output_format = output_format;
         this.must_simplify = must_simplify;
@@ -122,73 +121,93 @@ public class GeoShapeAggregator extends BucketsAggregator {
     }
 
     @Override
-    public InternalAggregation buildAggregation(long owningBucketOrdinal) throws IOException {
-        assert owningBucketOrdinal == 0;
+    public InternalAggregation[] buildAggregations(long[] owningBucketOrdinals) throws IOException {
+        InternalGeoShape.InternalBucket[][] topBucketsPerOrd = new InternalGeoShape.InternalBucket[owningBucketOrdinals.length][];
+        InternalGeoShape[] results = new InternalGeoShape[owningBucketOrdinals.length];
 
-        final int size = (int) Math.min(bucketOrds.size(), bucketCountThresholds.getShardSize());
-        InternalGeoShape.BucketPriorityQueue ordered = new InternalGeoShape.BucketPriorityQueue(size);
+        for (int ordIdx = 0; ordIdx < owningBucketOrdinals.length; ordIdx++) {
+            assert owningBucketOrdinals[ordIdx] == 0;
 
-        InternalGeoShape.InternalBucket spare = null;
-        for (int i = 0; i < bucketOrds.size(); i++) {
-            if (spare == null) {
-                spare = new InternalGeoShape.InternalBucket(new BytesRef(), null, null, 0, 0, null);
+            final int size = (int) Math.min(bucketOrds.size(), bucketCountThresholds.getShardSize());
+            // We will insert buckets in a priority queue with a capacity of up to N=size elements
+            InternalGeoShape.BucketPriorityQueue ordered = new InternalGeoShape.BucketPriorityQueue(size);
+
+            InternalGeoShape.InternalBucket spare = null;
+            for (int i = 0; i < bucketOrds.size(); i++) {
+                if (spare == null) {
+                    spare = new InternalGeoShape.InternalBucket(new BytesRef(), null, null, 0, 0, null);
+                }
+                bucketOrds.get(i, spare.wkb);
+
+                // FIXME: why do we need a deepCopy here ?
+                spare.wkb = BytesRef.deepCopyOf(spare.wkb);
+                spare.wkbHash = String.valueOf(GeoUtils.getHashFromWKB(spare.wkb));
+
+                if (GeoUtils.wkbIsPoint(spare.wkb.bytes)) {
+                    spare.perimeter = 0;
+                    spare.realType = "Point";
+                } else {
+                    Geometry geom;
+
+                    try {
+                        geom = wkbReader.read(spare.wkb.bytes);
+                    } catch (ParseException e) {
+                        continue;
+                    }
+
+                    spare.perimeter = geom.getLength();
+                    spare.realType = geom.getGeometryType();
+
+                }
+
+                spare.docCount = bucketDocCount(i);
+                spare.bucketOrd = i;
+                spare = ordered.insertWithOverflow(spare);
             }
-            bucketOrds.get(i, spare.wkb);
 
-            spare.wkb = BytesRef.deepCopyOf(spare.wkb);
-            spare.wkbHash = String.valueOf(GeoUtils.getHashFromWKB(spare.wkb));
+            // Once we get the top N results, we can compute a simplification
+            topBucketsPerOrd[ordIdx] = new InternalGeoShape.InternalBucket[ordered.size()];
+            for (int i = ordered.size() - 1; i >= 0; --i) {
+                final InternalGeoShape.InternalBucket bucket = ordered.pop();
 
-            if (GeoUtils.wkbIsPoint(spare.wkb.bytes)) {
-                spare.area = 0;
-                spare.realType = "Point";
-            } else {
                 Geometry geom;
-
                 try {
-                    geom = wkbReader.read(spare.wkb.bytes);
+                    geom = wkbReader.read(bucket.wkb.bytes);
                 } catch (ParseException e) {
                     continue;
                 }
+                if (must_simplify) {
+                    geom = simplifyGeoShape(geom);
+                    bucket.wkb = new BytesRef(new WKBWriter().write(geom));
+                    bucket.perimeter = geom.getLength();
 
-                spare.area = geom.getLength();
-                spare.realType = geom.getGeometryType();
+                }
 
+                topBucketsPerOrd[ordIdx][i] = bucket;
             }
 
-            spare.docCount = bucketDocCount(i);
-            spare.bucketOrd = i;
-            spare = ordered.insertWithOverflow(spare);
+            results[ordIdx] = new InternalGeoShape(
+                    name,
+                    Arrays.asList(topBucketsPerOrd[ordIdx]),
+                    output_format,
+                    bucketCountThresholds.getRequiredSize(),
+                    bucketCountThresholds.getShardSize(),
+                    metadata());
         }
 
-        final InternalGeoShape.InternalBucket[] list = new InternalGeoShape.InternalBucket[ordered.size()];
-        for (int i = ordered.size() - 1; i >= 0; --i) {
-            final InternalGeoShape.InternalBucket bucket = ordered.pop();
-
-            Geometry geom;
-            try {
-                geom = wkbReader.read(bucket.wkb.bytes);
-            } catch (ParseException e) {
-                continue;
-            }
-            if (must_simplify) {
-                geom = simplifyGeoShape(geom);
-                bucket.wkb = new BytesRef(new WKBWriter().write(geom));
-                bucket.area = geom.getLength();
-
-            }
-
-            bucket.aggregations = bucketAggregations(bucket.bucketOrd);
-            list[i] = bucket;
-        }
-
-        return new InternalGeoShape(name, Arrays.asList(list), output_format, bucketCountThresholds.getRequiredSize(),
-                bucketCountThresholds.getShardSize(), pipelineAggregators(), metaData());
+        // Build sub-aggregations
+        buildSubAggsForAllBuckets(
+                topBucketsPerOrd,
+                b -> b.bucketOrd,
+                (b, aggregations) -> b.subAggregations = aggregations
+        );
+        return results;
     }
 
     @Override
     public InternalAggregation buildEmptyAggregation() {
         return new InternalGeoShape(name, null, output_format, bucketCountThresholds.getRequiredSize(),
-                bucketCountThresholds.getShardSize(), pipelineAggregators(), metaData());
+                bucketCountThresholds.getShardSize(), metadata());
     }
 
     private Geometry simplifyGeoShape(Geometry geom) {

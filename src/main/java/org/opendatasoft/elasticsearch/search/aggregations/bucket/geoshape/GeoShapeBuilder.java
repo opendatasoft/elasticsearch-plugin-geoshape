@@ -1,25 +1,24 @@
 package org.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape;
 
 import org.elasticsearch.Version;
-import org.elasticsearch.common.ParseField;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
-import org.elasticsearch.common.xcontent.ObjectParser;
-import org.elasticsearch.common.xcontent.XContentBuilder;
-import org.elasticsearch.common.xcontent.XContentParser;
-import org.elasticsearch.index.query.QueryShardContext;
 import org.elasticsearch.search.aggregations.AggregationBuilder;
 import org.elasticsearch.search.aggregations.AggregatorFactories;
 import org.elasticsearch.search.aggregations.AggregatorFactories.Builder;
 import org.elasticsearch.search.aggregations.AggregatorFactory;
-import org.elasticsearch.search.aggregations.bucket.MultiBucketAggregationBuilder;
+import org.elasticsearch.search.aggregations.support.AggregationContext;
 import org.elasticsearch.search.aggregations.support.CoreValuesSourceType;
-import org.elasticsearch.search.aggregations.support.ValuesSource;
 import org.elasticsearch.search.aggregations.support.ValuesSourceAggregationBuilder;
 import org.elasticsearch.search.aggregations.support.ValuesSourceAggregatorFactory;
 import org.elasticsearch.search.aggregations.support.ValuesSourceConfig;
-import org.elasticsearch.search.aggregations.support.ValuesSourceParserHelper;
-import org.elasticsearch.search.aggregations.support.ValueType;
+import org.elasticsearch.search.aggregations.support.ValuesSourceRegistry;
+import org.elasticsearch.search.aggregations.support.ValuesSourceType;
+import org.elasticsearch.xcontent.ObjectParser;
+import org.elasticsearch.xcontent.ParseField;
+import org.elasticsearch.xcontent.XContentBuilder;
+import org.elasticsearch.xcontent.XContentParser;
+import org.opendatasoft.elasticsearch.plugin.GeoUtils;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -33,9 +32,12 @@ import java.util.Objects;
 /**
  * The builder of the aggregatorFactory. Also implements the parsing of the request.
  */
-public class GeoShapeBuilder extends ValuesSourceAggregationBuilder<ValuesSource, GeoShapeBuilder>
-        implements MultiBucketAggregationBuilder {
+public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSource, */GeoShapeBuilder>
+        /*implements MultiBucketAggregationBuilder*/ {
     public static final String NAME = "geoshape";
+
+    public static final ValuesSourceRegistry.RegistryKey<GeoShapeAggregatorSupplier> REGISTRY_KEY =
+            new ValuesSourceRegistry.RegistryKey<>(NAME, GeoShapeAggregatorSupplier.class);
 
     private static final ParseField OUTPUT_FORMAT_FIELD = new ParseField("output_format");
     public static final ParseField SIMPLIFY_FIELD = new ParseField("simplify");
@@ -47,7 +49,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder<ValuesSource
     private static final ObjectParser<GeoShapeBuilder, Void> PARSER;
     static {
         PARSER = new ObjectParser<>(GeoShapeBuilder.NAME);
-        ValuesSourceParserHelper.declareAnyFields(PARSER, true, true);
+        ValuesSourceAggregationBuilder.declareFields(PARSER, true, true, false);
         PARSER.declareString(GeoShapeBuilder::output_format, OUTPUT_FORMAT_FIELD);
         PARSER.declareObjectArray(GeoShapeBuilder::simplify_keys,
                 (p, c) -> SimplifyKeysParser.Parser.parseSimplifyParam(p), SIMPLIFY_FIELD);
@@ -56,7 +58,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder<ValuesSource
     }
 
     public static AggregationBuilder parse(String aggregationName, XContentParser parser) throws IOException {
-        return PARSER.parse(parser, new GeoShapeBuilder(aggregationName, null), null);
+        return PARSER.parse(parser, new GeoShapeBuilder(aggregationName), null);
     }
 
     static class SimplifyKeysParser {
@@ -88,19 +90,19 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder<ValuesSource
         }
     }
 
-    public static final InternalGeoShape.OutputFormat DEFAULT_OUTPUT_FORMAT = InternalGeoShape.OutputFormat.GEOJSON;
+    public static final GeoUtils.OutputFormat DEFAULT_OUTPUT_FORMAT = GeoUtils.OutputFormat.GEOJSON;
     private boolean must_simplify = false;
     public static final int DEFAULT_ZOOM = 0;
     public static final GeoShape.Algorithm DEFAULT_ALGORITHM = GeoShape.Algorithm.DOUGLAS_PEUCKER;
-    private InternalGeoShape.OutputFormat output_format = DEFAULT_OUTPUT_FORMAT;
+    private GeoUtils.OutputFormat output_format = DEFAULT_OUTPUT_FORMAT;
     private int simplify_zoom = DEFAULT_ZOOM;
     private GeoShape.Algorithm simplify_algorithm = DEFAULT_ALGORITHM;
     private GeoShapeAggregator.BucketCountThresholds bucketCountThresholds = new GeoShapeAggregator.BucketCountThresholds(
             DEFAULT_BUCKET_COUNT_THRESHOLDS);
 
 
-    private GeoShapeBuilder(String name, ValueType valueType) {
-        super(name, CoreValuesSourceType.ANY, valueType);
+    private GeoShapeBuilder(String name) {
+        super(name);
     }
 
     /**
@@ -108,10 +110,10 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder<ValuesSource
      *
      */
     public GeoShapeBuilder(StreamInput in) throws IOException {
-        super(in, CoreValuesSourceType.ANY);
+        super(in);
         bucketCountThresholds = new GeoShapeAggregator.BucketCountThresholds(in);
         must_simplify = in.readBoolean();
-        output_format = InternalGeoShape.OutputFormat.valueOf(in.readString());
+        output_format = GeoUtils.OutputFormat.valueOf(in.readString());
         simplify_zoom = in.readInt();
         simplify_algorithm = GeoShape.Algorithm.valueOf(in.readString());
     }
@@ -143,8 +145,13 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder<ValuesSource
         return new GeoShapeBuilder(this, factoriesBuilder, metaData);
     }
 
+    @Override
+    public BucketCardinality bucketCardinality() {
+        return null;
+    }
+
     private GeoShapeBuilder output_format(String output_format) {
-        this.output_format = InternalGeoShape.OutputFormat.valueOf(output_format.toUpperCase(Locale.getDefault()));
+        this.output_format = GeoUtils.OutputFormat.valueOf(output_format.toUpperCase(Locale.getDefault()));
         return this;
     }
 
@@ -162,6 +169,16 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder<ValuesSource
     @Override
     protected boolean serializeTargetValueType(Version version) {
         return true;
+    }
+
+    @Override
+    protected ValuesSourceRegistry.RegistryKey<?> getRegistryKey() {
+        return REGISTRY_KEY;
+    }
+
+    @Override
+    protected ValuesSourceType defaultValueSourceType() {
+        return CoreValuesSourceType.KEYWORD;
     }
 
     /**
@@ -192,14 +209,14 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder<ValuesSource
     }
 
     @Override
-    protected ValuesSourceAggregatorFactory<ValuesSource> innerBuild(
-            QueryShardContext queryShardContext,
-            ValuesSourceConfig<ValuesSource> config,
+    protected ValuesSourceAggregatorFactory innerBuild(
+            AggregationContext queryShardContext,
+            ValuesSourceConfig config,
             AggregatorFactory parent,
             AggregatorFactories.Builder subFactoriesBuilder) throws IOException {
         return new GeoShapeAggregatorFactory(
                 name, config, output_format, must_simplify, simplify_zoom, simplify_algorithm,
-                bucketCountThresholds, queryShardContext, parent, subFactoriesBuilder, metaData);
+                bucketCountThresholds, queryShardContext, parent, subFactoriesBuilder, metadata);
     }
 
     @Override
@@ -238,6 +255,14 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder<ValuesSource
     @Override
     public String getType() {
         return NAME;
+    }
+
+    public static void registerAggregators(ValuesSourceRegistry.Builder builder) {
+        builder.register(
+                GeoShapeBuilder.REGISTRY_KEY,
+                CoreValuesSourceType.KEYWORD,
+                GeoShapeAggregator::new,
+                true);
     }
 }
 

@@ -3,28 +3,31 @@ package org.opendatasoft.elasticsearch.ingest;
 
 import org.apache.lucene.util.BytesRef;
 import org.elasticsearch.common.bytes.BytesReference;
-import org.elasticsearch.common.geo.parsers.ShapeParser;
 import org.elasticsearch.common.regex.Regex;
-import org.elasticsearch.common.xcontent.XContentBuilder;
-import org.elasticsearch.common.xcontent.XContentParser;
-import org.elasticsearch.common.xcontent.NamedXContentRegistry;
-import org.elasticsearch.common.xcontent.DeprecationHandler;
-import org.elasticsearch.common.xcontent.json.JsonXContent;
 import org.elasticsearch.ingest.AbstractProcessor;
 import org.elasticsearch.ingest.ConfigurationUtils;
 import org.elasticsearch.ingest.IngestDocument;
 import org.elasticsearch.ingest.Processor;
-import org.locationtech.jts.geom.Geometry;
+import org.elasticsearch.legacygeo.XShapeCollection;
+import org.elasticsearch.legacygeo.builders.ShapeBuilder;
+import org.elasticsearch.legacygeo.parsers.ShapeParser;
+import org.elasticsearch.xcontent.DeprecationHandler;
+import org.elasticsearch.xcontent.NamedXContentRegistry;
+import org.elasticsearch.xcontent.XContentBuilder;
+import org.elasticsearch.xcontent.XContentParser;
+import org.elasticsearch.xcontent.json.JsonXContent;
 import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.Point;
+import org.locationtech.jts.geom.PrecisionModel;
 import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKBWriter;
-import org.locationtech.jts.io.WKTReader;
 import org.locationtech.jts.io.WKTWriter;
-import org.locationtech.spatial4j.exception.InvalidShapeException;
 import org.locationtech.spatial4j.shape.Shape;
-import org.elasticsearch.common.geo.builders.ShapeBuilder;
+import org.locationtech.spatial4j.shape.jts.JtsGeometry;
+import org.locationtech.spatial4j.shape.jts.JtsPoint;
 import org.opendatasoft.elasticsearch.plugin.GeoUtils;
-
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -47,10 +50,10 @@ public class GeoExtensionProcessor extends AbstractProcessor {
     private final String bboxField;
     private final String centroidField;
 
-    private GeoExtensionProcessor(String tag, String field, String path, Boolean keepShape, String shapeField,
+    private GeoExtensionProcessor(String tag, String description, String field, String path, Boolean keepShape, String shapeField,
                                   String fixedField, String wkbField, String hashField, String typeField,
                                   String areaField, String bboxField, String centroidField)  {
-        super(tag);
+        super(tag, description);
         this.field = field;
         this.path = path;
         this.keepShape = keepShape;
@@ -113,21 +116,48 @@ public class GeoExtensionProcessor extends AbstractProcessor {
 
             ShapeBuilder<?,?, ?> shapeBuilder = getShapeBuilderFromObject(geoShapeObject);
 
-            Shape shape = null;
-            try {
-                shape = shapeBuilder.buildS4J();
+            // buildS4J() will try to clean up and fix the shape. If it fails, an exception is raised
+            // Included fixes:
+            // - point deduplication
+            // - dateline warping (enforce lon in [-180,180])
+            Shape shape = shapeBuilder.buildS4J();
+
+            Geometry geom = null;
+            PrecisionModel precisionModel = new PrecisionModel(PrecisionModel.FLOATING);
+            GeometryFactory geomFactory = new GeometryFactory(precisionModel, 0);
+            String altWKT = null;
+            if (shape instanceof JtsPoint) {
+                geom = ((JtsPoint)shape).getGeom();
             }
-            catch (InvalidShapeException ignored) {}
-
-            if (shape == null && fixedField == null) {
-                throw new IllegalArgumentException("unable to parse shape [" + shapeBuilder.toWKT() + "]");
+            else if (shape instanceof JtsGeometry) {
+                geom = ((JtsGeometry) shape).getGeom();
+            }
+            else if (shape instanceof XShapeCollection) {
+                List<?> shapes = ((XShapeCollection) shape).getShapes();
+                switch (shapeBuilder.type()) {
+                    case MULTIPOINT:
+                        Point[] points = new Point[shapes.size()];
+                        for (int i = 0; i < shapes.size(); i++) {
+                            points[i] = (Point)((JtsPoint)(shapes.get(i))).getGeom();
+                        }
+                        geom = geomFactory.createMultiPoint(points);
+                        // ES wants multipoint without extra parenthesis between points
+                        altWKT = new WKTWriter().write(geom).replace("((","(").replace("))",")").replace("), (",", ");
+                        break;
+                    case MULTILINESTRING:
+                    case MULTIPOLYGON:
+                    case GEOMETRYCOLLECTION:
+                        ArrayList<Geometry> geoms = new ArrayList<>(shapes.size());
+                        for (int i = 0; i < shapes.size(); i++) {
+                            geoms.add(((JtsGeometry)(shapes.get(i))).getGeom());
+                        }
+                        geom = geomFactory.buildGeometry(geoms);
+                        break;
+                }
             }
 
-            Geometry geom = new WKTReader().read(shapeBuilder.toWKT());
-
-            // fix shapes if needed
-            if (shape == null && fixedField != null) {
-                geom = GeoUtils.removeDuplicateCoordinates(geom);
+            if (geom == null) {
+                throw new IllegalArgumentException("Unable to parse shape [" + shapeBuilder.toWKT() + "]");
             }
 
             ingestDocument.removeField(geoShapeField);
@@ -137,7 +167,8 @@ public class GeoExtensionProcessor extends AbstractProcessor {
             }
 
             if (fixedField != null) {
-                ingestDocument.setFieldValue(geoShapeField + "." + fixedField, new WKTWriter().write(geom));
+                ingestDocument.setFieldValue(geoShapeField + "." + fixedField,
+                        altWKT != null ? altWKT : new WKTWriter().write(geom));
             }
 
             // compute and add extra geo sub-fields
@@ -171,6 +202,7 @@ public class GeoExtensionProcessor extends AbstractProcessor {
     public static final class Factory implements Processor.Factory {
         @Override
         public GeoExtensionProcessor create(Map<String, Processor.Factory> registry, String processorTag,
+                                            String description,
                                             Map<String, Object> config) {
             String field = ConfigurationUtils.readStringProperty(TYPE, processorTag, config, "field");
             String path = ConfigurationUtils.readOptionalStringProperty(TYPE, processorTag, config, "path");
@@ -222,6 +254,7 @@ public class GeoExtensionProcessor extends AbstractProcessor {
 
             return new GeoExtensionProcessor(
                     processorTag,
+                    description,
                     field,
                     path,
                     keep_shape,

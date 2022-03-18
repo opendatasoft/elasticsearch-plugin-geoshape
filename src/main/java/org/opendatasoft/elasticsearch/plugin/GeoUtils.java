@@ -5,22 +5,30 @@ import org.elasticsearch.common.geo.GeoPoint;
 import org.elasticsearch.common.hash.MurmurHash3;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
-import org.locationtech.jts.geom.Polygon;
-import org.locationtech.jts.geom.MultiPolygon;
-import org.locationtech.jts.geom.CoordinateList;
 import org.locationtech.jts.geom.GeometryCollection;
-import org.locationtech.jts.geom.LinearRing;
+import org.locationtech.jts.geom.MultiPolygon;
+import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKBReader;
 import org.locationtech.jts.io.WKBWriter;
 import org.locationtech.jts.io.WKTWriter;
 import org.locationtech.jts.io.geojson.GeoJsonWriter;
-import org.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.InternalGeoShape;
 
 import java.util.Arrays;
 import java.util.List;
 
 public class GeoUtils {
+    public enum OutputFormat {
+        WKT,
+        WKB,
+        GEOJSON
+    }
+
+    public enum SimplifyAlgorithm {
+        DOUGLAS_PEUCKER,
+        TOPOLOGY_PRESERVING
+    }
+
     public static long getHashFromWKB(BytesRef wkb) {
         return MurmurHash3.hash128(wkb.bytes, wkb.offset, wkb.length, 0, new MurmurHash3.Hash128()).h1;
     }
@@ -79,7 +87,7 @@ public class GeoUtils {
     }
 
 
-    public static String exportWkbTo(BytesRef wkb, InternalGeoShape.OutputFormat output_format, GeoJsonWriter geoJsonWriter)
+    public static String exportWkbTo(BytesRef wkb, OutputFormat output_format, GeoJsonWriter geoJsonWriter)
             throws ParseException {
         switch (output_format) {
             case WKT:
@@ -93,7 +101,7 @@ public class GeoUtils {
         }
     }
 
-    public static String exportGeoTo(Geometry geom, InternalGeoShape.OutputFormat outputFormat, GeoJsonWriter geoJsonWriter) {
+    public static String exportGeoTo(Geometry geom, OutputFormat outputFormat, GeoJsonWriter geoJsonWriter) {
         switch (outputFormat) {
             case WKT:
                 return new WKTWriter().write(geom);
@@ -122,42 +130,5 @@ public class GeoUtils {
         }
 
         return geom;
-    }
-
-    public static Polygon removeDuplicateCoordinates(Polygon polygon) {
-        LinearRing polygonShell = removeDuplicateCoordinates((LinearRing) polygon.getExteriorRing());
-        LinearRing[] holes = new LinearRing[polygon.getNumInteriorRing()];
-        for (int i = 0; i < polygon.getNumInteriorRing(); i++) {
-            holes[i] = removeDuplicateCoordinates((LinearRing) polygon.getInteriorRingN(i));
-        }
-        return polygon.getFactory().createPolygon(polygonShell, holes);
-    }
-
-    public static LinearRing removeDuplicateCoordinates(LinearRing linearRing) {
-        return linearRing.getFactory().createLinearRing(
-                new CoordinateList(linearRing.getCoordinates(), false).toCoordinateArray()
-        );
-    }
-
-    public static MultiPolygon removeDuplicateCoordinates(MultiPolygon multiPolygon) {
-
-        Polygon[] polygons = new Polygon[multiPolygon.getNumGeometries()];
-
-        for (int i = 0; i < multiPolygon.getNumGeometries(); i++) {
-            polygons[i] = (Polygon) removeDuplicateCoordinates(multiPolygon.getGeometryN(i));
-        }
-
-        return multiPolygon.getFactory().createMultiPolygon(polygons);
-    }
-
-    public static GeometryCollection removeDuplicateCoordinates(GeometryCollection geometryCollection) {
-
-        Geometry[] geometries = new Geometry[geometryCollection.getNumGeometries()];
-
-        for (int i = 0; i < geometryCollection.getNumGeometries(); i++) {
-            geometries[i] = removeDuplicateCoordinates(geometryCollection.getGeometryN(i));
-        }
-
-        return geometryCollection.getFactory().createGeometryCollection(geometries);
     }
 }

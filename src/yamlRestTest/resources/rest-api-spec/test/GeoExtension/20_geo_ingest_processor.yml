@@ -1,0 +1,455 @@
+---
+"Test geo extension pipeline and dynamic mapping":
+
+# Create the pipeline
+  - do:
+      ingest.put_pipeline:
+        id: "geo_extension"
+        body:  >
+          {
+            "description": "Add extra geo fields to geo_shape fields.",
+            "processors": [
+              {
+                "geo_extension": {
+                  "field": "geo_shape_*"
+                }
+              }
+            ]
+          }
+  - match: { acknowledged: true }
+
+  - do:
+      ingest.get_pipeline:
+        id: "geo_extension"
+  - match: { geo_extension.description: "Add extra geo fields to geo_shape fields." }
+
+
+# Test geo extension dynamic mapping
+  - do:
+      indices.create:
+        index: test_index
+
+  - do:
+      indices.put_mapping:
+        index: test_index
+        body:
+          dynamic_templates: [
+            {
+              "geo_shapes": {
+                "match": "geo_shape_*",
+                "mapping": {
+                  "properties": {
+                    "shape": {"enabled": false},
+                    "fixed_shape": {"type": "geo_shape"},
+                    "hash": {"type": "keyword"},
+                    "wkb": {"type": "binary", "doc_values": true},
+                    "type": {"type": "keyword"},
+                    "area": {"type": "half_float"},
+                    "bbox": {"type": "geo_point"},
+                    "centroid": {"type": "geo_point"}
+                  }
+                }
+              }
+            }
+          ]
+
+  - do:
+      indices.get_mapping: {}
+
+  - match: {test_index.mappings.dynamic_templates.0.geo_shapes.match: "geo_shape_*"}
+
+  - match: {test_index.mappings.dynamic_templates.0.geo_shapes.mapping.properties.fixed_shape.type: "geo_shape"}
+  - match: {test_index.mappings.dynamic_templates.0.geo_shapes.mapping.properties.hash.type: "keyword"}
+  - match: {test_index.mappings.dynamic_templates.0.geo_shapes.mapping.properties.wkb.type: "binary"}
+  - match: {test_index.mappings.dynamic_templates.0.geo_shapes.mapping.properties.wkb.doc_values: true}
+  - match: {test_index.mappings.dynamic_templates.0.geo_shapes.mapping.properties.type.type: "keyword"}
+  - match: {test_index.mappings.dynamic_templates.0.geo_shapes.mapping.properties.area.type: "half_float"}
+  - match: {test_index.mappings.dynamic_templates.0.geo_shapes.mapping.properties.bbox.type: "geo_point"}
+  - match: {test_index.mappings.dynamic_templates.0.geo_shapes.mapping.properties.centroid.type: "geo_point"}
+
+
+# Test that mapping is correct after a document POST
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: {
+          "id": 1,
+          "geo_shape_0": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  1.6809082031249998,
+                  49.05227025601607
+                ],
+                [
+                  2.021484375,
+                  48.596592251456705
+                ],
+                [
+                  2.021484375,
+                  48.596592251456705
+                ],
+                [
+                  3.262939453125,
+                  48.922499263758255
+                ],
+                [
+                  2.779541015625,
+                  49.196064000723794
+                ],
+                [
+                  2.0654296875,
+                  49.23194729854559
+                ],
+                [
+                  1.6809082031249998,
+                  49.05227025601607
+                ]
+              ]
+            ]
+          }
+        }
+
+  - do:
+      indices.refresh: {}
+
+  - do:
+      indices.get_mapping: {}
+
+  - match: {test_index.mappings.properties.geo_shape_0.properties.fixed_shape.type: "geo_shape"}
+  - match: {test_index.mappings.properties.geo_shape_0.properties.hash.type: "keyword"}
+  - match: {test_index.mappings.properties.geo_shape_0.properties.wkb.type: "binary"}
+  - match: {test_index.mappings.properties.geo_shape_0.properties.wkb.doc_values: true}
+  - match: {test_index.mappings.properties.geo_shape_0.properties.type.type: "keyword"}
+  - match: {test_index.mappings.properties.geo_shape_0.properties.area.type: "half_float"}
+  - match: {test_index.mappings.properties.geo_shape_0.properties.bbox.type: "geo_point"}
+  - match: {test_index.mappings.properties.geo_shape_0.properties.centroid.type: "geo_point"}
+
+
+# Test that the shape has been fixed
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 1
+
+  - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "POLYGON ((2.021484375 48.596592251456705, 3.262939453125 48.922499263758255, 2.779541015625 49.196064000723794, 2.0654296875 49.23194729854559, 1.6809082031249998 49.05227025601607, 2.021484375 48.596592251456705))" }
+
+# Test Point
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: {
+          "id": 2,
+          "geo_shape_0": {
+            "type": "Point",
+            "coordinates": [
+                    110.74218749999999,
+                    -82.16644600847728
+            ]
+          }
+        }
+
+  - do:
+      indices.refresh: {}
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 2
+
+  - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "POINT (110.74218749999999 -82.16644600847728)"}
+
+# Test Linestring
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: {
+          "id": 3,
+          "geo_shape_0": {
+            "type": "LineString",
+            "coordinates": [
+              [
+                110.74218749999999,
+                -82.16644600847728
+              ],
+              [
+                  132.890625,
+                  -83.71554430601263
+              ]
+            ]
+          }
+        }
+
+  - do:
+      indices.refresh: {}
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 3
+
+  - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "LINESTRING (110.74218749999999 -82.16644600847728, 132.890625 -83.71554430601263)"}
+
+# Test MultiPoint
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: {
+          "id": 4,
+          "geo_shape_0": {
+            "type": "MultiPoint",
+            "coordinates": [
+              [
+                  110.74218749999999,
+                  -82.16644600847728
+              ],
+              [
+                  132.890625,
+                  -83.71554430601263
+              ]
+            ]
+          }
+        }
+
+  - do:
+      indices.refresh: {}
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 4
+
+  - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "MULTIPOINT (110.74218749999999 -82.16644600847728, 132.890625 -83.71554430601263)"}
+
+# Test MultiLineString
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: {
+          "id": 5,
+          "geo_shape_0": {
+            "type": "MultiLineString",
+            "coordinates": [
+              [[
+                  110.74218749999999,
+                  -82.16644600847728
+              ],
+              [
+                  132.890625,
+                  -83.71554430601263
+              ]],
+              [[
+                  132.890625,
+                  -83.71554430601263
+              ],
+              [
+                  140,
+                  -83.94227191521858
+              ]]
+            ]
+          }
+        }
+
+  - do:
+      indices.refresh: {}
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 5
+
+  - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "MULTILINESTRING ((110.74218749999999 -82.16644600847728, 132.890625 -83.71554430601263), (132.890625 -83.71554430601263, 140 -83.94227191521858))"}
+
+
+# Test MultiPolygon
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: {
+          "id": 6,
+          "geo_shape_0": {
+      "type": "MultiPolygon",
+      "coordinates": [[
+          [
+            [
+              -2.26318359375,
+              48.125767833701666
+            ],
+            [
+              -1.8814086914062498,
+              48.156925112380684
+            ],
+            [
+              -1.9033813476562498,
+              48.31060120649363
+            ],
+            [
+              -2.26318359375,
+              48.125767833701666
+            ]
+          ]
+        ],[
+          [
+            [
+                -1.78802490234375,
+                48.23930899024907
+            ],
+            [
+                -1.7660522460937498,
+                48.123934463666366
+            ],
+            [
+                -1.5985107421875,
+                48.1789071002632
+            ],
+            [
+                -1.78802490234375,
+                48.23930899024907
+            ]
+          ]]
+        ]
+        }}
+
+  - do:
+      indices.refresh: {}
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 6
+
+  - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "MULTIPOLYGON (((-1.8814086914062498 48.156925112380684, -1.9033813476562498 48.31060120649363, -2.26318359375 48.125767833701666, -1.8814086914062498 48.156925112380684)), ((-1.7660522460937498 48.123934463666366, -1.5985107421875 48.1789071002632, -1.78802490234375 48.23930899024907, -1.7660522460937498 48.123934463666366)))"}
+
+# Test GeometryCollection
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: {
+          "id": 7,
+          "geo_shape_0": {
+            "type": "GeometryCollection",
+            "geometries": [
+              {
+                "type": "Polygon",
+                "coordinates": [
+                  [
+                    [
+                        -123.11839233491114,
+                        49.2402245918293
+                    ],
+                    [
+                        -123.11875175091907,
+                        49.24005998018907
+                    ],
+                    [
+                        -123.11737309548549,
+                        49.23887966363327
+                    ],
+                    [
+                        -123.11703513714964,
+                        49.23902676693859
+                    ],
+                    [
+                        -123.11839233491114,
+                        49.2402245918293
+                    ]
+                  ]
+                ]
+              },{
+                "type": "LineString",
+                "coordinates": [
+                    [
+                        -123.11826024867999,
+                        49.24043019142397
+                    ],
+                    [
+                        -123.11673782884,
+                        49.23906844767802
+                    ]
+                  ]
+              }
+            ]
+          }
+        }
+
+  - do:
+      indices.refresh: {}
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 7
+
+  - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "GEOMETRYCOLLECTION (POLYGON ((-123.11875175091907 49.24005998018907, -123.11737309548549 49.23887966363327, -123.11703513714964 49.23902676693859, -123.11839233491114 49.2402245918293, -123.11875175091907 49.24005998018907)), LINESTRING (-123.11826024867999 49.24043019142397, -123.11673782884 49.23906844767802))"}
+
+# Test shape accross dateline is warped correctly
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: {
+          "id": 8,
+          "geo_shape_0": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                    110.74218749999999,
+                    -82.16644600847728
+                ],
+                [
+                    132.890625,
+                    -83.71554430601263
+                ],
+                [
+                    132.890625,
+                    -83.71554430601263
+                ],
+                [
+                    213.75,
+                    -83.94227191521858
+                ],
+                [
+                    110.74218749999999,
+                    -82.16644600847728
+                ]
+              ]
+            ]
+          }
+        }
+
+  - do:
+      indices.refresh: {}
+
+
+# Test that the shape has been fixed
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 8
+
+  - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "MULTIPOLYGON (((180 -83.84763778268045, 180 -83.36043134509174, 110.74218749999999 -82.16644600847728, 132.890625 -83.71554430601263, 180 -83.84763778268045)), ((-180 -83.36043134509174, -180 -83.84763778268045, -146.25 -83.94227191521858, -180 -83.36043134509174)))" }

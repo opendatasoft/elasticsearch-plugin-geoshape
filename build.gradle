@@ -1,8 +1,7 @@
 buildscript {
     repositories {
-        mavenLocal()
         mavenCentral()
-        jcenter()
+
     }
 
     dependencies {
@@ -10,21 +9,23 @@ buildscript {
     }
 }
 
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+    maven {
+            url "https://repo1.maven.org/maven2"
+    }
+}
+
+
 group = 'org.elasticsearch.plugin'
 version = "${plugin_version}"
 
 apply plugin: 'java'
 apply plugin: 'idea'
 apply plugin: 'elasticsearch.esplugin'
-
-licenseFile = rootProject.file('LICENSE')
-noticeFile = rootProject.file('README.md')
-
-// remove this again after 7.3.1
-configurations.restSpec.withDependencies { dependencies ->
-    dependencies.clear()
-    dependencies.add(project.dependencies.create("org.elasticsearch:rest-api-spec:${elastic_version}"))
-}
+apply plugin: 'elasticsearch.yaml-rest-test'
 
 esplugin {
     name 'elasticsearch-plugin-geoshape'
@@ -35,21 +36,46 @@ esplugin {
 }
 
 
-dependencies {
-    compile "org.elasticsearch:elasticsearch:${elastic_version}"
-    // WARNING: jts-io-common version has to be identical to the elastic:jts one (here: 1.15.0)
-    compile group: 'org.locationtech.jts.io', name: 'jts-io-common', version: '1.15.0'
-    compile group: 'com.googlecode.json-simple', name: 'json-simple', version: '1.1.1'
+// exclude junit from implementation to resolve a version conflict (but not from tests)
+configurations {
+    implementation {
+        exclude(group: 'junit', module: 'junit')
+    }
 }
 
-test.enabled = false
+dependencies {
+    implementation "org.elasticsearch:elasticsearch:${elastic_version}"
 
-// Skip license headers check
-licenseHeaders.enabled = false
+    // We ship the legacy geo archive with sources,
+    // because the compilation stage needs to resolve symbols
+    // However this archive is not included in the final plugin bundle, since
+    // legacy geo and its dependencies (JTS) are already present at runtime
+    // with ES (see the jar/manifest rule below)
+    compileOnly files('libs/legacy-geo-7.17.1.jar')
 
-// Use elasticsearch checkstyle rules
-checkstyleTest.enabled = true
+    // jts.io.common is not part of ES and will be shipped with this plugin
+    implementation group: 'org.locationtech.jts.io', name: 'jts-io-common', version: '1.15.0'
 
-dependencyLicenses.enabled = false
+    yamlRestTestImplementation "org.elasticsearch.test:framework:${elastic_version}"
+    yamlRestTestImplementation "org.apache.logging.log4j:log4j-core:2.17.1"
+}
 
-thirdPartyAudit.enabled = true
+// Since this plugin is meant to be loaded in an ES >=7.16 instance,
+// we can "link" it to existing classes through a class path without adding other archives
+// to the plugin bundle
+jar {
+    manifest {
+         attributes(
+                "Class-Path": "../../modules/legacy-geo/legacy-geo-7.17.1.jar ../../modules/legacy-geo/jts-core-1.15.0.jar ../../modules/legacy-geo/spatial4j-0.7.jar")
+
+    }
+}
+
+// Make sure the ES distribution used for rest tests is the "complete" variant
+// Otherwise weirds errors occur (like the geo_shape type is not handled)
+testClusters.configureEach {
+    testDistribution = 'DEFAULT'
+    // disable security to disable failing warnings
+    setting 'xpack.security.enabled', 'false'
+}
+

@@ -1,0 +1,179 @@
+---
+"Test aggregation":
+
+# Create the pipeline, index and mapping
+  - do:
+      ingest.put_pipeline:
+        id: "geo_extension"
+        body:  >
+          {
+            "description": "Add extra geo fields to geo_shape fields.",
+            "processors": [
+              {
+                "geo_extension": {
+                  "field": "geo_shape_*"
+                }
+              }
+            ]
+          }
+  - match: { acknowledged: true }
+
+  - do:
+      ingest.get_pipeline:
+        id: "geo_extension"
+  - match: { geo_extension.description: "Add extra geo fields to geo_shape fields." }
+
+  - do:
+      indices.create:
+        index: test_index
+
+  - do:
+      indices.put_mapping:
+        index: test_index
+        body:
+          dynamic_templates: [
+            {
+              "geo_shapes": {
+                "match": "geo_shape_*",
+                "mapping": {
+                  "properties": {
+                    "shape": {"enabled": false},
+                    "fixed_shape": {"type": "geo_shape"},
+                    "hash": {"type": "keyword"},
+                    "wkb": {"type": "binary", "doc_values": true},
+                    "type": {"type": "keyword"},
+                    "area": {"type": "half_float"},
+                    "bbox": {"type": "geo_point"},
+                    "centroid": {"type": "geo_point"}
+                  }
+                }
+              }
+            }
+          ]
+
+# Add documents
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: {
+          "id": 1,
+          "geo_shape_0": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                    -3.3858489990234375,
+                    47.7442871774986
+                ],
+                [
+                    -3.3889389038085938,
+                    47.73770713305151
+                ],
+                [
+                    -3.3777809143066406,
+                    47.738515253481545
+                ],
+                [
+                    -3.3858489990234375,
+                    47.7442871774986
+                ]
+              ]
+            ]
+          }
+        }
+
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: {
+          "id": 2,
+          "geo_shape_0": {
+            "type": "LineString",
+            "coordinates": [
+              [
+                  -3.3805704116821285,
+                  47.75757459952785
+              ],
+              [
+                  -3.3811068534851074,
+                  47.757711639949754
+              ],
+              [
+                  -3.3817613124847408,
+                  47.75771524627175
+              ],
+              [
+                  -3.3826088905334473,
+                  47.75768278936459
+              ],
+              [
+                  -3.3831185102462764,
+                  47.75758181219062
+              ]
+            ]
+          }
+        }
+
+  - do:
+      indices.refresh: {}
+
+# Test polygon simplification with douglas peucker
+# With zoom=1, polygon is reduced to a point
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 1
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: geojson
+                simplify:
+                  zoom: 1
+                  algorithm: DOUGLAS_PEUCKER
+                size: 4
+
+  - match: {aggregations.g.buckets.0.key: "{\"type\":\"Point\",\"coordinates\":[-3.3889389,47.73770713],\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:0\"}}}" }
+
+# With topology preservation
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 1
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: geojson
+                simplify:
+                  zoom: 1
+                  algorithm: TOPOLOGY_PRESERVING
+                size: 4
+
+  - match: {aggregations.g.buckets.0.key: "{\"type\":\"Polygon\",\"coordinates\":[[[-3.3889389,47.73770713],[-3.37778091,47.73851525],[-3.385849,47.74428718],[-3.3889389,47.73770713]]],\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:0\"}}}"}
+
+# Test size restriction will return the largest shape
+  - do:
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: geojson
+                simplify:
+                  zoom: 1
+                  algorithm: TOPOLOGY_PRESERVING
+                size: 1 # size restriction here
+
+  - match: {aggregations.g.buckets.0.key: "{\"type\":\"Polygon\",\"coordinates\":[[[-3.3889389,47.73770713],[-3.37778091,47.73851525],[-3.385849,47.74428718],[-3.3889389,47.73770713]]],\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:0\"}}}"}
+

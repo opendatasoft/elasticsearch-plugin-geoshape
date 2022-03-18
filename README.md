@@ -9,8 +9,12 @@ This is an `Ingest`, `Search` and `Script` plugin.
 
 ## Installation
 
-`bin/plugin --install geoshape-plugin --url https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.6.0.0/elasticsearch-plugin-geoshape-7.6.0.0.zip"`
+`bin/elasticsearch-plugin https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.1.0/elasticsearch-plugin-geoshape-7.17.1.0.zip"`
 
+
+## Build
+-----
+Built with Java 17 and gradle 7.3.1 (but you should use the packaged gradlew included in this repo anyway).
 
 
 ## Usage
@@ -59,26 +63,27 @@ PUT _ingest/pipeline/geo_extension
   ]
 }
 PUT main
-PUT main/_mapping
 {
-  "dynamic_templates": [
-    {
-      "geoshapes": {
-        "match": "geoshape_*",
-        "mapping": {
-          "properties": {
-            "geoshape": {"type": "geo_shape"},
-            "hash": {"type": "keyword"},
-            "wkb": {"type": "binary", "doc_values": true},
-            "type": {"type": "keyword"},
-            "area": {"type": "half_float"},
-            "bbox": {"type": "geo_point"},
-            "centroid": {"type": "geo_point"}
+  "mappings": {
+    "dynamic_templates": [
+      {
+        "geoshapes": {
+          "match": "geoshape_*",
+          "mapping": {
+            "properties": {
+              "geoshape": {"type": "geo_shape"},
+              "hash": {"type": "keyword"},
+              "wkb": {"type": "binary", "doc_values": true},
+              "type": {"type": "keyword"},
+              "area": {"type": "half_float"},
+              "bbox": {"type": "geo_point"},
+              "centroid": {"type": "geo_point"}
+            }
           }
         }
       }
-    }
-  ]
+    ]
+  }
 }
 GET main/_mapping
 ```
@@ -130,7 +135,7 @@ Result:
 
 Document indexing with shape fixing:
 ```
-POST main/_doc
+POST main/_doc?pipeline=geo_extension
 {
   "geoshape_0": {
     "type": "Polygon",
@@ -168,7 +173,7 @@ POST main/_doc
     ]
   }
 }
-GET main/_search?pipeline=geo_extension
+GET main/_search
 ```
 
 Result:
@@ -236,7 +241,10 @@ Note that the duplicated point has been deduplicated.
 
 ### Geoshape aggregation
 
-Geoshape aggregation based on auto-computed shape hash.
+This aggregation creates a bucket for each input shape (based on the hash of its WKB representation) and compute a simplified version of the shape in the bucket.
+The simplification part is similar to what is done with the simplify script.
+The `size` parameter allows you to retain only the biggest (longer) N shapes.
+Moreover, compared to regular search results, results of an aggregation can be [cached by ElasticSearch](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-aggregations.html#agg-caches).
 
 
 
@@ -246,7 +254,7 @@ Geoshape aggregation based on auto-computed shape hash.
 - `simplify`:
   - `zoom`: the zoom level in range [0, 20]. 0 is the most simplified and 20 is the least. Default to 0.
   - `algorithm`: simplify algorithm in [`DOUGLAS_PEUCKER`, `TOPOLOGY_PRESERVING`]. Default to `DOUGLAS_PEUCKER`.
-- `size`: can be set to define how many term buckets should be returned out of the overall terms list. See elasticsearch official terms aggregation documentation for more explanation.
+- `size`: can be set to define how many buckets should be returned. See elasticsearch official terms aggregation documentation for more explanation. Buckets are ordered by the length (perimeter for polygons) of their shape, longer shapes first.
 - `shard_size`: can be used to minimize the extra work that comes with bigger requested `size`. See elasticsearch official terms aggregation documentation for more explanation.
 
 
@@ -345,12 +353,10 @@ Result:
 
 ## Installation
 
-Plugin versions are available for (at least) all minor versions of Elasticsearch since 6.3.
-
-The first 3 digits of plugin version is Elasticsearch versioning. The last digit is used for plugin versioning under an elasticsearch version.
+The first 3 digits of the plugin version is the corresponding Elasticsearch version. The last digit is used for plugin versioning.
 
 To install it, launch this command in Elasticsearch directory replacing the url by the correct link for your Elasticsearch version (see table)
-`bin/plugin --install geoshape-plugin --url "https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.6.0.0/elasticsearch-plugin-geoshape-7.6.0.0.zip"`
+`bin/elasticsearch-plugin https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.1.0/elasticsearch-plugin-geoshape-7.17.1.0.zip"`
 
 | elasticsearch version | plugin version | plugin url |
 | --------------------- | -------------- | ---------- |
@@ -368,6 +374,31 @@ To install it, launch this command in Elasticsearch directory replacing the url 
 | 7.4.0 | 7.4.0.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.4.0.0/elasticsearch-plugin-geoshape-7.4.0.0.zip |
 | 7.5.1 | 7.5.1.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.5.1.0/elasticsearch-plugin-geoshape-7.5.1.0.zip |
 | 7.6.0 | 7.6.0.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.6.0.0/elasticsearch-plugin-geoshape-7.6.0.0.zip |
+| 7.17.1 | 7.17.1.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.1.0/elasticsearch-plugin-geoshape-7.17.1.0.zip |
+
+
+
+## Development Environment Setup
+
+Build the plugin using gradle:
+```sh
+./gradlew build
+```
+
+or
+```sh
+./gradlew assemble  # (to avoid the test suite)
+```
+
+Then the following command will start a dockerized ES and will install the previously built plugin:
+```sh
+docker-compose up
+```
+
+Please be careful during development: you'll need to manually rebuild the .zip using `./gradlew build` on each code
+change before running `docker-compose` up again.
+
+> NOTE: In `docker-compose.yml` you can uncomment the debug env and attach a REMOTE JVM on `*:5005` to debug the plugin.
 
 
 ## License

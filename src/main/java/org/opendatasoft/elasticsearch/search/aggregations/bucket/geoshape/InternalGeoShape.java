@@ -5,7 +5,6 @@ import org.apache.lucene.util.PriorityQueue;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.util.LongObjectPagedHashMap;
-import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.search.aggregations.Aggregation;
 import org.elasticsearch.search.aggregations.Aggregations;
 import org.elasticsearch.search.aggregations.InternalAggregation;
@@ -13,10 +12,11 @@ import org.elasticsearch.search.aggregations.InternalAggregations;
 import org.elasticsearch.search.aggregations.InternalMultiBucketAggregation;
 import org.elasticsearch.search.aggregations.KeyComparable;
 import org.elasticsearch.search.aggregations.bucket.MultiBucketsAggregation;
-import org.elasticsearch.search.aggregations.pipeline.PipelineAggregator;
+import org.elasticsearch.xcontent.XContentBuilder;
 import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.geojson.GeoJsonWriter;
 import org.opendatasoft.elasticsearch.plugin.GeoUtils;
+import org.opendatasoft.elasticsearch.plugin.GeoUtils.OutputFormat;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -32,12 +32,6 @@ import java.util.Objects;
 public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeoShape,
         InternalGeoShape.InternalBucket> implements GeoShape {
 
-    public enum OutputFormat {
-        WKT,
-        WKB,
-        GEOJSON
-    }
-
     /**
      * The bucket class of InternalGeoShape.
      * @see MultiBucketsAggregation.Bucket
@@ -48,19 +42,19 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         protected BytesRef wkb;
         protected String wkbHash;
         protected String realType;
-        protected double area;
+        protected double perimeter;
         long bucketOrd;
         protected long docCount;
-        protected InternalAggregations aggregations;
+        protected InternalAggregations subAggregations;
 
-        public InternalBucket(BytesRef wkb, String wkbHash, String realType, double area,
-                              long docCount, InternalAggregations aggregations) {
+        public InternalBucket(BytesRef wkb, String wkbHash, String realType, double perimeter,
+                              long docCount, InternalAggregations subAggregations) {
             this.wkb = wkb;
             this.wkbHash = wkbHash;
             this.realType = realType;
             this.docCount = docCount;
-            this.aggregations = aggregations;
-            this.area = area;
+            this.subAggregations = subAggregations;
+            this.perimeter = perimeter;
         }
 
         /**
@@ -70,9 +64,9 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
             wkb = in.readBytesRef();
             wkbHash = in.readString();
             realType = in.readString();
-            area = in.readDouble();
+            perimeter = in.readDouble();
             docCount = in.readLong();
-            aggregations = new InternalAggregations(in);
+            subAggregations = InternalAggregations.readFrom(in);
         }
 
         /**
@@ -83,9 +77,9 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
             out.writeBytesRef(wkb);
             out.writeString(wkbHash);
             out.writeString(realType);
-            out.writeDouble(area);
+            out.writeDouble(perimeter);
             out.writeLong(docCount);
-            aggregations.writeTo(out);
+            subAggregations.writeTo(out);
         }
 
         @Override
@@ -129,14 +123,14 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
 
         @Override
         public Aggregations getAggregations() {
-            return aggregations;
+            return subAggregations;
         }
 
         @Override
         public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
             builder.startObject();
             builder.field(CommonFields.DOC_COUNT.getPreferredName(), docCount);
-            aggregations.toXContentInternal(builder, params);
+            subAggregations.toXContentInternal(builder, params);
             builder.endObject();
             return builder;
         }
@@ -155,10 +149,9 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
             OutputFormat output_format,
             int requiredSize,
             int shardSize,
-            List<PipelineAggregator> pipelineAggregators,
-            Map<String, Object> metaData
+            Map<String, Object> metadata
     ) {
-        super(name, pipelineAggregators, metaData);
+        super(name, metadata);
         this.buckets = buckets;
         this.output_format = output_format;
         this.requiredSize = requiredSize;
@@ -171,7 +164,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
      */
     public InternalGeoShape(StreamInput in) throws IOException {
         super(in);
-        output_format = InternalGeoShape.OutputFormat.valueOf(in.readString());
+        output_format = OutputFormat.valueOf(in.readString());
         requiredSize = readSize(in);
         shardSize = readSize(in);
         this.buckets = in.readList(InternalBucket::new);
@@ -200,13 +193,13 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
     @Override
     public InternalGeoShape create(List<InternalBucket> buckets) {
         return new InternalGeoShape(this.name, buckets, output_format,
-            requiredSize, shardSize, this.pipelineAggregators(), this.metaData);
+            requiredSize, shardSize, this.metadata);
     }
 
     @Override
     public InternalBucket createBucket(InternalAggregations aggregations, InternalBucket prototype) {
         return new InternalBucket(prototype.wkb, prototype.wkbHash, prototype.realType,
-                prototype.area, prototype.docCount, aggregations);
+                prototype.perimeter, prototype.docCount, aggregations);
     }
 
     @Override
@@ -251,7 +244,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         }
 
         return new InternalGeoShape(getName(), Arrays.asList(list), output_format, requiredSize, shardSize,
-                pipelineAggregators(), getMetaData());
+                getMetadata());
     }
 
     @Override
@@ -264,9 +257,9 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
             } else {
                 reduced.docCount += bucket.docCount;
             }
-            aggregationsList.add(bucket.aggregations);
+            aggregationsList.add(bucket.subAggregations);
         }
-        reduced.aggregations = InternalAggregations.reduce(aggregationsList, context);
+        reduced.subAggregations = InternalAggregations.reduce(aggregationsList, context);
         return reduced;
     }
 
@@ -308,6 +301,8 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
                 && Objects.equals(shardSize, that.shardSize);
     }
 
+    // The priority queue is used to retain the top N buckets (i.e. shapes)
+    // Buckets are here ordered by area (!) then by hash
     static class BucketPriorityQueue extends PriorityQueue<InternalBucket> {
 
         BucketPriorityQueue(int size) {
@@ -317,7 +312,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         @Override
         protected boolean lessThan(InternalBucket o1, InternalBucket o2) {
 
-            double i = o2.area - o1.area;
+            double i = o2.perimeter - o1.perimeter;
             if (i == 0) {
                 i = o2.compareTo(o1);
                 if (i == 0) {
