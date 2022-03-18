@@ -3,6 +3,10 @@ package org.opendatasoft.elasticsearch.ingest;
 
 import org.apache.lucene.util.BytesRef;
 import org.elasticsearch.common.bytes.BytesReference;
+//import org.elasticsearch.common.geo.parsers.ShapeParser;
+import org.elasticsearch.common.geo.GeometryParser;
+import org.elasticsearch.legacygeo.XShapeCollection;
+import org.elasticsearch.legacygeo.parsers.ShapeParser;
 import org.elasticsearch.common.regex.Regex;
 import org.elasticsearch.ingest.AbstractProcessor;
 import org.elasticsearch.ingest.ConfigurationUtils;
@@ -16,17 +20,22 @@ import org.elasticsearch.xcontent.NamedXContentRegistry;
 import org.elasticsearch.xcontent.XContentBuilder;
 import org.elasticsearch.xcontent.XContentParser;
 import org.elasticsearch.xcontent.json.JsonXContent;
-import org.locationtech.jts.geom.Coordinate;
-import org.locationtech.jts.geom.Geometry;
-import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.geom.Point;
-import org.locationtech.jts.geom.PrecisionModel;
-import org.locationtech.jts.io.ParseException;
-import org.locationtech.jts.io.WKBWriter;
-import org.locationtech.jts.io.WKTWriter;
-import org.locationtech.spatial4j.shape.Shape;
-import org.locationtech.spatial4j.shape.jts.JtsGeometry;
-import org.locationtech.spatial4j.shape.jts.JtsPoint;
+
+//import org.locationtech.jts.geom.Geometry;
+import org.elasticsearch.geometry.Geometry;
+//import org.locationtech.jts.geom.Coordinate;
+////import org.locationtech.jts.geom.Geometry;
+//import org.locationtech.jts.geom.Coordinate;
+//import org.locationtech.jts.geom.Geometry;
+//import org.locationtech.jts.geom.GeometryFactory;
+//import org.locationtech.jts.geom.Point;
+//import org.locationtech.jts.geom.PrecisionModel;
+//import org.locationtech.jts.io.ParseException;
+//import org.locationtech.jts.io.WKBWriter;
+//import org.locationtech.jts.io.WKTWriter;
+//import org.locationtech.spatial4j.shape.Shape;
+//import org.locationtech.spatial4j.shape.jts.JtsGeometry;
+//import org.locationtech.spatial4j.shape.jts.JtsPoint;
 import org.opendatasoft.elasticsearch.plugin.GeoUtils;
 
 import java.io.IOException;
@@ -104,7 +113,8 @@ public class GeoExtensionProcessor extends AbstractProcessor {
 
     @SuppressWarnings("unchecked")
     @Override
-    public IngestDocument execute(IngestDocument ingestDocument) throws IOException, ParseException {
+//    public IngestDocument execute(IngestDocument ingestDocument) throws IOException, ParseException {
+    public IngestDocument execute(IngestDocument ingestDocument) throws IOException {
         List<String> geo_objects_list = getGeoShapeFieldsFromDoc(ingestDocument);
         for (String geoShapeField : geo_objects_list) {
 
@@ -114,82 +124,43 @@ public class GeoExtensionProcessor extends AbstractProcessor {
                 continue;
             }
 
-            ShapeBuilder<?,?, ?> shapeBuilder = getShapeBuilderFromObject(geoShapeObject);
-
-            // buildS4J() will try to clean up and fix the shape. If it fails, an exception is raised
-            // Included fixes:
-            // - point deduplication
-            // - dateline warping (enforce lon in [-180,180])
-            Shape shape = shapeBuilder.buildS4J();
-
-            Geometry geom = null;
-            PrecisionModel precisionModel = new PrecisionModel(PrecisionModel.FLOATING);
-            GeometryFactory geomFactory = new GeometryFactory(precisionModel, 0);
-            String altWKT = null;
-            if (shape instanceof JtsPoint) {
-                geom = ((JtsPoint)shape).getGeom();
-            }
-            else if (shape instanceof JtsGeometry) {
-                geom = ((JtsGeometry) shape).getGeom();
-            }
-            else if (shape instanceof XShapeCollection) {
-                List<?> shapes = ((XShapeCollection) shape).getShapes();
-                switch (shapeBuilder.type()) {
-                    case MULTIPOINT:
-                        Point[] points = new Point[shapes.size()];
-                        for (int i = 0; i < shapes.size(); i++) {
-                            points[i] = (Point)((JtsPoint)(shapes.get(i))).getGeom();
-                        }
-                        geom = geomFactory.createMultiPoint(points);
-                        // ES wants multipoint without extra parenthesis between points
-                        altWKT = new WKTWriter().write(geom).replace("((","(").replace("))",")").replace("), (",", ");
-                        break;
-                    case MULTILINESTRING:
-                    case MULTIPOLYGON:
-                    case GEOMETRYCOLLECTION:
-                        ArrayList<Geometry> geoms = new ArrayList<>(shapes.size());
-                        for (int i = 0; i < shapes.size(); i++) {
-                            geoms.add(((JtsGeometry)(shapes.get(i))).getGeom());
-                        }
-                        geom = geomFactory.buildGeometry(geoms);
-                        break;
-                }
-            }
+            GeometryParser geom_parser = new GeometryParser(true, true, true);
+            Geometry geom = geom_parser.parseGeometry(geoShapeObject);
 
             if (geom == null) {
-                throw new IllegalArgumentException("Unable to parse shape [" + shapeBuilder.toWKT() + "]");
+                throw new IllegalArgumentException("Unable to parse shape");
             }
 
-            ingestDocument.removeField(geoShapeField);
+            // fixme: try invalid shape
+            // fixme: try points
 
-            if (keepShape) {
-                ingestDocument.setFieldValue(geoShapeField + "." + shapeField, geoShapeObject);
-            }
 
-            if (fixedField != null) {
-                ingestDocument.setFieldValue(geoShapeField + "." + fixedField,
-                        altWKT != null ? altWKT : new WKTWriter().write(geom));
-            }
+//            if (fixedField != null) {
+//                ingestDocument.setFieldValue(geoShapeField + "." + fixedField, new WKTWriter().write(geom));
+//            }
+
 
             // compute and add extra geo sub-fields
-            byte[] wkb = new WKBWriter().write(geom);  // elastic will auto-encode this as b64
+            // fixme: use libs/geo/src/main/java/org/elasticsearch/geometry/utils/WellKnownBinary.java
+            // see https://github.com/elastic/elasticsearch/pull/82706/files
+            byte[] wkb = new WellKnownBinary().write(geom);  // elastic will auto-encode this as b64
 
-            if (hashField != null) ingestDocument.setFieldValue(
-                    geoShapeField + ".hash", String.valueOf(GeoUtils.getHashFromWKB(new BytesRef(wkb))));
-            if (wkbField != null) ingestDocument.setFieldValue(
-                    geoShapeField + "." + wkbField, wkb);
-            if (typeField != null) ingestDocument.setFieldValue(
-                    geoShapeField + "." + typeField, geom.getGeometryType());
-            if (areaField != null) ingestDocument.setFieldValue(
-                    geoShapeField + "." + areaField, geom.getArea());
-            if (centroidField != null) ingestDocument.setFieldValue(
-                    geoShapeField + "." + centroidField, GeoUtils.getCentroidFromGeom(geom));
-            if (bboxField != null) {
-                Coordinate[] coords = geom.getEnvelope().getCoordinates();
-                if (coords.length >= 4) ingestDocument.setFieldValue(
-                        geoShapeField + "." + bboxField,
-                        GeoUtils.getBboxFromCoords(coords));
-            }
+//            if (hashField != null) ingestDocument.setFieldValue(
+//                    geoShapeField + ".hash", String.valueOf(GeoUtils.getHashFromWKB(new BytesRef(wkb))));
+//            if (wkbField != null) ingestDocument.setFieldValue(
+//                    geoShapeField + "." + wkbField, wkb);
+//            if (typeField != null) ingestDocument.setFieldValue(
+//                    geoShapeField + "." + typeField, geom.getGeometryType());
+//            if (areaField != null) ingestDocument.setFieldValue(
+//                    geoShapeField + "." + areaField, geom.getArea());
+//            if (centroidField != null) ingestDocument.setFieldValue(
+//                    geoShapeField + "." + centroidField, GeoUtils.getCentroidFromGeom(geom));
+//            if (bboxField != null) {
+//                Coordinate[] coords = geom.getEnvelope().getCoordinates();
+//                if (coords.length >= 4) ingestDocument.setFieldValue(
+//                        geoShapeField + "." + bboxField,
+//                        GeoUtils.getBboxFromCoords(coords));
+//            }
         }
         return ingestDocument;
     }
