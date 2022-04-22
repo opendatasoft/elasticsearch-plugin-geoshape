@@ -24,6 +24,8 @@ import org.locationtech.jts.geom.PrecisionModel;
 import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKBWriter;
 import org.locationtech.jts.io.WKTWriter;
+import org.locationtech.jts.io.WKTReader;
+import org.locationtech.spatial4j.exception.InvalidShapeException;
 import org.locationtech.spatial4j.shape.Shape;
 import org.locationtech.spatial4j.shape.jts.JtsGeometry;
 import org.locationtech.spatial4j.shape.jts.JtsPoint;
@@ -116,13 +118,29 @@ public class GeoExtensionProcessor extends AbstractProcessor {
 
             ShapeBuilder<?,?, ?> shapeBuilder = getShapeBuilderFromObject(geoShapeObject);
 
-            // buildS4J() will try to clean up and fix the shape. If it fails, an exception is raised
-            // Included fixes:
-            // - point deduplication
-            // - dateline warping (enforce lon in [-180,180])
-            Shape shape = shapeBuilder.buildS4J();
+            Shape shape = null;
+            try {
+                // buildS4J will try to build a clean geometry
+                shape = shapeBuilder.buildS4J();
+            }
+            catch (InvalidShapeException ignored) {}
+
+            if (shape == null && fixedField == null) {
+                throw new IllegalArgumentException("unable to parse shape [" + shapeBuilder.toWKT() + "]");
+            }
 
             Geometry geom = null;
+            if (shape != null && (shape instanceof JtsGeometry)) {
+                geom = ((JtsGeometry) shape).getGeom();
+            }
+            else {
+                // If buildS4J failed to build a geometry
+                geom = new WKTReader().read(shapeBuilder.toWKT());
+                // fix shapes if needed
+                if (fixedField != null) {
+                    geom = GeoUtils.removeDuplicateCoordinates(geom);
+                }
+            }
             PrecisionModel precisionModel = new PrecisionModel(PrecisionModel.FLOATING);
             GeometryFactory geomFactory = new GeometryFactory(precisionModel, 0);
             String altWKT = null;
