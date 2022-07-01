@@ -24,6 +24,7 @@ import org.locationtech.jts.geom.PrecisionModel;
 import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKBWriter;
 import org.locationtech.jts.io.WKTWriter;
+import org.locationtech.spatial4j.exception.InvalidShapeException;
 import org.locationtech.spatial4j.shape.Shape;
 import org.locationtech.spatial4j.shape.jts.JtsGeometry;
 import org.locationtech.spatial4j.shape.jts.JtsPoint;
@@ -118,9 +119,27 @@ public class GeoExtensionProcessor extends AbstractProcessor {
 
             // buildS4J() will try to clean up and fix the shape. If it fails, an exception is raised
             // Included fixes:
-            // - point deduplication
             // - dateline warping (enforce lon in [-180,180])
-            Shape shape = shapeBuilder.buildS4J();
+            Shape shape = null;
+            try {
+                try {
+                    shape = shapeBuilder.buildS4J();
+                } catch (InvalidShapeException e) {
+                    // buildS4J does not always deduplicate points
+                    if (e.getMessage().contains("duplicate")) {
+                        shapeBuilder = GeoUtils.removeDuplicateCoordinates(shapeBuilder);
+                        shape = shapeBuilder.buildS4J();
+                    }
+                }
+            }
+            catch (Throwable e) {
+                // sometimes it is still not enough
+                // e.g. when non-EPSG:4326 coordinates are input
+                // buildS4J will try to warp date lines and may generate lots of small components
+                // which could yield a GeometryCollection, which raises an AssertionError
+                // So, we catch here both Error (AssertionError) and Exceptions
+                throw new IllegalArgumentException("Unable to parse shape [" + shapeBuilder.toWKT() + "]: " + e.getMessage());
+            }
 
             Geometry geom = null;
             PrecisionModel precisionModel = new PrecisionModel(PrecisionModel.FLOATING);
