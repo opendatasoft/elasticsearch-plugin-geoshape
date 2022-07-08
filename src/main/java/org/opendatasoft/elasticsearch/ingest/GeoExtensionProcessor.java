@@ -126,10 +126,8 @@ public class GeoExtensionProcessor extends AbstractProcessor {
                     shape = shapeBuilder.buildS4J();
                 } catch (InvalidShapeException e) {
                     // buildS4J does not always deduplicate points
-                    if (e.getMessage().contains("duplicate")) {
-                        shapeBuilder = GeoUtils.removeDuplicateCoordinates(shapeBuilder);
-                        shape = shapeBuilder.buildS4J();
-                    }
+                    shapeBuilder = GeoUtils.removeDuplicateCoordinates(shapeBuilder);
+                    shape = shapeBuilder.buildS4J();
                 }
             }
             catch (Throwable e) {
