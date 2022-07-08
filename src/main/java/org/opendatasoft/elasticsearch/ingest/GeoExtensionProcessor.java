@@ -166,7 +166,12 @@ public class GeoExtensionProcessor extends AbstractProcessor {
                     case GEOMETRYCOLLECTION:
                         ArrayList<Geometry> geoms = new ArrayList<>(shapes.size());
                         for (int i = 0; i < shapes.size(); i++) {
-                            geoms.add(((JtsGeometry)(shapes.get(i))).getGeom());
+                            if (shapes.get(i) instanceof JtsPoint) {
+                                geoms.add(((JtsPoint)shapes.get(i)).getGeom());
+                            }
+                            if (shapes.get(i) instanceof JtsGeometry) {
+                                geoms.add(((JtsGeometry) (shapes.get(i))).getGeom());
+                            }
                         }
                         geom = geomFactory.buildGeometry(geoms);
                         break;
