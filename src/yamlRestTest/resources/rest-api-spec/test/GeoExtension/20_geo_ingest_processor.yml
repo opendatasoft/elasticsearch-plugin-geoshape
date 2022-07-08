@@ -740,3 +740,24 @@
               id: 13
 
   - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "GEOMETRYCOLLECTION (POLYGON ((10.8984375 46.31658418182218, 8.7890625 47.989921667414194, 4.921875 46.07323062540835, 10.8984375 46.31658418182218)), POINT (5.09765625 47.66538735632654))" }
+
+
+# Test polygon invalidity check
+# This polygon is valid for OGR (at least under a double floating point precision model)
+# But is not valid for ES
+  - do:
+      catch: /Self-intersection at or near/
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: {
+          "id": 14,
+          "geo_shape_0": {
+            "coordinates": [[[-1,0],[-1,1],[1,1],[1,0],
+                             [0.00000000000000004,0],[0.5,0.5],
+                             [-0.5,0.5],[0,0],[-1,0]]],
+            "type":"Polygon"
+          }
+        }
+
+  - match: {error.type: "mapper_parsing_exception"}
