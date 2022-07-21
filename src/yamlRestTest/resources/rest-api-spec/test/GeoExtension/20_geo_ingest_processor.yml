@@ -761,3 +761,97 @@
         }
 
   - match: {error.type: "mapper_parsing_exception"}
+
+# Test geometrycollection of multi
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: {
+          "id": 15,
+          "geo_shape_0": {
+            "type": "GeometryCollection",
+            "geometries": [
+              {
+                "type": "Point",
+                "coordinates": [4.0, 46.0]
+              },{
+                "type": "MultiPoint",
+                "coordinates": [
+                  [
+                      4.921875,
+                      46.07323062540835
+                  ],
+                  [
+                      10.8984375,
+                      46.31658418182218
+                  ]
+                ]
+              }
+            ]
+          }}
+  - do:
+      indices.refresh: {}
+
+
+  # Test that the shape has been fixed
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 15
+
+  - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "GEOMETRYCOLLECTION(POINT (4 46),MULTIPOINT (4.921875 46.07323062540835, 10.8984375 46.31658418182218))" }
+
+  # Test geometrycollection of geometrycollection
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: {
+          "id": 16,
+          "geo_shape_0": {
+            "type": "GeometryCollection",
+            "geometries": [
+              {
+                "type": "Point",
+                "coordinates": [ 4.0, 46.0 ]
+              },{
+                "type": "GeometryCollection",
+                "geometries": [
+                  {
+                    "type": "Point",
+                    "coordinates": [ 3.0, 45.0 ]
+                  },
+                  {
+                    "type": "MultiPoint",
+                    "coordinates": [
+                      [
+                          4.921875,
+                          46.07323062540835
+                      ],
+                      [
+                          10.8984375,
+                          46.31658418182218
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+  - do:
+      indices.refresh: {}
+
+
+  # Test that the shape has been fixed
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 16
+
+  - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "GEOMETRYCOLLECTION(POINT (4 46),GEOMETRYCOLLECTION(POINT (3 45),MULTIPOINT (4.921875 46.07323062540835, 10.8984375 46.31658418182218)))" }

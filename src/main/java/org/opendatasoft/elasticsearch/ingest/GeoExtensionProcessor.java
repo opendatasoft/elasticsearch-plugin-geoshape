@@ -19,10 +19,10 @@ import org.elasticsearch.xcontent.json.JsonXContent;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.PrecisionModel;
 import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKBWriter;
+import org.locationtech.jts.io.WKTReader;
 import org.locationtech.jts.io.WKTWriter;
 import org.locationtech.spatial4j.exception.InvalidShapeException;
 import org.locationtech.spatial4j.shape.Shape;
@@ -51,6 +51,10 @@ public class GeoExtensionProcessor extends AbstractProcessor {
     private final String bboxField;
     private final String centroidField;
 
+    private final GeometryFactory geomFactory;
+    private final WKTWriter wktWriter;
+    private final WKTReader wktReader;
+
     private GeoExtensionProcessor(String tag, String description, String field, String path, Boolean keepShape, String shapeField,
                                   String fixedField, String wkbField, String hashField, String typeField,
                                   String areaField, String bboxField, String centroidField)  {
@@ -66,6 +70,12 @@ public class GeoExtensionProcessor extends AbstractProcessor {
         this.areaField = areaField;
         this.bboxField = bboxField;
         this.centroidField = centroidField;
+
+        PrecisionModel precisionModel = new PrecisionModel(PrecisionModel.FLOATING);
+        this.geomFactory = new GeometryFactory(precisionModel, 0);
+
+        this.wktWriter = new WKTWriter();
+        this.wktReader = new WKTReader();
     }
 
     @SuppressWarnings("unchecked")
@@ -103,6 +113,73 @@ public class GeoExtensionProcessor extends AbstractProcessor {
         return ShapeParser.parse(parser);
     }
 
+    private class GeometryWithWkt {
+        public Geometry geometry;
+        public String wkt;
+    }
+
+    private GeometryWithWkt s4jToJts(Shape shape) {
+        // Convert a Spatial4J shape into a JTSGeometry
+        // A Spatial4J shape is basically either:
+        // - a JtsPoint
+        // - a JtsGeometry
+        // - an XShapeCollection (multi-* and GeometryCollection)
+        // There is a special case for MultiPoint since the WKTWriter of JTS
+        // is not compliant with the wkt reader of ES.
+
+        GeometryWithWkt geomWithWkt = new GeometryWithWkt();
+        Geometry geom = null;
+
+        String altWKT = null;
+        if (shape instanceof JtsPoint) {
+            geom = ((JtsPoint) shape).getGeom();
+        } else if (shape instanceof JtsGeometry) {
+            geom = ((JtsGeometry) shape).getGeom();
+        } else if (shape instanceof XShapeCollection) {
+            List<?> shapes = ((XShapeCollection) shape).getShapes();
+            XShapeCollection collection = (XShapeCollection) shape;
+            ArrayList<Geometry> geoms = new ArrayList<>(collection.size());
+            ArrayList<String> wkts = new ArrayList<>(collection.size());
+
+            boolean hasWkt = false;
+            for (int i = 0; i < collection.size(); i++) {
+                GeometryWithWkt g = s4jToJts(collection.get(i));
+                geoms.add(g.geometry);
+                wkts.add(g.wkt);
+                if (g.wkt != null) {
+                    hasWkt = true;
+                }
+            }
+
+            if (hasWkt) {
+                // if it has a WKT, it means it is a geometrycolleciton
+                // containing a multipoint
+                altWKT = "GEOMETRYCOLLECTION(";
+                for (int i = 0; i < collection.size(); i++) {
+                    if (wkts.get(i) != null) {
+                        altWKT += wkts.get(i);
+                    } else {
+                        altWKT += wktWriter.write(geoms.get(i));
+                    }
+                    if (i < collection.size() - 1) {
+                        altWKT += ",";
+                    }
+                }
+                altWKT += ")";
+            }
+            geom = geomFactory.buildGeometry(geoms);
+
+            if (geom.getGeometryType() == "MultiPoint") {
+                // special case of multipoint where the WKT must be corrected
+                // ES wants multipoint without extra parenthesis between points
+                altWKT = wktWriter.write(geom).replace("((", "(").replace("))", ")").replace("), (", ", ");
+            }
+        }
+        geomWithWkt.geometry = geom;
+        geomWithWkt.wkt = altWKT;
+        return geomWithWkt;
+    }
+
     @SuppressWarnings("unchecked")
     @Override
     public IngestDocument execute(IngestDocument ingestDocument) throws IOException, ParseException {
@@ -114,6 +191,23 @@ public class GeoExtensionProcessor extends AbstractProcessor {
             if (geoShapeObject == null) {
                 continue;
             }
+
+            // From an input Object that represents a GeoJSON we need to:
+            // - store a WKT version of the geometry, that will also be indexed as a geometry by ES
+            // - make sure this WKT does not have duplicated points, since ES refuse them
+            // - make sure this WKT geometry is equal (or close enough) to the geometry indexed by ES (why ?).
+            //   It means if ES splits the geometry around the dateline, we want to do the same
+            // - compute its area
+            // - compute its WKB representation
+            // - compute its centroid
+            //
+            // We currently do this by:
+            // 1/ creating a Spatial4J shape from an Object (thanks to legacygeo.ShapeBuilder)
+            // 2/ converting this Spatial4J shape to a JTSGeometry
+            // 3/ call area(), wkbwriter(), centroid() and wktwriter on the JTSGeometry
+            //
+            // 2/ could be avoided but the S4J WKTWriter is of poor quality (e.g. a multipoint can be represented as a geometrycollection of points)
+            // 1/ could be avoided if we find how to create a JTSGeometry from an Object
 
             ShapeBuilder<?,?, ?> shapeBuilder = getShapeBuilderFromObject(geoShapeObject);
 
@@ -139,44 +233,9 @@ public class GeoExtensionProcessor extends AbstractProcessor {
                 throw new IllegalArgumentException("Unable to parse shape [" + shapeBuilder.toWKT() + "]: " + e.getMessage());
             }
 
-            Geometry geom = null;
-            PrecisionModel precisionModel = new PrecisionModel(PrecisionModel.FLOATING);
-            GeometryFactory geomFactory = new GeometryFactory(precisionModel, 0);
-            String altWKT = null;
-            if (shape instanceof JtsPoint) {
-                geom = ((JtsPoint)shape).getGeom();
-            }
-            else if (shape instanceof JtsGeometry) {
-                geom = ((JtsGeometry) shape).getGeom();
-            }
-            else if (shape instanceof XShapeCollection) {
-                List<?> shapes = ((XShapeCollection) shape).getShapes();
-                switch (shapeBuilder.type()) {
-                    case MULTIPOINT:
-                        Point[] points = new Point[shapes.size()];
-                        for (int i = 0; i < shapes.size(); i++) {
-                            points[i] = (Point)((JtsPoint)(shapes.get(i))).getGeom();
-                        }
-                        geom = geomFactory.createMultiPoint(points);
-                        // ES wants multipoint without extra parenthesis between points
-                        altWKT = new WKTWriter().write(geom).replace("((","(").replace("))",")").replace("), (",", ");
-                        break;
-                    case MULTILINESTRING:
-                    case MULTIPOLYGON:
-                    case GEOMETRYCOLLECTION:
-                        ArrayList<Geometry> geoms = new ArrayList<>(shapes.size());
-                        for (int i = 0; i < shapes.size(); i++) {
-                            if (shapes.get(i) instanceof JtsPoint) {
-                                geoms.add(((JtsPoint)shapes.get(i)).getGeom());
-                            }
-                            if (shapes.get(i) instanceof JtsGeometry) {
-                                geoms.add(((JtsGeometry) (shapes.get(i))).getGeom());
-                            }
-                        }
-                        geom = geomFactory.buildGeometry(geoms);
-                        break;
-                }
-            }
+            GeometryWithWkt geometryWithWkt = s4jToJts(shape);
+            Geometry geom = geometryWithWkt.geometry;
+            String altWKT = geometryWithWkt.wkt;
 
             if (geom == null) {
                 throw new IllegalArgumentException("Unable to parse shape [" + shapeBuilder.toWKT() + "]");
@@ -190,7 +249,7 @@ public class GeoExtensionProcessor extends AbstractProcessor {
 
             if (fixedField != null) {
                 ingestDocument.setFieldValue(geoShapeField + "." + fixedField,
-                        altWKT != null ? altWKT : new WKTWriter().write(geom));
+                        altWKT != null ? altWKT : wktWriter.write(geom));
             }
 
             // compute and add extra geo sub-fields
