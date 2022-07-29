@@ -136,7 +136,6 @@ public class GeoExtensionProcessor extends AbstractProcessor {
         } else if (shape instanceof JtsGeometry) {
             geom = ((JtsGeometry) shape).getGeom();
         } else if (shape instanceof XShapeCollection) {
-            List<?> shapes = ((XShapeCollection) shape).getShapes();
             XShapeCollection collection = (XShapeCollection) shape;
             ArrayList<Geometry> geoms = new ArrayList<>(collection.size());
             ArrayList<String> wkts = new ArrayList<>(collection.size());
