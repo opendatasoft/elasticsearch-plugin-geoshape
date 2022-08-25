@@ -2,7 +2,14 @@ package org.opendatasoft.elasticsearch.plugin;
 
 import org.apache.lucene.util.BytesRef;
 import org.elasticsearch.common.geo.GeoPoint;
+import org.elasticsearch.common.geo.Orientation;
 import org.elasticsearch.common.hash.MurmurHash3;
+import org.elasticsearch.geometry.Point;
+import org.elasticsearch.legacygeo.builders.GeometryCollectionBuilder;
+import org.elasticsearch.legacygeo.builders.LineStringBuilder;
+import org.elasticsearch.legacygeo.builders.MultiPolygonBuilder;
+import org.elasticsearch.legacygeo.builders.PolygonBuilder;
+import org.elasticsearch.legacygeo.builders.ShapeBuilder;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryCollection;
@@ -13,9 +20,16 @@ import org.locationtech.jts.io.WKBReader;
 import org.locationtech.jts.io.WKBWriter;
 import org.locationtech.jts.io.WKTWriter;
 import org.locationtech.jts.io.geojson.GeoJsonWriter;
+import org.elasticsearch.geometry.Line;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
+import java.util.ListIterator;
+import java.util.Vector;
 
 public class GeoUtils {
     public enum OutputFormat {
@@ -112,23 +126,62 @@ public class GeoUtils {
         }
     }
 
-    public static Geometry removeDuplicateCoordinates(Geometry geom) {
-        if (geom.isEmpty()) {
-            return geom;
-        }
+    public static LineStringBuilder removeDuplicateCoordinates(LineStringBuilder builder) {
+        Line line = (Line)builder.buildGeometry(); // no direct access to coordinates
+        Vector<Coordinate> newCoordinates = new Vector<Coordinate>();
 
-        if (geom instanceof Polygon) {
-            return removeDuplicateCoordinates((Polygon) geom);
+        Point previous = null;
+        for (int i = 0; i < line.length(); i++) {
+            Point current = new Point(line.getX(i), line.getY(i));
+            if ((previous != null) && (previous.equals(current))) {
+                continue;
+            }
+            newCoordinates.add(new Coordinate(current.getX(), current.getY()));
+            previous = current;
         }
+        return new LineStringBuilder(newCoordinates);
+    }
 
-        if (geom instanceof MultiPolygon) {
-            return removeDuplicateCoordinates((MultiPolygon) geom);
+    public static PolygonBuilder removeDuplicateCoordinates(PolygonBuilder builder) {
+        LineStringBuilder exteriorBuilder = removeDuplicateCoordinates(builder.shell());
+        PolygonBuilder pb = new PolygonBuilder(exteriorBuilder, /* unused */Orientation.RIGHT, true);
+        List<LineStringBuilder> holes = builder.holes();
+        for (int i = 0; i < holes.size(); i++) {
+            pb.hole(removeDuplicateCoordinates(holes.get(i)), true);
         }
+        return pb;
+    }
 
-        if (geom instanceof GeometryCollection) {
-            return removeDuplicateCoordinates((GeometryCollection) geom);
+    public static MultiPolygonBuilder removeDuplicateCoordinates(MultiPolygonBuilder builder) {
+        MultiPolygonBuilder mpb = new MultiPolygonBuilder();
+        List<PolygonBuilder> polygons = builder.polygons();
+        for (int i = 0; i < polygons.size(); i++) {
+            mpb.polygon(removeDuplicateCoordinates(polygons.get(i)));
         }
+        return mpb;
+    }
 
-        return geom;
+    public static GeometryCollectionBuilder removeDuplicateCoordinates(GeometryCollectionBuilder builder) {
+        GeometryCollectionBuilder gcb = new GeometryCollectionBuilder();
+        for (int i = 0; i < builder.numShapes(); i++) {
+            gcb.shape(removeDuplicateCoordinates(builder.getShapeAt(i)));
+        }
+        return gcb;
+    }
+
+    public static ShapeBuilder removeDuplicateCoordinates(ShapeBuilder builder){
+        if (builder instanceof LineStringBuilder) {
+            return removeDuplicateCoordinates((LineStringBuilder)builder);
+        }
+        if (builder instanceof PolygonBuilder) {
+            return removeDuplicateCoordinates((PolygonBuilder)builder);
+        }
+        if (builder instanceof MultiPolygonBuilder) {
+            return removeDuplicateCoordinates((MultiPolygonBuilder)builder);
+        }
+        if (builder instanceof GeometryCollectionBuilder) {
+            return removeDuplicateCoordinates((GeometryCollectionBuilder) builder);
+        }
+        return builder;
     }
 }
