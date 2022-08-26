@@ -353,29 +353,13 @@ Result:
 
 ## Installation
 
+Current supported version is Elasticsearch 7.x (7.17.1).
+You can find past releases [here](https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases).
+
 The first 3 digits of the plugin version is the corresponding Elasticsearch version. The last digit is used for plugin versioning.
 
 To install it, launch this command in Elasticsearch directory replacing the url by the correct link for your Elasticsearch version (see table)
 `bin/elasticsearch-plugin https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.1.0/elasticsearch-plugin-geoshape-7.17.1.0.zip"`
-
-| elasticsearch version | plugin version | plugin url |
-| --------------------- | -------------- | ---------- |
-| 1.6.0 | 1.6.0.5 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v1.6.0.5/elasticsearch-geo-plugin-1.6.0.5.zip|
-| 6.3.2 | 6.3.2.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v6.3.2.0/elasticsearch-plugin-geoshape-6.3.2.0.zip |
-| 6.4.3 | 6.4.3.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v6.4.3.0/elasticsearch-plugin-geoshape-6.4.3.0.zip |
-| 6.5.4 | 6.5.4.2 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v6.5.4.2/elasticsearch-plugin-geoshape-6.5.4.2.zip |
-| 6.6.2 | 6.6.2.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v6.6.2.0/elasticsearch-plugin-geoshape-6.6.2.0.zip |
-| 6.7.1 | 6.7.1.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v6.7.1.0/elasticsearch-plugin-geoshape-6.7.1.0.zip |
-| 6.8.2 | 6.8.2.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v6.8.2.0/elasticsearch-plugin-geoshape-6.8.2.0.zip |
-| 7.0.1 | 7.0.1.2 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.0.1.2/elasticsearch-plugin-geoshape-7.0.1.2.zip |
-| 7.1.1 | 7.1.1.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.1.1.0/elasticsearch-plugin-geoshape-7.1.1.0.zip |
-| 7.2.0 | 7.2.0.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.2.0.0/elasticsearch-plugin-geoshape-7.2.0.0.zip |
-| 7.3.2 | 7.3.2.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.3.2.0/elasticsearch-plugin-geoshape-7.3.2.0.zip |
-| 7.4.0 | 7.4.0.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.4.0.0/elasticsearch-plugin-geoshape-7.4.0.0.zip |
-| 7.5.1 | 7.5.1.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.5.1.0/elasticsearch-plugin-geoshape-7.5.1.0.zip |
-| 7.6.0 | 7.6.0.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.6.0.0/elasticsearch-plugin-geoshape-7.6.0.0.zip |
-| 7.17.1 | 7.17.1.0 | https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.1.0/elasticsearch-plugin-geoshape-7.17.1.0.zip |
-
 
 
 ## Development Environment Setup
