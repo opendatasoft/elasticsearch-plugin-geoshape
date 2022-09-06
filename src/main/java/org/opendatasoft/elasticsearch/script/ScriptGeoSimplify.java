@@ -61,7 +61,7 @@ public class ScriptGeoSimplify implements ScriptEngine {
         private final Map<String, Object> params;
         private final SearchLookup lookup;
         private final String field;
-        private final double tolerance;
+        private final int zoom;
         GeoUtils.OutputFormat output_format;
         GeoUtils.SimplifyAlgorithm algorithm;
 //        private final int geojson_decimals;
@@ -69,6 +69,11 @@ public class ScriptGeoSimplify implements ScriptEngine {
 
 
         private Geometry getSimplifiedShape(Geometry geometry) {
+            double lat = geometry.getCentroid().getCoordinate().y;
+            double meterByPixel = GeoUtils.getMeterByPixel(zoom, lat);
+
+            // double tolerance = 360 / (256 * Math.pow(zoom, 3));
+            double tolerance = GeoUtils.getDecimalDegreeFromMeter(meterByPixel, lat);
             if (algorithm == GeoUtils.SimplifyAlgorithm.TOPOLOGY_PRESERVING)
                 return TopologyPreservingSimplifier.simplify(geometry, tolerance);
             else
@@ -91,8 +96,7 @@ public class ScriptGeoSimplify implements ScriptEngine {
             this.params = params;
             this.lookup = lookup;
             field = params.get("field").toString();
-            int zoom = (int) params.get("zoom");
-            tolerance = GeoUtils.getToleranceFromZoom(zoom);
+            zoom = (int) params.get("zoom");
 
             output_format = GeoUtils.OutputFormat.GEOJSON;
             if (params.containsKey("output_format")) {
