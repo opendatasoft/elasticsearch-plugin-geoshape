@@ -9,7 +9,7 @@ This is an `Ingest`, `Search` and `Script` plugin.
 
 ## Installation
 
-`bin/elasticsearch-plugin https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.1.0/elasticsearch-plugin-geoshape-7.17.1.0.zip"`
+`bin/elasticsearch-plugin install https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.1.2/elasticsearch-plugin-geoshape-7.17.1.2.zip"`
 
 
 ## Build
@@ -359,7 +359,7 @@ You can find past releases [here](https://github.com/opendatasoft/elasticsearch-
 The first 3 digits of the plugin version is the corresponding Elasticsearch version. The last digit is used for plugin versioning.
 
 To install it, launch this command in Elasticsearch directory replacing the url by the correct link for your Elasticsearch version (see table)
-`bin/elasticsearch-plugin https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.1.0/elasticsearch-plugin-geoshape-7.17.1.0.zip"`
+`bin/elasticsearch-plugin install https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.1.2/elasticsearch-plugin-geoshape-7.17.1.2.zip"`
 
 
 ## Development Environment Setup
