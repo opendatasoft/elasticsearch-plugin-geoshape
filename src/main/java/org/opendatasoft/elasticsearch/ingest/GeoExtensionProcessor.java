@@ -267,32 +267,19 @@ public class GeoExtensionProcessor extends AbstractProcessor {
             if (centroidField != null) ingestDocument.setFieldValue(
                     geoShapeField + "." + centroidField, GeoUtils.getCentroidFromGeom(geom));
             if (bboxField != null) {
-                Coordinate[] coords;
-                if (geom.getGeometryType() == "Point") {
-                    coords = geom.getCoordinates();
-                    if (coords.length == 1) {
-                        GeoPoint topLeft = new GeoPoint(
-                                org.elasticsearch.common.geo.GeoUtils.normalizeLat(coords[0].y),
-                                org.elasticsearch.common.geo.GeoUtils.normalizeLon(coords[0].x)
-                        );
-                        GeoPoint bottomRight = new GeoPoint(
-                                org.elasticsearch.common.geo.GeoUtils.normalizeLat(coords[0].y),
-                                org.elasticsearch.common.geo.GeoUtils.normalizeLon(coords[0].x)
-                        );
-
-                        ingestDocument.setFieldValue(
-                                geoShapeField + "." + bboxField,
-                                Arrays.asList(topLeft, bottomRight)
-                        );
-                    }
-                } else {
-                    coords = geom.getEnvelope().getCoordinates();
-                    if (coords.length >= 4) {
-                        ingestDocument.setFieldValue(
-                                geoShapeField + "." + bboxField,
-                                GeoUtils.getBboxFromCoords(coords)
-                        );
-                    }
+                Coordinate[] coords = geom.getEnvelope().getCoordinates();
+                if (coords.length >= 4) {
+                    ingestDocument.setFieldValue(
+                            geoShapeField + "." + bboxField,
+                            GeoUtils.getBboxFromCoords(coords));
+                } else if (coords.length == 1) {
+                    GeoPoint point = new GeoPoint(
+                            org.elasticsearch.common.geo.GeoUtils.normalizeLat(coords[0].y),
+                            org.elasticsearch.common.geo.GeoUtils.normalizeLon(coords[0].x)
+                    );
+                    ingestDocument.setFieldValue(
+                            geoShapeField + "." + bboxField,
+                            Arrays.asList(point, point));
                 }
             }
         }
