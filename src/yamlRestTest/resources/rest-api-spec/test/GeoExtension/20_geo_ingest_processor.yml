@@ -165,6 +165,7 @@
               id: 2
 
   - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "POINT (110.74218749999999 -82.16644600847728)"}
+  - match: {test_index.mappings.properties.geo_shape_0.properties.bbox.type: "geo_point"}
 
 # Test Linestring
   - do:
