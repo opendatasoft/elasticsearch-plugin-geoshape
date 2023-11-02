@@ -1,3 +1,7 @@
+### 7.17.6.1
+
+* Fix bbox on linestrings and points
+
 ### 7.17.6.0
 
 * Repackaging for ES 7.17.6
