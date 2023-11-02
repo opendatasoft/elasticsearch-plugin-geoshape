@@ -3,6 +3,7 @@ package org.opendatasoft.elasticsearch.ingest;
 
 import org.apache.lucene.util.BytesRef;
 import org.elasticsearch.common.bytes.BytesReference;
+import org.elasticsearch.common.geo.GeoPoint;
 import org.elasticsearch.common.regex.Regex;
 import org.elasticsearch.ingest.AbstractProcessor;
 import org.elasticsearch.ingest.ConfigurationUtils;
@@ -32,6 +33,7 @@ import org.opendatasoft.elasticsearch.plugin.GeoUtils;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -266,9 +268,19 @@ public class GeoExtensionProcessor extends AbstractProcessor {
                     geoShapeField + "." + centroidField, GeoUtils.getCentroidFromGeom(geom));
             if (bboxField != null) {
                 Coordinate[] coords = geom.getEnvelope().getCoordinates();
-                if (coords.length >= 4) ingestDocument.setFieldValue(
-                        geoShapeField + "." + bboxField,
-                        GeoUtils.getBboxFromCoords(coords));
+                if (coords.length >= 4) {
+                    ingestDocument.setFieldValue(
+                            geoShapeField + "." + bboxField,
+                            GeoUtils.getBboxFromCoords(coords));
+                } else if (coords.length == 1) {
+                    GeoPoint point = new GeoPoint(
+                            org.elasticsearch.common.geo.GeoUtils.normalizeLat(coords[0].y),
+                            org.elasticsearch.common.geo.GeoUtils.normalizeLon(coords[0].x)
+                    );
+                    ingestDocument.setFieldValue(
+                            geoShapeField + "." + bboxField,
+                            Arrays.asList(point, point));
+                }
             }
         }
         return ingestDocument;
