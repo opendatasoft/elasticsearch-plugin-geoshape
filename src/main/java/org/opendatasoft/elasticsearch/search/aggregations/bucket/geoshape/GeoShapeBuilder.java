@@ -57,7 +57,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
         PARSER.declareInt(GeoShapeBuilder::shardSize, SHARD_SIZE_FIELD);
     }
 
-    public static AggregationBuilder parse(String aggregationName, XContentParser parser) throws IOException {
+    public static GeoShapeBuilder parse(XContentParser parser, String aggregationName) throws IOException {
         return PARSER.parse(parser, new GeoShapeBuilder(aggregationName), null);
     }
 
