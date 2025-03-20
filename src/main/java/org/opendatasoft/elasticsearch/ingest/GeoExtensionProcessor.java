@@ -11,6 +11,7 @@ import org.elasticsearch.ingest.IngestDocument;
 import org.elasticsearch.ingest.Processor;
 import org.elasticsearch.legacygeo.XShapeCollection;
 import org.elasticsearch.legacygeo.builders.ShapeBuilder;
+import org.elasticsearch.legacygeo.builders.CoordinatesBuilder;
 import org.elasticsearch.legacygeo.parsers.ShapeParser;
 import org.elasticsearch.xcontent.DeprecationHandler;
 import org.elasticsearch.xcontent.NamedXContentRegistry;

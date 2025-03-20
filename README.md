@@ -1,25 +1,31 @@
-Elasticsearch GeoShape Plugin
-==================================
+# Elasticsearch GeoShape Plugin
 
-This plugin can be used to index geo_shape objects in elasticsearch, then aggregate and/or script-simplify them. 
+
+This plugin can be used to index geo_shape objects in elasticsearch, then aggregate and/or script-simplify them.
 
 This is an `Ingest`, `Search` and `Script` plugin.
 
 
-
 ## Installation
 
-`bin/elasticsearch-plugin install https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.6.1/elasticsearch-plugin-geoshape-7.17.6.1.zip"`
+Current supported version is Elasticsearch 7.x (7.17.28).
+You can find past releases [here](https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases).
+
+The first 3 digits of the plugin version is the corresponding Elasticsearch version. The last digit is used for plugin versioning.
+
+To install it, launch this command in Elasticsearch directory replacing the url by the correct link for your Elasticsearch version (see table)
+`bin/elasticsearch-plugin install https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.28.0/elasticsearch-plugin-geoshape-7.17.28.0.zip"`
 
 
 ## Build
------
-Built with Java 17 and gradle 7.3.1 (but you should use the packaged gradlew included in this repo anyway).
+
+Built with Java 17 and Gradle 8.10.2 (but you should use the packaged gradlew included in this repo anyway).
 
 
 ## Usage
 
-### Ingest processor and indexing 
+### Ingest processor and indexing
+
 A new processor `geo_extension` adds custom fields to the desired geo_shape data object at ingest time.
 
 #### Params
@@ -36,7 +42,7 @@ Processor name: `geo_extension`.
 | `fixed_field` | no | `fixed_shape` | Name of sub `fixed_shape` field
 | `wkb` | no | `true` | Compute wkb from shape field
 | `wkb_field` | no | `wkb` | name of wkb subfield
-| `type` | no | `true` | Compute geo shape type (Polygon, point, LineString, ...) 
+| `type` | no | `true` | Compute geo shape type (Polygon, point, LineString, ...)
 | `type_field` | no | `type` | name of type subfield
 | `area` | no | `true` | Compute area of shape
 | `area_field` | no | `area` | name of `area` subfield
@@ -249,6 +255,7 @@ Moreover, compared to regular search results, results of an aggregation can be [
 
 
 #### Params
+
 - `field` (mandatory): the field used for aggregating. Must be of wkb type. E.g.: "geoshape_0.wkb".
 - `output_format`: the output_format in [`geojson`, `wkt`, `wkb`]. Default to `geojson`.
 - `simplify`:
@@ -259,6 +266,7 @@ Moreover, compared to regular search results, results of an aggregation can be [
 
 
 #### Example
+
 ```
 GET main/_search?size=0
 {
@@ -300,10 +308,11 @@ Result:
 
 ### Geoshape simplify script
 
-Search script for simplifying shapes dynamically. 
+Search script for simplifying shapes dynamically.
 
 
 #### Script params
+
 - `field`: the field to apply the script to.
 - `zoom`: the zoom level in range [0, 20]. 0 is the most simplified and 20 is the least. Default to 0.
 - `algorithm`: simplify algorithm in [`DOUGLAS_PEUCKER`, `TOPOLOGY_PRESERVING`]. Default to `DOUGLAS_PEUCKER`.
@@ -347,24 +356,12 @@ Result:
   }
 ```
 
-
-
-
-
-## Installation
-
-Current supported version is Elasticsearch 7.x (7.17.6).
-You can find past releases [here](https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases).
-
-The first 3 digits of the plugin version is the corresponding Elasticsearch version. The last digit is used for plugin versioning.
-
-To install it, launch this command in Elasticsearch directory replacing the url by the correct link for your Elasticsearch version (see table)
-`bin/elasticsearch-plugin install https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v7.17.6.1/elasticsearch-plugin-geoshape-7.17.6.1.zip"`
-
-
 ## Development Environment Setup
 
+Built with Java 17 and Gradle 8.10.2.
+
 Build the plugin using gradle:
+
 ```sh
 ./gradlew build
 ```
@@ -374,16 +371,36 @@ or
 ./gradlew assemble  # (to avoid the test suite)
 ```
 
+Then you can find the current version of the plugin at `elasticsearch-plugin-geoshape-7.17.z.d.zip`
+
+In case you have to upgrade Gradle, you can do it with `./gradlew wrapper --gradler-version x.y.z`.
+
 Then the following command will start a dockerized ES and will install the previously built plugin:
+
 ```sh
-docker-compose up
+docker compose up
 ```
+
+Check the Elasticsearch instance at `localhost:9200` and the plugin version with `localhost:9200/_cat/plugins`.
 
 Please be careful during development: you'll need to manually rebuild the .zip using `./gradlew build` on each code
 change before running `docker-compose` up again.
 
 > NOTE: In `docker-compose.yml` you can uncomment the debug env and attach a REMOTE JVM on `*:5005` to debug the plugin.
 
+Note also that this plugin depends on some Types and Classes from the legacygeo elasticsearch module. In our Gradle script, you find:
+
+```
+compileOnly files('libs/legacy-geo-7.17.28.jar')
+```
+
+or a different version number depending on the current supported Elasticsearch version.
+
+If you're going to update this plugin with a new version, you also need to update this JAR file. To do so, it's necassary to build it from source. So you have to `git clone` the [elasticsearch source code](https://github.com/elastic/elasticsearch), `git checkout vX.Y.Z` with the wanted version and run a build for this specific module with:
+
+`./gradlew :modules:legacy-geo:assemble` with the same Java version. Then you find a JAR file in `modules/legacy-geo/build/distributions/`, e.g. `legacy-geo-7.17.28-SNAPSHOT.jar`. Just copy it into `./libs/legacy-geo-7.17.28.jar` and run the compilation of this plugin with gradle.
+
+Take also a look at this potential deprecation about legacy-geo https://github.com/elastic/elasticsearch/issues/96097
 
 ## License
 

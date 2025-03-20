@@ -1,3 +1,7 @@
+### 7.17.28.0
+
+* Repackaging for Elasticsearch 7.17.28
+
 ### 7.17.6.1
 
 * Fix bbox on linestrings and points
