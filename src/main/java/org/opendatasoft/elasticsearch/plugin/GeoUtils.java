@@ -4,6 +4,7 @@ import org.apache.lucene.util.BytesRef;
 import org.elasticsearch.common.geo.GeoPoint;
 import org.elasticsearch.common.geo.Orientation;
 import org.elasticsearch.common.hash.MurmurHash3;
+import org.elasticsearch.geometry.Line;
 import org.elasticsearch.geometry.Point;
 import org.elasticsearch.legacygeo.builders.GeometryCollectionBuilder;
 import org.elasticsearch.legacygeo.builders.LineStringBuilder;
@@ -20,7 +21,6 @@ import org.locationtech.jts.io.WKBReader;
 import org.locationtech.jts.io.WKBWriter;
 import org.locationtech.jts.io.WKTWriter;
 import org.locationtech.jts.io.geojson.GeoJsonWriter;
-import org.elasticsearch.geometry.Line;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -49,12 +49,12 @@ public class GeoUtils {
 
     public static List<GeoPoint> getBboxFromCoords(Coordinate[] coords) {
         GeoPoint topLeft = new GeoPoint(
-                org.elasticsearch.common.geo.GeoUtils.normalizeLat(coords[0].y),
-                org.elasticsearch.common.geo.GeoUtils.normalizeLon(coords[0].x)
+            org.elasticsearch.common.geo.GeoUtils.normalizeLat(coords[0].y),
+            org.elasticsearch.common.geo.GeoUtils.normalizeLon(coords[0].x)
         );
         GeoPoint bottomRight = new GeoPoint(
-                org.elasticsearch.common.geo.GeoUtils.normalizeLat(coords[2].y),
-                org.elasticsearch.common.geo.GeoUtils.normalizeLon(coords[2].x)
+            org.elasticsearch.common.geo.GeoUtils.normalizeLat(coords[2].y),
+            org.elasticsearch.common.geo.GeoUtils.normalizeLon(coords[2].x)
         );
         return Arrays.asList(topLeft, bottomRight);
     }
@@ -100,9 +100,7 @@ public class GeoUtils {
         return 360 / (256 * Math.pow(2, zoom));
     }
 
-
-    public static String exportWkbTo(BytesRef wkb, OutputFormat output_format, GeoJsonWriter geoJsonWriter)
-            throws ParseException {
+    public static String exportWkbTo(BytesRef wkb, OutputFormat output_format, GeoJsonWriter geoJsonWriter) throws ParseException {
         switch (output_format) {
             case WKT:
                 Geometry geom = new WKBReader().read(wkb.bytes);
@@ -127,7 +125,7 @@ public class GeoUtils {
     }
 
     public static LineStringBuilder removeDuplicateCoordinates(LineStringBuilder builder) {
-        Line line = (Line)builder.buildGeometry(); // no direct access to coordinates
+        Line line = (Line) builder.buildGeometry(); // no direct access to coordinates
         Vector<Coordinate> newCoordinates = new Vector<Coordinate>();
 
         Point previous = null;
@@ -169,15 +167,15 @@ public class GeoUtils {
         return gcb;
     }
 
-    public static ShapeBuilder removeDuplicateCoordinates(ShapeBuilder builder){
+    public static ShapeBuilder removeDuplicateCoordinates(ShapeBuilder builder) {
         if (builder instanceof LineStringBuilder) {
-            return removeDuplicateCoordinates((LineStringBuilder)builder);
+            return removeDuplicateCoordinates((LineStringBuilder) builder);
         }
         if (builder instanceof PolygonBuilder) {
-            return removeDuplicateCoordinates((PolygonBuilder)builder);
+            return removeDuplicateCoordinates((PolygonBuilder) builder);
         }
         if (builder instanceof MultiPolygonBuilder) {
-            return removeDuplicateCoordinates((MultiPolygonBuilder)builder);
+            return removeDuplicateCoordinates((MultiPolygonBuilder) builder);
         }
         if (builder instanceof GeometryCollectionBuilder) {
             return removeDuplicateCoordinates((GeometryCollectionBuilder) builder);

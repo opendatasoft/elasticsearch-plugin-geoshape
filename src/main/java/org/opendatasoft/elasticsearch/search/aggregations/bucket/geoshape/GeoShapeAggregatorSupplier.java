@@ -13,16 +13,17 @@ import java.util.Map;
 @FunctionalInterface
 public interface GeoShapeAggregatorSupplier {
     Aggregator build(
-            String name,
-            AggregatorFactories factories,
-            AggregationContext context,
-            ValuesSource valuesSource,
-            GeoUtils.OutputFormat output_format,
-            boolean must_simplify,
-            int zoom,
-            GeoShape.Algorithm algorithm,
-            GeoShapeAggregator.BucketCountThresholds bucketCountThresholds,
-            Aggregator parent,
-            CardinalityUpperBound cardinalityUpperBound,
-            Map<String, Object> metadata) throws IOException;
+        String name,
+        AggregatorFactories factories,
+        AggregationContext context,
+        ValuesSource valuesSource,
+        GeoUtils.OutputFormat output_format,
+        boolean must_simplify,
+        int zoom,
+        GeoShape.Algorithm algorithm,
+        GeoShapeAggregator.BucketCountThresholds bucketCountThresholds,
+        Aggregator parent,
+        CardinalityUpperBound cardinalityUpperBound,
+        Map<String, Object> metadata
+    ) throws IOException;
 }

@@ -35,7 +35,6 @@ import java.util.Arrays;
 import java.util.Map;
 import java.util.Objects;
 
-
 public class GeoShapeAggregator extends BucketsAggregator {
     private final ValuesSource valuesSource;
     private final BytesRefHash bucketOrds;
@@ -48,20 +47,19 @@ public class GeoShapeAggregator extends BucketsAggregator {
     private WKBReader wkbReader;
     private final GeometryFactory geometryFactory;
 
-
     public GeoShapeAggregator(
-            String name,
-            AggregatorFactories factories,
-            AggregationContext context,
-            ValuesSource valuesSource,
-            GeoUtils.OutputFormat output_format,
-            boolean must_simplify,
-            int zoom,
-            GeoShape.Algorithm algorithm,
-            BucketCountThresholds bucketCountThresholds,
-            Aggregator parent,
-            CardinalityUpperBound cardinalityUpperBound,
-            Map<String, Object> metaData
+        String name,
+        AggregatorFactories factories,
+        AggregationContext context,
+        ValuesSource valuesSource,
+        GeoUtils.OutputFormat output_format,
+        boolean must_simplify,
+        int zoom,
+        GeoShape.Algorithm algorithm,
+        BucketCountThresholds bucketCountThresholds,
+        Aggregator parent,
+        CardinalityUpperBound cardinalityUpperBound,
+        Map<String, Object> metaData
     ) throws IOException {
         super(name, factories, context, parent, cardinalityUpperBound, metaData);
         this.valuesSource = valuesSource;
@@ -90,6 +88,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
         final SortedBinaryDocValues values = valuesSource.bytesValues(ctx);
         return new LeafBucketCollectorBase(sub, values) {
             final BytesRefBuilder previous = new BytesRefBuilder();
+
             /**
              * Collect the given doc in the given bucket.
              * Called once for every document matching a query, with the unbased document number.
@@ -108,7 +107,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
                         }
                         long bucketOrdinal = bucketOrds.add(bytesValue);
                         if (bucketOrdinal < 0) { // already seen
-                            bucketOrdinal = - 1 - bucketOrdinal;
+                            bucketOrdinal = -1 - bucketOrdinal;
                             collectExistingBucket(sub, doc, bucketOrdinal);
                         } else {
                             collectBucket(sub, doc, bucketOrdinal);
@@ -187,27 +186,30 @@ public class GeoShapeAggregator extends BucketsAggregator {
             }
 
             results[ordIdx] = new InternalGeoShape(
-                    name,
-                    Arrays.asList(topBucketsPerOrd[ordIdx]),
-                    output_format,
-                    bucketCountThresholds.getRequiredSize(),
-                    bucketCountThresholds.getShardSize(),
-                    metadata());
+                name,
+                Arrays.asList(topBucketsPerOrd[ordIdx]),
+                output_format,
+                bucketCountThresholds.getRequiredSize(),
+                bucketCountThresholds.getShardSize(),
+                metadata()
+            );
         }
 
         // Build sub-aggregations
-        buildSubAggsForAllBuckets(
-                topBucketsPerOrd,
-                b -> b.bucketOrd,
-                (b, aggregations) -> b.subAggregations = aggregations
-        );
+        buildSubAggsForAllBuckets(topBucketsPerOrd, b -> b.bucketOrd, (b, aggregations) -> b.subAggregations = aggregations);
         return results;
     }
 
     @Override
     public InternalAggregation buildEmptyAggregation() {
-        return new InternalGeoShape(name, null, output_format, bucketCountThresholds.getRequiredSize(),
-                bucketCountThresholds.getShardSize(), metadata());
+        return new InternalGeoShape(
+            name,
+            null,
+            output_format,
+            bucketCountThresholds.getRequiredSize(),
+            bucketCountThresholds.getShardSize(),
+            metadata()
+        );
     }
 
     private Geometry simplifyGeoShape(Geometry geom) {
@@ -311,8 +313,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
                 return false;
             }
             GeoShapeAggregator.BucketCountThresholds other = (GeoShapeAggregator.BucketCountThresholds) obj;
-            return Objects.equals(requiredSize, other.requiredSize)
-                    && Objects.equals(shardSize, other.shardSize);
+            return Objects.equals(requiredSize, other.requiredSize) && Objects.equals(shardSize, other.shardSize);
         }
     }
 
