@@ -1,5 +1,6 @@
 buildscript {
     repositories {
+        mavenLocal()
         mavenCentral()
 
     }
@@ -7,6 +8,11 @@ buildscript {
     dependencies {
         classpath "org.elasticsearch.gradle:build-tools:${elastic_version}"
     }
+}
+
+// the spotless plugin is dedicated to format the code
+plugins {
+  id("com.diffplug.spotless") version "7.0.3"
 }
 
 
@@ -18,6 +24,14 @@ repositories {
     }
 }
 
+// add -Xlint:deprecation to check the Elasticsearch deprecation warning at compile-time
+allprojects {
+    gradle.projectsEvaluated {
+        tasks.withType(JavaCompile) {
+            options.compilerArgs << "-Xlint:deprecation"
+        }
+    }
+}
 
 group = 'org.elasticsearch.plugin'
 version = "${plugin_version}"
@@ -26,6 +40,19 @@ apply plugin: 'java'
 apply plugin: 'idea'
 apply plugin: 'elasticsearch.esplugin'
 apply plugin: 'elasticsearch.yaml-rest-test'
+
+
+// automatic formatting configuration (the same configuration as elasticsearch)
+spotless {
+    java {
+        importOrderFile('config/elastic.importorder') // import order file as exported from elastic
+        eclipse().configFile('config/formatterConfig.xml')
+        trimTrailingWhitespace()
+        target 'src/**/*.java'
+    }
+}
+
+check.dependsOn spotlessCheck
 
 esplugin {
     name 'elasticsearch-plugin-geoshape'
@@ -82,4 +109,3 @@ testClusters.configureEach {
     // disable security to disable failing warnings
     setting 'xpack.security.enabled', 'false'
 }
-
