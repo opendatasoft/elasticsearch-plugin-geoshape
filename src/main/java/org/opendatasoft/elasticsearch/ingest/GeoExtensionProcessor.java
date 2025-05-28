@@ -9,13 +9,13 @@ import org.elasticsearch.ingest.ConfigurationUtils;
 import org.elasticsearch.ingest.IngestDocument;
 import org.elasticsearch.ingest.Processor;
 import org.elasticsearch.legacygeo.XShapeCollection;
-import org.elasticsearch.legacygeo.builders.CoordinatesBuilder;
 import org.elasticsearch.legacygeo.builders.ShapeBuilder;
 import org.elasticsearch.legacygeo.parsers.ShapeParser;
 import org.elasticsearch.xcontent.DeprecationHandler;
 import org.elasticsearch.xcontent.NamedXContentRegistry;
 import org.elasticsearch.xcontent.XContentBuilder;
 import org.elasticsearch.xcontent.XContentParser;
+import org.elasticsearch.xcontent.XContentParserConfiguration;
 import org.elasticsearch.xcontent.json.JsonXContent;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
@@ -23,7 +23,6 @@ import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.PrecisionModel;
 import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKBWriter;
-import org.locationtech.jts.io.WKTReader;
 import org.locationtech.jts.io.WKTWriter;
 import org.locationtech.spatial4j.exception.InvalidShapeException;
 import org.locationtech.spatial4j.shape.Shape;
@@ -54,7 +53,6 @@ public class GeoExtensionProcessor extends AbstractProcessor {
 
     private final GeometryFactory geomFactory;
     private final WKTWriter wktWriter;
-    private final WKTReader wktReader;
 
     private GeoExtensionProcessor(
         String tag,
@@ -88,7 +86,6 @@ public class GeoExtensionProcessor extends AbstractProcessor {
         this.geomFactory = new GeometryFactory(precisionModel, 0);
 
         this.wktWriter = new WKTWriter();
-        this.wktReader = new WKTReader();
     }
 
     @SuppressWarnings("unchecked")
@@ -117,11 +114,10 @@ public class GeoExtensionProcessor extends AbstractProcessor {
     private ShapeBuilder<?, ?, ?> getShapeBuilderFromObject(Object object) throws IOException {
         XContentBuilder contentBuilder = JsonXContent.contentBuilder().value(object);
 
-        XContentParser parser = JsonXContent.jsonXContent.createParser(
-            NamedXContentRegistry.EMPTY,
-            DeprecationHandler.THROW_UNSUPPORTED_OPERATION,
-            BytesReference.bytes(contentBuilder).streamInput()
-        );
+        XContentParserConfiguration config = XContentParserConfiguration.EMPTY.withRegistry(NamedXContentRegistry.EMPTY)
+            .withDeprecationHandler(DeprecationHandler.THROW_UNSUPPORTED_OPERATION);
+
+        XContentParser parser = JsonXContent.jsonXContent.createParser(config, BytesReference.bytes(contentBuilder).streamInput());
 
         parser.nextToken();
         return ShapeParser.parse(parser);
