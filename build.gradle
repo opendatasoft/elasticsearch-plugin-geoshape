@@ -78,12 +78,14 @@ dependencies {
     // However this archive is not included in the final plugin bundle, since
     // legacy geo and its dependencies (JTS) are already present at runtime
     // with ES (see the jar/manifest rule below)
-    compileOnly files('libs/legacy-geo-7.17.28.jar')
+    compileOnly files('libs/legacy-geo-8.18.1.jar')
 
     // jts.io.common is not part of ES and will be shipped with this plugin
-    implementation group: 'org.locationtech.jts.io', name: 'jts-io-common', version: '1.15.0'
+    implementation group: 'org.locationtech.jts.io', name: 'jts-io-common', version: '1.19.0'
+    implementation group: 'org.locationtech.spatial4j', name: 'spatial4j', version: '0.8'
 
     yamlRestTestImplementation "org.elasticsearch.test:framework:${elastic_version}"
+    yamlRestTestImplementation "org.elasticsearch.test:yaml-rest-runner:${elastic_version}"
     yamlRestTestImplementation "org.apache.logging.log4j:log4j-core:2.17.1"
 }
 
@@ -97,7 +99,7 @@ tasks.named("yamlRestTest").configure {
 jar {
     manifest {
          attributes(
-                "Class-Path": "../../modules/legacy-geo/legacy-geo-7.17.28.jar ../../modules/legacy-geo/jts-core-1.15.0.jar ../../modules/legacy-geo/spatial4j-0.7.jar")
+                "Class-Path": "../../modules/legacy-geo/legacy-geo-8.18.1.jar")
 
     }
 }
