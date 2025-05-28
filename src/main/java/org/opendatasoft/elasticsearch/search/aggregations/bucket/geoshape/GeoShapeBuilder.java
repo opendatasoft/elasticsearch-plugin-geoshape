@@ -1,6 +1,7 @@
 package org.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape;
 
-import org.elasticsearch.Version;
+import org.elasticsearch.TransportVersion;
+import org.elasticsearch.TransportVersions;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.search.aggregations.AggregationBuilder;
@@ -63,6 +64,11 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
 
     public static GeoShapeBuilder parse(XContentParser parser, String aggregationName) throws IOException {
         return PARSER.parse(parser, new GeoShapeBuilder(aggregationName), null);
+    }
+
+    @Override
+    public TransportVersion getMinimalSupportedVersion() {
+        return TransportVersions.MINIMUM_COMPATIBLE;
     }
 
     static class SimplifyKeysParser {
@@ -165,16 +171,6 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
             this.simplify_algorithm = GeoShape.Algorithm.valueOf(((String) simplify_keys.get(1)).toUpperCase(Locale.getDefault()));
         }
         return this;
-    }
-
-    @Override
-    protected boolean serializeTargetValueType(Version version) {
-        return true;
-    }
-
-    @Override
-    protected ValuesSourceRegistry.RegistryKey<?> getRegistryKey() {
-        return REGISTRY_KEY;
     }
 
     @Override
