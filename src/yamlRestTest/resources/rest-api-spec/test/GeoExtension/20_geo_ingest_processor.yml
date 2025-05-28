@@ -497,7 +497,7 @@
 # Test point deduplication (from Helpscout #22451 - basel-stadt - kept in the original coordinate system)
 # This generates an assertion error (!) "GeometryCollection unsupported"
   - do:
-      catch: /GeometryCollection unsupported/
+      catch: /Unable to parse shape/
       index:
         index: test_index
         pipeline: "geo_extension"
@@ -748,9 +748,8 @@
 
 # Test polygon invalidity check
 # This polygon is valid for OGR (at least under a double floating point precision model)
-# But is not valid for ES
+# But is not valid for ES 7 and should be valid with ES 8
   - do:
-      catch: /Self-intersection at or near/
       index:
         index: test_index
         pipeline: "geo_extension"
@@ -764,7 +763,19 @@
           }
         }
 
-  - match: {error.type: "mapper_parsing_exception"}
+  - do:
+      indices.refresh: {}
+
+  # Test that the shape has been fixed
+  # TODO: check with reviewer that the geo_extension plugin can re-order the coordinates
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 14
+  - match: {hits.hits.0._source.geo_shape_0.fixed_shape: "POLYGON ((0 0, -0.5 0.5, 0.5 0.5, 0 0, 1 0, 1 1, -1 1, -1 0, 0 0))" }
+
 
 # Test geometrycollection of multi
   - do:
