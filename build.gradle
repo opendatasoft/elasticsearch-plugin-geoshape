@@ -71,6 +71,7 @@ dependencies {
     // legacy geo and its dependencies (JTS) are already present at runtime
     // with ES (see the jar/manifest rule below)
     compileOnly files('libs/legacy-geo-8.18.1.jar')
+    testImplementation files('libs/legacy-geo-8.18.1.jar')
 
     // jts.io.common is not part of ES and will be shipped with this plugin
     implementation group: 'org.locationtech.jts.io', name: 'jts-io-common', version: '1.19.0'
