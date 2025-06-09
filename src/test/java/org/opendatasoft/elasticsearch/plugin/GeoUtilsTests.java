@@ -37,7 +37,7 @@ public class GeoUtilsTests extends ESTestCase {
         assertTrue("Entier aléatoire dans les limites", randomInt >= 1 && randomInt <= 100);
     }
 
-    public void testRemoveConsecutiveDuplicateCoordinatesFromLine() {
+    public void testLegacyRemoveConsecutiveDuplicateCoordinatesFromLine() {
         List<Coordinate> coordinates = new ArrayList<>();
         coordinates.add(new Coordinate(0.0, 0.0));
         coordinates.add(new Coordinate(1.0, 0.0));
@@ -53,7 +53,16 @@ public class GeoUtilsTests extends ESTestCase {
         assertEquals("Should find 4 coordinates instead of 5", 4, line.length());
     }
 
-    public void testRemoveConsecutiveDuplicateCoordinatesFromPolygon() {
+    public void testRemoveConsecutiveDuplicateCoordinatesFromLine() {
+        // The third point is duplicated.
+        double[] coordX = { 0.0, 1.0, 1.0, 1.0, 0.0 };
+        double[] coordY = { 0.0, 0.0, 0.0, 1.0, 1.0 };
+        Line original = new Line(coordX, coordY);
+        Line result = GeoUtils.removeDuplicateCoordinates(original);
+        assertEquals("Should find 4 coordinates instead of 5", 4, result.length());
+    }
+
+    public void testLegacyRemoveConsecutiveDuplicateCoordinatesFromPolygon() {
         List<Coordinate> coordinates = createRectangleCoordinatesWithDuplicates(3, 3, 5, 5);
         CoordinatesBuilder builder = new CoordinatesBuilder();
         builder.coordinates(coordinates);
@@ -64,7 +73,15 @@ public class GeoUtilsTests extends ESTestCase {
         assertEquals("Should find 5 coordinates instead of 7", 5, polygon.getPolygon().length());
     }
 
-    public void testRemoveConsecutiveDuplicateCoordinatesFromRealWorldPolygon() {
+    public void testRemoveConsecutiveDuplicateCoordinatesFromPolygon() {
+        List<Coordinate> coordinates = createRectangleCoordinatesWithDuplicates(3, 3, 5, 5);
+        LinearRing ring = createLinearRingFromCoordinates(coordinates);
+        Polygon original = new Polygon(ring);
+        Polygon result = GeoUtils.removeDuplicateCoordinates(original);
+        assertEquals("Should find 5 coordinates instead of 7", 5, result.getPolygon().length());
+    }
+
+    public void testLegacyRemoveConsecutiveDuplicateCoordinatesFromRealWorldPolygon() {
         List<Coordinate> coordinates = new ArrayList<>();
         coordinates.add(new Coordinate(2.3522219, 48.856614));  // Paris
         coordinates.add(new Coordinate(2.3522219, 48.856614));  // duplicate
@@ -82,7 +99,23 @@ public class GeoUtilsTests extends ESTestCase {
         assertTrue("Should find less that 7", polygon.getPolygon().length() < 7);
     }
 
-    public void testRemoveDuplicatesInHoles() {
+    public void testRemoveConsecutiveDuplicateCoordinatesFromRealWorldPolygon() {
+        List<Coordinate> coordinates = new ArrayList<>();
+        coordinates.add(new Coordinate(2.3522219, 48.856614));  // Paris
+        coordinates.add(new Coordinate(2.3522219, 48.856614));  // duplicate
+        coordinates.add(new Coordinate(2.3541049, 48.856614001)); // very close
+        coordinates.add(new Coordinate(2.3541049, 48.856614001)); // duplicate exact
+        coordinates.add(new Coordinate(2.3541049, 48.8586972));
+        coordinates.add(new Coordinate(2.3522219, 48.8586972));
+        coordinates.add(new Coordinate(2.3522219, 48.856614));  // close
+        coordinates.add(new Coordinate(2.3522219, 48.856614));  // duplicate
+        LinearRing ring = createLinearRingFromCoordinates(coordinates);
+        Polygon original = new Polygon(ring);
+        Polygon result = GeoUtils.removeDuplicateCoordinates(original);
+        assertTrue("Should find less that 6", result.getPolygon().length() < 6);
+    }
+
+    public void testLegacyRemoveDuplicatesInHoles() {
         // A Polygon with a hole. The hole can have some duplicates.
         List<Coordinate> rectCoordinates = new ArrayList<>();
         rectCoordinates.add(new Coordinate(-2.0, -2.0));
@@ -111,7 +144,97 @@ public class GeoUtilsTests extends ESTestCase {
         assertEquals("Should find 4 coordinates instead of 6", 4, line.length());
     }
 
-    public void testRemoveDuplicateCoordsForGeometryCollection() {
+    public void testRemoveDuplicatesInHoles() {
+        // A Polygon with a hole. The hole can have some duplicates.
+        List<Coordinate> rectCoordinates = new ArrayList<>();
+        rectCoordinates.add(new Coordinate(-2.0, -2.0));
+        rectCoordinates.add(new Coordinate(2.0, -2.0));
+        rectCoordinates.add(new Coordinate(2.0, -2.0)); // duplicate
+        rectCoordinates.add(new Coordinate(2.0, 2.0));
+        rectCoordinates.add(new Coordinate(-2.0, 2.0));
+        rectCoordinates.add(new Coordinate(-2.0, -2.0));
+        LinearRing ring = createLinearRingFromCoordinates(rectCoordinates);
+
+        List<Coordinate> holeCoordinates = new ArrayList<>();
+        holeCoordinates.add(new Coordinate(-1, 0));
+        holeCoordinates.add(new Coordinate(1, 0));
+        holeCoordinates.add(new Coordinate(1, 0));  // duplicate
+        holeCoordinates.add(new Coordinate(0, 0));
+        holeCoordinates.add(new Coordinate(0, 0));  // duplicate
+        holeCoordinates.add(new Coordinate(-1.0, 0)); // close
+        holeCoordinates.add(new Coordinate(-1.0, 0)); // duplicate
+        List<LinearRing> holes = new ArrayList<>();
+        LinearRing hole = createLinearRingFromCoordinates(holeCoordinates);
+        holes.add(hole);
+
+        // A polygon with a single hole.
+        Polygon original = new Polygon(ring, holes);
+        Polygon result = GeoUtils.removeDuplicateCoordinates(original);
+        assertEquals("There should be one hole", 1, result.getNumberOfHoles());
+        assertEquals("Should find 4 coordinates in the hole instead of 6", 4, result.getHole(0).length());
+        assertEquals("Should find 5 coordinates instead of 6", 5, result.getPolygon().length());
+    }
+
+    public void testLegacyRemoveDuplicateCoordForMultiPolygon() {
+        // Given
+        MultiPolygonBuilder original = new MultiPolygonBuilder(Orientation.RIGHT);
+
+        // Premier polygone avec doublons
+        List<Coordinate> poly1Coords = createRectangleCoordinatesWithDuplicates(0, 0, 2, 2);
+        LineStringBuilder poly1Ring = new LineStringBuilder(poly1Coords);
+        PolygonBuilder poly1 = new PolygonBuilder(poly1Ring, Orientation.RIGHT, false);
+        original.polygon(poly1);
+
+        // Deuxième polygone avec doublons
+        List<Coordinate> poly2Coords = createRectangleCoordinatesWithDuplicates(5, 5, 7, 7);
+        LineStringBuilder poly2Ring = new LineStringBuilder(poly2Coords);
+        PolygonBuilder poly2 = new PolygonBuilder(poly2Ring, Orientation.RIGHT, false);
+        original.polygon(poly2);
+
+        // When
+        MultiPolygonBuilder result = GeoUtils.removeDuplicateCoordinates(original);
+
+        // Then - Utiliser buildGeometry() pour obtenir le MultiPolygon ES
+        MultiPolygon esMultiPolygon = (MultiPolygon) result.buildGeometry();
+
+        assertEquals("Should have 2 polygons", 2, esMultiPolygon.size());
+
+        // Vérifier chaque polygone
+        for (int i = 0; i < esMultiPolygon.size(); i++) {
+            Polygon polygon = esMultiPolygon.get(i);
+            LinearRing exteriorRing = polygon.getPolygon();
+            assertEquals("Each polygon should have 5 points", 5, exteriorRing.length());
+            assertValidClosedRing(exteriorRing);
+        }
+    }
+
+    public void testRemoveDuplicateCoordForMultiPolygon() {
+        List<Polygon> polygons = new ArrayList<>();
+
+        // First polygon with some duplicated coordinates
+        List<Coordinate> poly1Coords = createRectangleCoordinatesWithDuplicates(0, 0, 2, 2);
+        polygons.add(new Polygon(createLinearRingFromCoordinates(poly1Coords)));
+
+        // Second polygon with some duplicated coordinates
+        List<Coordinate> poly2Coords = createRectangleCoordinatesWithDuplicates(5, 5, 7, 7);
+        polygons.add(new Polygon(createLinearRingFromCoordinates(poly2Coords)));
+
+        MultiPolygon original = new MultiPolygon(polygons);
+        MultiPolygon result = GeoUtils.removeDuplicateCoordinates(original);
+
+        assertEquals("Original polygon should have 2 polygons", 2, original.size());
+        assertEquals("Should have 2 polygons", 2, result.size());
+
+        // Check each polygon
+        for (int i = 0; i < result.size(); i++) {
+            Polygon polygon = result.get(i);
+            LinearRing exteriorRing = polygon.getPolygon();
+            assertEquals("Each polygon should have 5 points", 5, exteriorRing.length());
+            assertValidClosedRing(exteriorRing);
+        }
+    }
+
+    public void testLegacyRemoveDuplicateCoordsForGeometryCollection() {
         // Given - Collection avec différents types de géométries
         GeometryCollectionBuilder original = new GeometryCollectionBuilder();
 
@@ -156,39 +279,6 @@ public class GeoUtilsTests extends ESTestCase {
         }
     }
 
-    public void testRemoveDuplicateCoordForMultiPolygon() {
-        // Given
-        MultiPolygonBuilder original = new MultiPolygonBuilder(Orientation.RIGHT);
-
-        // Premier polygone avec doublons
-        List<Coordinate> poly1Coords = createRectangleCoordinatesWithDuplicates(0, 0, 2, 2);
-        LineStringBuilder poly1Ring = new LineStringBuilder(poly1Coords);
-        PolygonBuilder poly1 = new PolygonBuilder(poly1Ring, Orientation.RIGHT, false);
-        original.polygon(poly1);
-
-        // Deuxième polygone avec doublons
-        List<Coordinate> poly2Coords = createRectangleCoordinatesWithDuplicates(5, 5, 7, 7);
-        LineStringBuilder poly2Ring = new LineStringBuilder(poly2Coords);
-        PolygonBuilder poly2 = new PolygonBuilder(poly2Ring, Orientation.RIGHT, false);
-        original.polygon(poly2);
-
-        // When
-        MultiPolygonBuilder result = GeoUtils.removeDuplicateCoordinates(original);
-
-        // Then - Utiliser buildGeometry() pour obtenir le MultiPolygon ES
-        MultiPolygon esMultiPolygon = (MultiPolygon) result.buildGeometry();
-
-        assertEquals("Should have 2 polygons", 2, esMultiPolygon.size());
-
-        // Vérifier chaque polygone
-        for (int i = 0; i < esMultiPolygon.size(); i++) {
-            Polygon polygon = esMultiPolygon.get(i);
-            LinearRing exteriorRing = polygon.getPolygon();
-            assertEquals("Each polygon should have 5 points", 5, exteriorRing.length());
-            assertValidClosedRing(exteriorRing);
-        }
-    }
-
     private void assertValidClosedRing(LinearRing ring) {
         assertTrue("The ring should have at least 4 points", ring.length() >= 4);
 
@@ -219,5 +309,14 @@ public class GeoUtilsTests extends ESTestCase {
         coords.add(new Coordinate(minX, maxY));
         coords.add(new Coordinate(minX, minY)); // fermeture
         return coords;
+    }
+
+    private LinearRing createLinearRingFromCoordinates(List<Coordinate> coordinates) {
+        // Extraire les x (longitudes) et y (latitudes) avec des streams
+        double[] lons = coordinates.stream().mapToDouble(coord -> coord.x).toArray();
+
+        double[] lats = coordinates.stream().mapToDouble(coord -> coord.y).toArray();
+
+        return new LinearRing(lats, lons);
     }
 }

@@ -4,8 +4,12 @@ import org.apache.lucene.util.BytesRef;
 import org.elasticsearch.common.geo.GeoPoint;
 import org.elasticsearch.common.geo.Orientation;
 import org.elasticsearch.common.hash.MurmurHash3;
+import org.elasticsearch.geometry.GeometryCollection;
 import org.elasticsearch.geometry.Line;
+import org.elasticsearch.geometry.LinearRing;
+import org.elasticsearch.geometry.MultiPolygon;
 import org.elasticsearch.geometry.Point;
+import org.elasticsearch.geometry.Polygon;
 import org.elasticsearch.legacygeo.builders.GeometryCollectionBuilder;
 import org.elasticsearch.legacygeo.builders.LineStringBuilder;
 import org.elasticsearch.legacygeo.builders.MultiPolygonBuilder;
@@ -19,6 +23,7 @@ import org.locationtech.jts.io.WKBWriter;
 import org.locationtech.jts.io.WKTWriter;
 import org.locationtech.jts.io.geojson.GeoJsonWriter;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Vector;
@@ -173,5 +178,101 @@ public class GeoUtils {
             return removeDuplicateCoordinates((GeometryCollectionBuilder) builder);
         }
         return builder;
+    }
+
+    /**
+     * Remove the duplicated coordinates from a Line
+     */
+    public static Line removeDuplicateCoordinates(Line line) {
+        List<Double> newX = new ArrayList<>();
+        List<Double> newY = new ArrayList<>();
+
+        Point previous = null;
+        for (int i = 0; i < line.length(); i++) {
+            Point current = new Point(line.getX(i), line.getY(i));
+            if ((previous != null) && (previous.equals(current))) {
+                continue;
+            }
+            newX.add(current.getX());
+            newY.add(current.getY());
+            previous = current;
+        }
+        return new Line(newX.stream().mapToDouble(Double::doubleValue).toArray(), newY.stream().mapToDouble(Double::doubleValue).toArray());
+    }
+
+    /**
+     * Remove the duplicated coordinates from a linear ring.
+     */
+    public static LinearRing removeDuplicateCoordinates(LinearRing ring) {
+        Line line = removeDuplicateCoordinates((Line) ring);
+        return new LinearRing(line.getX(), line.getY());
+    }
+
+    /**
+     * Remove the duplicated coordinates from a Polygon
+     */
+    public static Polygon removeDuplicateCoordinates(Polygon polygon) {
+        // Process the exterior ring
+        LinearRing exteriorRing = removeDuplicateCoordinates(polygon.getPolygon());
+
+        // Process each hole if necessary
+        List<LinearRing> processedHoles = new ArrayList<>();
+        for (int i = 0; i < polygon.getNumberOfHoles(); i++) {
+            LinearRing hole = polygon.getHole(i);
+            LinearRing processedHole = removeDuplicateCoordinates(hole);
+            processedHoles.add(processedHole);
+        }
+
+        return new Polygon(exteriorRing, processedHoles);
+    }
+
+    /**
+    * Remove duplicated coordinates for each Polygon in a MultiPolygon
+    */
+    public static MultiPolygon removeDuplicateCoordinates(MultiPolygon multiPolygon) {
+        List<Polygon> polygons = new ArrayList<>();
+
+        for (int i = 0; i < multiPolygon.size(); i++) {
+            Polygon polygon = multiPolygon.get(i);
+            Polygon cleaned = removeDuplicateCoordinates(polygon);
+            polygons.add(cleaned);
+        }
+
+        return new MultiPolygon(polygons);
+    }
+
+    /**
+     * Process and clean-up a GeometryCollection
+     */
+    public static GeometryCollection<org.elasticsearch.geometry.Geometry> removeDuplicateCoordinates(
+        GeometryCollection<org.elasticsearch.geometry.Geometry> collection
+    ) {
+        List<org.elasticsearch.geometry.Geometry> cleanedGeometries = new ArrayList<>();
+
+        for (org.elasticsearch.geometry.Geometry geometry : collection) {
+            org.elasticsearch.geometry.Geometry cleaned = removeDuplicateCoordinates(geometry);
+            if (cleaned != null) {
+                cleanedGeometries.add(cleaned);
+            }
+        }
+
+        return new GeometryCollection<>(cleanedGeometries);
+    }
+
+    public static org.elasticsearch.geometry.Geometry removeDuplicateCoordinates(org.elasticsearch.geometry.Geometry geometry) {
+        return switch (geometry.type()) {
+            case POINT -> geometry; // Point does not have duplicated coordinates
+            case LINESTRING -> removeDuplicateCoordinates((Line) geometry);
+            case POLYGON -> removeDuplicateCoordinates((Polygon) geometry);
+            case MULTIPOLYGON -> removeDuplicateCoordinates((MultiPolygon) geometry);
+            case GEOMETRYCOLLECTION -> {
+                // Safe cast
+                @SuppressWarnings("unchecked")
+                GeometryCollection<org.elasticsearch.geometry.Geometry> collection = (GeometryCollection<
+                    org.elasticsearch.geometry.Geometry>) geometry;
+                yield removeDuplicateCoordinates(collection);
+            }
+            default -> geometry;
+        };
     }
 }
