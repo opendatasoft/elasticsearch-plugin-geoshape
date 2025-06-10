@@ -1,36 +1,26 @@
 package org.opendatasoft.elasticsearch.ingest;
 
 import org.apache.lucene.util.BytesRef;
-import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.geo.GeoPoint;
+import org.elasticsearch.common.geo.GeometryNormalizer;
+import org.elasticsearch.common.geo.GeometryParser;
+import org.elasticsearch.common.geo.Orientation;
 import org.elasticsearch.common.regex.Regex;
+import org.elasticsearch.geometry.utils.WellKnownBinary;
+import org.elasticsearch.geometry.utils.WellKnownText;
 import org.elasticsearch.ingest.AbstractProcessor;
 import org.elasticsearch.ingest.ConfigurationUtils;
 import org.elasticsearch.ingest.IngestDocument;
 import org.elasticsearch.ingest.Processor;
-import org.elasticsearch.legacygeo.XShapeCollection;
-import org.elasticsearch.legacygeo.builders.ShapeBuilder;
-import org.elasticsearch.legacygeo.parsers.ShapeParser;
-import org.elasticsearch.xcontent.DeprecationHandler;
-import org.elasticsearch.xcontent.NamedXContentRegistry;
-import org.elasticsearch.xcontent.XContentBuilder;
-import org.elasticsearch.xcontent.XContentParser;
-import org.elasticsearch.xcontent.XContentParserConfiguration;
-import org.elasticsearch.xcontent.json.JsonXContent;
 import org.locationtech.jts.geom.Coordinate;
-import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.PrecisionModel;
 import org.locationtech.jts.io.ParseException;
-import org.locationtech.jts.io.WKBWriter;
 import org.locationtech.jts.io.WKTWriter;
-import org.locationtech.spatial4j.exception.InvalidShapeException;
-import org.locationtech.spatial4j.shape.Shape;
-import org.locationtech.spatial4j.shape.jts.JtsGeometry;
-import org.locationtech.spatial4j.shape.jts.JtsPoint;
 import org.opendatasoft.elasticsearch.plugin.GeoUtils;
 
 import java.io.IOException;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -111,87 +101,12 @@ public class GeoExtensionProcessor extends AbstractProcessor {
         return fields;
     }
 
-    private ShapeBuilder<?, ?, ?> getShapeBuilderFromObject(Object object) throws IOException {
-        XContentBuilder contentBuilder = JsonXContent.contentBuilder().value(object);
+    // WARNING: I wonder if some stuff we do in our plugin can be replaced by the x-pack spatial
+    // GeoShapeWithDocValuesFieldMapper index mapper
 
-        XContentParserConfiguration config = XContentParserConfiguration.EMPTY.withRegistry(NamedXContentRegistry.EMPTY)
-            .withDeprecationHandler(DeprecationHandler.THROW_UNSUPPORTED_OPERATION);
-
-        XContentParser parser = JsonXContent.jsonXContent.createParser(config, BytesReference.bytes(contentBuilder).streamInput());
-
-        parser.nextToken();
-        return ShapeParser.parse(parser);
-    }
-
-    private class GeometryWithWkt {
-        public Geometry geometry;
-        public String wkt;
-    }
-
-    private GeometryWithWkt s4jToJts(Shape shape) {
-        // Convert a Spatial4J shape into a JTSGeometry
-        // A Spatial4J shape is basically either:
-        // - a JtsPoint
-        // - a JtsGeometry
-        // - an XShapeCollection (multi-* and GeometryCollection)
-        // There is a special case for MultiPoint since the WKTWriter of JTS
-        // is not compliant with the wkt reader of ES.
-
-        GeometryWithWkt geomWithWkt = new GeometryWithWkt();
-        Geometry geom = null;
-
-        String altWKT = null;
-        if (shape instanceof JtsPoint) {
-            geom = ((JtsPoint) shape).getGeom();
-        } else if (shape instanceof JtsGeometry) {
-            geom = ((JtsGeometry) shape).getGeom();
-        } else if (shape instanceof XShapeCollection) {
-            XShapeCollection collection = (XShapeCollection) shape;
-            ArrayList<Geometry> geoms = new ArrayList<>(collection.size());
-            ArrayList<String> wkts = new ArrayList<>(collection.size());
-
-            boolean hasWkt = false;
-            for (int i = 0; i < collection.size(); i++) {
-                GeometryWithWkt g = s4jToJts(collection.get(i));
-                geoms.add(g.geometry);
-                wkts.add(g.wkt);
-                if (g.wkt != null) {
-                    hasWkt = true;
-                }
-            }
-
-            if (hasWkt) {
-                // if it has a WKT, it means it is a geometrycolleciton
-                // containing a multipoint
-                altWKT = "GEOMETRYCOLLECTION(";
-                for (int i = 0; i < collection.size(); i++) {
-                    if (wkts.get(i) != null) {
-                        altWKT += wkts.get(i);
-                    } else {
-                        altWKT += wktWriter.write(geoms.get(i));
-                    }
-                    if (i < collection.size() - 1) {
-                        altWKT += ",";
-                    }
-                }
-                altWKT += ")";
-            }
-            geom = geomFactory.buildGeometry(geoms);
-
-            if (geom.getGeometryType() == "MultiPoint") {
-                // special case of multipoint where the WKT must be corrected
-                // ES wants multipoint without extra parenthesis between points
-                altWKT = wktWriter.write(geom).replace("((", "(").replace("))", ")").replace("), (", ", ");
-            }
-        }
-        geomWithWkt.geometry = geom;
-        geomWithWkt.wkt = altWKT;
-        return geomWithWkt;
-    }
-
-    @SuppressWarnings("unchecked")
     @Override
     public IngestDocument execute(IngestDocument ingestDocument) throws IOException, ParseException {
+        GeometryParser geoParser = new GeometryParser(true, true, true);
         List<String> geo_objects_list = getGeoShapeFieldsFromDoc(ingestDocument);
         for (String geoShapeField : geo_objects_list) {
 
@@ -201,54 +116,20 @@ public class GeoExtensionProcessor extends AbstractProcessor {
                 continue;
             }
 
-            // From an input Object that represents a GeoJSON we need to:
-            // - store a WKT version of the geometry, that will also be indexed as a geometry by ES
-            // - make sure this WKT does not have duplicated points, since ES refuse them
-            // - make sure this WKT geometry is equal (or close enough) to the geometry indexed by ES (why ?).
-            // It means if ES splits the geometry around the dateline, we want to do the same
-            // - compute its area
-            // - compute its WKB representation
-            // - compute its centroid
-            //
-            // We currently do this by:
-            // 1/ creating a Spatial4J shape from an Object (thanks to legacygeo.ShapeBuilder)
-            // 2/ converting this Spatial4J shape to a JTSGeometry
-            // 3/ call area(), wkbwriter(), centroid() and wktwriter on the JTSGeometry
-            //
-            // 2/ could be avoided but the S4J WKTWriter is of poor quality (e.g. a multipoint can be represented as a geometrycollection of
-            // points)
-            // 1/ could be avoided if we find how to create a JTSGeometry from an Object
+            // Parse the GeoJSON geometry from the ingestDoc
+            org.elasticsearch.geometry.Geometry geom = geoParser.parseGeometry(geoShapeObject);
 
-            ShapeBuilder<?, ?, ?> shapeBuilder = getShapeBuilderFromObject(geoShapeObject);
-
-            // buildS4J() will try to clean up and fix the shape. If it fails, an exception is raised
-            // Included fixes:
-            // - dateline warping (enforce lon in [-180,180])
-            Shape shape = null;
+            // Try to remove some duplicated coordinates. Duplicated coordinates don't make the geom invalid
+            // but the GeometryNormalizer won't accept duplicated coords.
             try {
-                try {
-                    shape = shapeBuilder.buildS4J();
-                } catch (InvalidShapeException e) {
-                    // buildS4J does not always deduplicate points
-                    shapeBuilder = GeoUtils.removeDuplicateCoordinates(shapeBuilder);
-                    shape = shapeBuilder.buildS4J();
-                }
+                geom = GeoUtils.removeDuplicateCoordinates(geom);
             } catch (Throwable e) {
-                // sometimes it is still not enough
-                // e.g. when non-EPSG:4326 coordinates are input
-                // buildS4J will try to warp date lines and may generate lots of small components
-                // which could yield a GeometryCollection, which raises an AssertionError
-                // So, we catch here both Error (AssertionError) and Exceptions
-                throw new IllegalArgumentException("Unable to parse shape [" + shapeBuilder.toWKT() + "]: " + e.getMessage());
+                throw new IllegalArgumentException("unable to parse the geometry [" + WellKnownText.toWKT(geom) + "]" + e.getMessage());
             }
 
-            GeometryWithWkt geometryWithWkt = s4jToJts(shape);
-            Geometry geom = geometryWithWkt.geometry;
-            String altWKT = geometryWithWkt.wkt;
-
-            if (geom == null) {
-                throw new IllegalArgumentException("Unable to parse shape [" + shapeBuilder.toWKT() + "]");
-            }
+            // Can break geometries that cross the dateline
+            org.elasticsearch.geometry.Geometry fixedGeom = GeometryNormalizer.apply(Orientation.RIGHT, geom);
+            String altWKT = WellKnownText.toWKT(fixedGeom);
 
             ingestDocument.removeField(geoShapeField);
 
@@ -257,25 +138,28 @@ public class GeoExtensionProcessor extends AbstractProcessor {
             }
 
             if (fixedField != null) {
-                ingestDocument.setFieldValue(geoShapeField + "." + fixedField, altWKT != null ? altWKT : wktWriter.write(geom));
+                ingestDocument.setFieldValue(geoShapeField + "." + fixedField, altWKT);
             }
 
+            String geomType = fixedGeom.type().toString();
+
             // compute and add extra geo sub-fields
-            byte[] wkb = new WKBWriter().write(geom);  // elastic will auto-encode this as b64
+            // NOTE: elasticsearch.common.geo encodes with Little-Endianess.
+            byte[] wkb = WellKnownBinary.toWKB(fixedGeom, ByteOrder.LITTLE_ENDIAN);
 
             if (hashField != null) ingestDocument.setFieldValue(
                 geoShapeField + ".hash",
                 String.valueOf(GeoUtils.getHashFromWKB(new BytesRef(wkb)))
             );
             if (wkbField != null) ingestDocument.setFieldValue(geoShapeField + "." + wkbField, wkb);
-            if (typeField != null) ingestDocument.setFieldValue(geoShapeField + "." + typeField, geom.getGeometryType());
-            if (areaField != null) ingestDocument.setFieldValue(geoShapeField + "." + areaField, geom.getArea());
+            if (typeField != null) ingestDocument.setFieldValue(geoShapeField + "." + typeField, geomType);
+            if (areaField != null) ingestDocument.setFieldValue(geoShapeField + "." + areaField, GeoUtils.getArea(fixedGeom));
             if (centroidField != null) ingestDocument.setFieldValue(
                 geoShapeField + "." + centroidField,
-                GeoUtils.getCentroidFromGeom(geom)
+                GeoUtils.getCentroidFromGeom(fixedGeom)
             );
             if (bboxField != null) {
-                Coordinate[] coords = geom.getEnvelope().getCoordinates();
+                Coordinate[] coords = GeoUtils.getEnvelope(fixedGeom).getCoordinates();
                 if (coords.length >= 4) {
                     ingestDocument.setFieldValue(geoShapeField + "." + bboxField, GeoUtils.getBboxFromCoords(coords));
                 } else if (coords.length == 1) {
