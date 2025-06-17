@@ -66,14 +66,6 @@ esplugin {
 dependencies {
     implementation "org.elasticsearch:elasticsearch:${elastic_version}"
 
-    // We ship the legacy geo archive with sources,
-    // because the compilation stage needs to resolve symbols
-    // However this archive is not included in the final plugin bundle, since
-    // legacy geo and its dependencies (JTS) are already present at runtime
-    // with ES (see the jar/manifest rule below)
-    compileOnly files('libs/legacy-geo-8.18.1.jar')
-    testImplementation files('libs/legacy-geo-8.18.1.jar')
-
     // jts.io.common is not part of ES and will be shipped with this plugin
     implementation group: 'org.locationtech.jts.io', name: 'jts-io-common', version: '1.19.0'
     implementation group: 'org.locationtech.spatial4j', name: 'spatial4j', version: '0.8'
@@ -98,17 +90,6 @@ tasks.named("yamlRestTest").configure {
 
 tasks.named("test").configure {
   systemProperty 'tests.security.manager', 'false'
-}
-
-// Since this plugin is meant to be loaded in an ES >=7.16 instance,
-// we can "link" it to existing classes through a class path without adding other archives
-// to the plugin bundle
-jar {
-    manifest {
-         attributes(
-                "Class-Path": "../../modules/legacy-geo/legacy-geo-8.18.1.jar")
-
-    }
 }
 
 // Make sure the ES distribution used for rest tests is the "complete" variant
