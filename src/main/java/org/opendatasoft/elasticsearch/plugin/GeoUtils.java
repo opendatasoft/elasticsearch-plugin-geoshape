@@ -12,11 +12,6 @@ import org.elasticsearch.geometry.MultiPoint;
 import org.elasticsearch.geometry.MultiPolygon;
 import org.elasticsearch.geometry.Point;
 import org.elasticsearch.geometry.Polygon;
-import org.elasticsearch.legacygeo.builders.GeometryCollectionBuilder;
-import org.elasticsearch.legacygeo.builders.LineStringBuilder;
-import org.elasticsearch.legacygeo.builders.MultiPolygonBuilder;
-import org.elasticsearch.legacygeo.builders.PolygonBuilder;
-import org.elasticsearch.legacygeo.builders.ShapeBuilder;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.LineString;
@@ -247,65 +242,6 @@ public class GeoUtils {
             default:
                 return geoJsonWriter.write(geom);
         }
-    }
-
-    public static LineStringBuilder removeDuplicateCoordinates(LineStringBuilder builder) {
-        Line line = (Line) builder.buildGeometry(); // no direct access to coordinates
-        Vector<Coordinate> newCoordinates = new Vector<Coordinate>();
-
-        Point previous = null;
-        for (int i = 0; i < line.length(); i++) {
-            Point current = new Point(line.getX(i), line.getY(i));
-            if ((previous != null) && (previous.equals(current))) {
-                continue;
-            }
-            newCoordinates.add(new Coordinate(current.getX(), current.getY()));
-            previous = current;
-        }
-        return new LineStringBuilder(newCoordinates);
-    }
-
-    public static PolygonBuilder removeDuplicateCoordinates(PolygonBuilder builder) {
-        LineStringBuilder exteriorBuilder = removeDuplicateCoordinates(builder.shell());
-        PolygonBuilder pb = new PolygonBuilder(exteriorBuilder, /* unused */Orientation.RIGHT, true);
-        List<LineStringBuilder> holes = builder.holes();
-        for (int i = 0; i < holes.size(); i++) {
-            pb.hole(removeDuplicateCoordinates(holes.get(i)), true);
-        }
-        return pb;
-    }
-
-    public static MultiPolygonBuilder removeDuplicateCoordinates(MultiPolygonBuilder builder) {
-        MultiPolygonBuilder mpb = new MultiPolygonBuilder();
-        List<PolygonBuilder> polygons = builder.polygons();
-        for (int i = 0; i < polygons.size(); i++) {
-            mpb.polygon(removeDuplicateCoordinates(polygons.get(i)));
-        }
-        return mpb;
-    }
-
-    public static GeometryCollectionBuilder removeDuplicateCoordinates(GeometryCollectionBuilder builder) {
-        GeometryCollectionBuilder gcb = new GeometryCollectionBuilder();
-        for (int i = 0; i < builder.numShapes(); i++) {
-            gcb.shape(removeDuplicateCoordinates(builder.getShapeAt(i)));
-        }
-        return gcb;
-    }
-
-    public static ShapeBuilder removeDuplicateCoordinates(ShapeBuilder builder) {
-        if (builder instanceof LineStringBuilder) {
-            return removeDuplicateCoordinates((LineStringBuilder) builder);
-        }
-        if (builder instanceof PolygonBuilder) {
-            return removeDuplicateCoordinates((PolygonBuilder) builder);
-        }
-        if (builder instanceof MultiPolygonBuilder) {
-            return removeDuplicateCoordinates((MultiPolygonBuilder) builder);
-        }
-        if (builder instanceof GeometryCollectionBuilder) {
-            return removeDuplicateCoordinates((GeometryCollectionBuilder) builder);
-        }
-        return builder;
     }
 
     /**
