@@ -68,7 +68,6 @@ dependencies {
 
     // jts.io.common is not part of ES and will be shipped with this plugin
     implementation group: 'org.locationtech.jts.io', name: 'jts-io-common', version: '1.19.0'
-    implementation group: 'org.locationtech.spatial4j', name: 'spatial4j', version: '0.8'
 
     // it's necessary to exclude hamcrest-core from the testImplementation Junit4 dependencies since it might be some
     // conflicts with hamcrest (Elastic can use two different hamcrest version and Junit depend on one of them)
