@@ -1,4 +1,4 @@
-name: Build
+name: compile-and-test
 
 on:
   pull_request:

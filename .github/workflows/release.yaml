@@ -1,4 +1,4 @@
-name: build-and-publish
+name: publish
 
 on:
   push:
@@ -9,8 +9,6 @@ on:
 jobs:
   build-artifact:
     runs-on: ubuntu-latest
-    container:
-      image: gradle:8-jdk21
 
     steps:
       - uses: actions/checkout@v4
@@ -33,6 +31,14 @@ jobs:
           VERSION=${TAG_NAME#v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Java Compilation
         run: ./gradlew -Pplugin_version=${{ steps.version.outputs.version }} clean assemble --no-daemon
