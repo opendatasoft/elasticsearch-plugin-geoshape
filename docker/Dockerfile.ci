@@ -1,0 +1,19 @@
+ARG JDK_VERSION=21
+
+FROM gradle:8-jdk${JDK_VERSION} AS test-runner
+
+RUN apt-get update && apt-get install -y dumb-init procps && rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user to run elasticsearch when testing
+RUN useradd -m -u 1001 -s /bin/bash testuser && \
+    usermod -aG sudo testuser
+
+COPY --chown=testuser:testuser . /workspace
+WORKDIR /workspace
+
+USER testuser
+
+# ENV ES_JAVA_OPTS="-Xms1g -Xmx1g -Djava.io.tmpdir=/tmp"
+
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+CMD ["./gradlew", "spotlessCheck", "check", "--no-daemon"]

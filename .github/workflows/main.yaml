@@ -1,0 +1,23 @@
+name: run-test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  # check the compilation and run tests
+  test-plugin:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Image
+        run: |
+          docker build -f docker/Dockerfile.ci -t test-plugin .
+
+      - name: Run tests
+        run: |
+          docker run --rm -v $(pwd):/workspace test-plugin
