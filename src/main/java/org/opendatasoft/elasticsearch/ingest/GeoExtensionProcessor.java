@@ -1,6 +1,7 @@
 package org.opendatasoft.elasticsearch.ingest;
 
 import org.apache.lucene.util.BytesRef;
+import org.elasticsearch.common.geo.GeoJson;
 import org.elasticsearch.common.geo.GeoPoint;
 import org.elasticsearch.common.geo.GeometryNormalizer;
 import org.elasticsearch.common.geo.GeometryParser;
@@ -141,7 +142,7 @@ public class GeoExtensionProcessor extends AbstractProcessor {
                 ingestDocument.setFieldValue(geoShapeField + "." + fixedField, altWKT);
             }
 
-            String geomType = fixedGeom.type().toString();
+            String geomType = GeoJson.getGeoJsonName(fixedGeom);
 
             // compute and add extra geo sub-fields
             // NOTE: elasticsearch.common.geo encodes with Little-Endianess.
