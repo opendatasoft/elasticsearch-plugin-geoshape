@@ -638,8 +638,6 @@
 
 # Test point deduplication on linestring
 # (points do not need to be deduplicated on linestrings)
-# XXX(dag) on a pourtant un removeDuplicateCoordinates pour LineString...
-# Mais peut-être qu'on y passe jamais...
   - do:
       index:
         index: test_index
@@ -785,7 +783,6 @@
       indices.refresh: {}
 
   # Test that the shape has been fixed
-  # TODO: check with reviewer that the geo_extension plugin can re-order the coordinates
   - do:
       search:
         body:
