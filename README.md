@@ -8,7 +8,7 @@ This is an `Ingest`, `Search` and `Script` plugin.
 
 ## Installation
 
-Current supported version is Elasticsearch 7.x (7.17.28).
+Current supported version is Elasticsearch 8.x.
 You can find past releases [here](https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases).
 
 The first 3 digits of the plugin version is the corresponding Elasticsearch version. The last digit is used for plugin versioning.
@@ -371,7 +371,7 @@ or
 ./gradlew assemble  # (to avoid the test suite)
 ```
 
-Then you can find the current version of the plugin at `elasticsearch-plugin-geoshape-7.17.z.d.zip`
+Then you can find the current version of the plugin at e.g. `elasticsearch-plugin-geoshape-7.17.z.d.zip`
 
 In case you have to upgrade Gradle, you can do it with `./gradlew wrapper --gradler-version x.y.z`.
 
@@ -387,20 +387,6 @@ Please be careful during development: you'll need to manually rebuild the .zip u
 change before running `docker-compose` up again.
 
 > NOTE: In `docker-compose.yml` you can uncomment the debug env and attach a REMOTE JVM on `*:5005` to debug the plugin.
-
-Note also that this plugin depends on some Types and Classes from the legacygeo elasticsearch module. In our Gradle script, you find:
-
-```
-compileOnly files('libs/legacy-geo-7.17.28.jar')
-```
-
-or a different version number depending on the current supported Elasticsearch version.
-
-If you're going to update this plugin with a new version, you also need to update this JAR file. To do so, it's necassary to build it from source. So you have to `git clone` the [elasticsearch source code](https://github.com/elastic/elasticsearch), `git checkout vX.Y.Z` with the wanted version and run a build for this specific module with:
-
-`./gradlew :modules:legacy-geo:assemble` with the same Java version. Then you find a JAR file in `modules/legacy-geo/build/distributions/`, e.g. `legacy-geo-7.17.28-SNAPSHOT.jar`. Just copy it into `./libs/legacy-geo-7.17.28.jar` and run the compilation of this plugin with gradle.
-
-Take also a look at this potential deprecation about legacy-geo https://github.com/elastic/elasticsearch/issues/96097
 
 ## License
 
