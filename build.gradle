@@ -1,7 +1,10 @@
+/*
+Gradle build file for development building, testing, and packaging.
+*/
+
 buildscript {
     repositories {
         mavenCentral()
-
     }
 
     dependencies {
@@ -9,15 +12,15 @@ buildscript {
     }
 }
 
+// the spotless plugin is dedicated to format the code
+plugins {
+  id("com.diffplug.spotless") version "7.0.4"
+}
 
 repositories {
     mavenCentral()
     mavenLocal()
-    maven {
-            url "https://repo1.maven.org/maven2"
-    }
 }
-
 
 group = 'org.elasticsearch.plugin'
 version = "${plugin_version}"
@@ -35,51 +38,57 @@ esplugin {
     noticeFile = rootProject.file('README.md')
 }
 
-
-// exclude junit from implementation to resolve a version conflict (but not from tests)
-configurations {
-    implementation {
-        exclude(group: 'junit', module: 'junit')
-    }
-}
-
+def versions = org.elasticsearch.gradle.VersionProperties.versions
 dependencies {
     implementation "org.elasticsearch:elasticsearch:${elastic_version}"
 
-    // We ship the legacy geo archive with sources,
-    // because the compilation stage needs to resolve symbols
-    // However this archive is not included in the final plugin bundle, since
-    // legacy geo and its dependencies (JTS) are already present at runtime
-    // with ES (see the jar/manifest rule below)
-    compileOnly files('libs/legacy-geo-7.17.28.jar')
-
     // jts.io.common is not part of ES and will be shipped with this plugin
-    implementation group: 'org.locationtech.jts.io', name: 'jts-io-common', version: '1.15.0'
+    implementation group: 'org.locationtech.jts.io', name: 'jts-io-common', version: '1.19.0'
 
+    // it's necessary to exclude hamcrest-core from the testImplementation Junit4 dependencies since it might be some
+    // conflicts with hamcrest (Elastic can use two different hamcrest version and Junit depend on one of them)
+//    testImplementation("junit:junit:${junit_version}") {
+//            exclude group: 'org.hamcrest', module: 'hamcrest-core'
+//    }
+//    testImplementation "org.hamcrest:hamcrest:${hamcrest_version}"
+//    testImplementation "org.elasticsearch.test:framework:${elastic_version}"
     yamlRestTestImplementation "org.elasticsearch.test:framework:${elastic_version}"
-    yamlRestTestImplementation "org.apache.logging.log4j:log4j-core:2.17.1"
+    yamlRestTestImplementation "org.elasticsearch.test:yaml-rest-runner:${elastic_version}"
+    yamlRestTestImplementation "org.apache.logging.log4j:log4j-core:${versions.log4j}"
 }
 
-tasks.named("yamlRestTest").configure {
-  systemProperty 'tests.security.manager', 'false'
-}
-
-// Since this plugin is meant to be loaded in an ES >=7.16 instance,
-// we can "link" it to existing classes through a class path without adding other archives
-// to the plugin bundle
-jar {
-    manifest {
-         attributes(
-                "Class-Path": "../../modules/legacy-geo/legacy-geo-7.17.28.jar ../../modules/legacy-geo/jts-core-1.15.0.jar ../../modules/legacy-geo/spatial4j-0.7.jar")
-
+// add -Xlint:deprecation to check the Elasticsearch deprecation warning at compile-time
+allprojects {
+    gradle.projectsEvaluated {
+        tasks.withType(JavaCompile) {
+            options.compilerArgs << "-Xlint:deprecation"
+            options.compilerArgs << "-Xlint:unchecked"
+        }
     }
 }
 
-// Make sure the ES distribution used for rest tests is the "complete" variant
-// Otherwise weirds errors occur (like the geo_shape type is not handled)
-testClusters.configureEach {
-    testDistribution = 'DEFAULT'
-    // disable security to disable failing warnings
-    setting 'xpack.security.enabled', 'false'
+// automatic formatting configuration (the same configuration as elasticsearch)
+spotless {
+    java {
+        importOrderFile('config/elastic.importorder') // import order file as exported from elastic
+        eclipse().configFile('config/formatterConfig.xml')
+        trimTrailingWhitespace()
+        target 'src/**/*.java'
+    }
 }
 
+check.dependsOn spotlessCheck
+
+testClusters.configureEach {
+    // Make sure the ES distribution used for rest tests is the "complete" variant
+    testDistribution = 'DEFAULT'
+
+    // Disable security (avoids annoying warnings/failures with xpack features)
+    setting 'xpack.security.enabled', 'false'
+
+    // Logging levels for debugging: logs are located in build/testclusters/runTask-0/logs/
+    setting 'logger._root', 'DEBUG'
+    setting 'logger.org.elasticsearch.plugins', 'DEBUG'
+    setting 'logger.org.elasticsearch.cluster', 'DEBUG'
+    setting 'logger.org.elasticsearch.cluster.metadata', 'TRACE'
+}

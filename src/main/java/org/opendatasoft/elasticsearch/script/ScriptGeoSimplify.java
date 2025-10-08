@@ -23,7 +23,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-
 public class ScriptGeoSimplify implements ScriptEngine {
     public static final ScriptContext<GeoSearchLeafFactory> CONTEXT = new ScriptContext<>("geo_simplify", GeoSearchLeafFactory.class);
 
@@ -33,12 +32,9 @@ public class ScriptGeoSimplify implements ScriptEngine {
     }
 
     @Override
-    public <T> T compile(String scriptName, String scriptSource,
-                         ScriptContext<T> context, Map<String, String> params) {
+    public <T> T compile(String scriptName, String scriptSource, ScriptContext<T> context, Map<String, String> params) {
         if (!context.equals(FieldScript.CONTEXT)) {
-            throw new IllegalArgumentException(getType()
-                    + " scripts cannot be used for context ["
-                    + context.name + "]");
+            throw new IllegalArgumentException(getType() + " scripts cannot be used for context [" + context.name + "]");
         }
         if ("geo_simplify".equals(scriptName)) {
             FieldScript.Factory factory = GeoSearchLeafFactory::new;
@@ -64,9 +60,8 @@ public class ScriptGeoSimplify implements ScriptEngine {
         private final int zoom;
         GeoUtils.OutputFormat output_format;
         GeoUtils.SimplifyAlgorithm algorithm;
-//        private final int geojson_decimals;
+        // private final int geojson_decimals;
         GeoJsonWriter geoJsonWriter;
-
 
         private Geometry getSimplifiedShape(Geometry geometry) {
             double lat = geometry.getCentroid().getCoordinate().y;
@@ -74,14 +69,14 @@ public class ScriptGeoSimplify implements ScriptEngine {
 
             // double tolerance = 360 / (256 * Math.pow(zoom, 3));
             double tolerance = GeoUtils.getDecimalDegreeFromMeter(meterByPixel, lat);
-            if (algorithm == GeoUtils.SimplifyAlgorithm.TOPOLOGY_PRESERVING)
-                return TopologyPreservingSimplifier.simplify(geometry, tolerance);
-            else
-                return DouglasPeuckerSimplifier.simplify(geometry, tolerance);
+            if (algorithm == GeoUtils.SimplifyAlgorithm.TOPOLOGY_PRESERVING) return TopologyPreservingSimplifier.simplify(
+                geometry,
+                tolerance
+            );
+            else return DouglasPeuckerSimplifier.simplify(geometry, tolerance);
         }
 
-        private GeoSearchLeafFactory(
-                Map<String, Object> params, SearchLookup lookup) {
+        private GeoSearchLeafFactory(Map<String, Object> params, SearchLookup lookup) {
 
             if (params.isEmpty()) {
                 throw new IllegalArgumentException("[params] field is mandatory");
@@ -101,18 +96,20 @@ public class ScriptGeoSimplify implements ScriptEngine {
             output_format = GeoUtils.OutputFormat.GEOJSON;
             if (params.containsKey("output_format")) {
                 String string_output_format = params.get("output_format").toString();
-                if (string_output_format != null)
-                    output_format = GeoUtils.OutputFormat.valueOf(string_output_format.toUpperCase(Locale.getDefault()));
+                if (string_output_format != null) output_format = GeoUtils.OutputFormat.valueOf(
+                    string_output_format.toUpperCase(Locale.getDefault())
+                );
             }
 
             algorithm = GeoUtils.SimplifyAlgorithm.DOUGLAS_PEUCKER;
             if (params.containsKey("algorithm")) {
                 String algorithm_string = params.get("algorithm").toString();
-                if (algorithm_string != null)
-                    algorithm = GeoUtils.SimplifyAlgorithm.valueOf(algorithm_string.toUpperCase(Locale.getDefault()));
+                if (algorithm_string != null) algorithm = GeoUtils.SimplifyAlgorithm.valueOf(
+                    algorithm_string.toUpperCase(Locale.getDefault())
+                );
             }
 
-//            geojson_decimals = 20;
+            // geojson_decimals = 20;
             geoJsonWriter = new GeoJsonWriter();
         }
 
@@ -127,8 +124,7 @@ public class ScriptGeoSimplify implements ScriptEngine {
                     try {
                         ScriptDocValues<?> values_list = getDoc().get(field);
                         wkb = (BytesRef) values_list.get(0);
-                    }
-                    catch (Exception e) {
+                    } catch (Exception e) {
                         return resMap;
                     }
 
@@ -143,15 +139,20 @@ public class ScriptGeoSimplify implements ScriptEngine {
                             resMap.put("real_type", realType);
                         } else {
                             // If the simplified polygon is empty because it was too small, return a point
-                            resMap.put("shape", GeoUtils.exportGeoTo(
-                                    geometryFactory.createPoint(geom.getCoordinate()),
-                                    output_format,
-                                    geoJsonWriter));
+                            resMap.put(
+                                "shape",
+                                GeoUtils.exportGeoTo(geometryFactory.createPoint(geom.getCoordinate()), output_format, geoJsonWriter)
+                            );
                             resMap.put("type", "SimplificationPoint");
                         }
                     } catch (ParseException e) {
-                        throw new ScriptException("Can't parse WKB", e.getCause(), Collections.emptyList(),
-                                "geo_simplified", "geo_extension_scripts");
+                        throw new ScriptException(
+                            "Can't parse WKB",
+                            e.getCause(),
+                            Collections.emptyList(),
+                            "geo_simplified",
+                            "geo_extension_scripts"
+                        );
                     }
 
                     return resMap;
@@ -163,4 +164,3 @@ public class ScriptGeoSimplify implements ScriptEngine {
     }
 
 }
-

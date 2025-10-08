@@ -404,4 +404,4 @@ Take also a look at this potential deprecation about legacy-geo https://github.c
 
 ## License
 
-This software is under The MIT License (MIT).
+This software is under AGPL (GNU Affero General Public License)

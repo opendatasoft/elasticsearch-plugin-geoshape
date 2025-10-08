@@ -16,7 +16,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Map;
 
-
 class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory {
 
     private GeoUtils.OutputFormat output_format;
@@ -25,17 +24,18 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory {
     private GeoShape.Algorithm algorithm;
     private final GeoShapeAggregator.BucketCountThresholds bucketCountThresholds;
 
-    GeoShapeAggregatorFactory(String name,
-                              ValuesSourceConfig config,
-                              GeoUtils.OutputFormat output_format,
-                              boolean must_simplify,
-                              int zoom,
-                              GeoShape.Algorithm algorithm,
-                              GeoShapeAggregator.BucketCountThresholds bucketCountThresholds,
-                              AggregationContext context,
-                              AggregatorFactory parent,
-                              AggregatorFactories.Builder subFactoriesBuilder,
-                              Map<String, Object> metaData
+    GeoShapeAggregatorFactory(
+        String name,
+        ValuesSourceConfig config,
+        GeoUtils.OutputFormat output_format,
+        boolean must_simplify,
+        int zoom,
+        GeoShape.Algorithm algorithm,
+        GeoShapeAggregator.BucketCountThresholds bucketCountThresholds,
+        AggregationContext context,
+        AggregatorFactory parent,
+        AggregatorFactories.Builder subFactoriesBuilder,
+        Map<String, Object> metaData
     ) throws IOException {
         super(name, config, context, parent, subFactoriesBuilder, metaData);
         this.output_format = output_format;
@@ -46,13 +46,15 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory {
     }
 
     @Override
-    protected Aggregator createUnmapped(
-            Aggregator parent,
-            Map<String,
-                    Object> metadata) throws IOException {
-        final InternalAggregation aggregation = new InternalGeoShape(name, new ArrayList<>(), output_format,
-                bucketCountThresholds.getRequiredSize(), bucketCountThresholds.getShardSize(),
-                metadata);
+    protected Aggregator createUnmapped(Aggregator parent, Map<String, Object> metadata) throws IOException {
+        final InternalAggregation aggregation = new InternalGeoShape(
+            name,
+            new ArrayList<>(),
+            output_format,
+            bucketCountThresholds.getRequiredSize(),
+            bucketCountThresholds.getShardSize(),
+            metadata
+        );
         return new NonCollectingAggregator(name, context, parent, factories, metadata) {
             @Override
             public InternalAggregation buildEmptyAggregation() {
@@ -62,25 +64,26 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory {
     }
 
     @Override
-    protected Aggregator doCreateInternal(Aggregator parent, CardinalityUpperBound cardinality,
-                                          Map<String, Object> metadata) throws IOException {
-        GeoShapeAggregator.BucketCountThresholds bucketCountThresholds = new
-                GeoShapeAggregator.BucketCountThresholds(this.bucketCountThresholds);
+    protected Aggregator doCreateInternal(Aggregator parent, CardinalityUpperBound cardinality, Map<String, Object> metadata)
+        throws IOException {
+        GeoShapeAggregator.BucketCountThresholds bucketCountThresholds = new GeoShapeAggregator.BucketCountThresholds(
+            this.bucketCountThresholds
+        );
         bucketCountThresholds.ensureValidity();
         ValuesSource valuesSourceBytes = config.getValuesSource();
         return new GeoShapeAggregator(
-                name,
-                factories,
-                context,
-                valuesSourceBytes,
-                output_format,
-                must_simplify,
-                zoom,
-                algorithm,
-                bucketCountThresholds,
-                parent,
-                cardinality,
-                metadata);
+            name,
+            factories,
+            context,
+            valuesSourceBytes,
+            output_format,
+            must_simplify,
+            zoom,
+            algorithm,
+            bucketCountThresholds,
+            parent,
+            cardinality,
+            metadata
+        );
     }
 }
-

@@ -9,6 +9,7 @@ import java.util.List;
  */
 public interface GeoShape extends MultiBucketsAggregation {
     interface Bucket extends MultiBucketsAggregation.Bucket {}
+
     enum Algorithm {
         DOUGLAS_PEUCKER,
         TOPOLOGY_PRESERVING

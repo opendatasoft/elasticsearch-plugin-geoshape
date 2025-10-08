@@ -18,7 +18,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
 
-
 public class GeoExtensionPlugin extends Plugin implements IngestPlugin, ScriptPlugin, SearchPlugin {
     // Ingest plugin method
     @Override
@@ -38,12 +37,9 @@ public class GeoExtensionPlugin extends Plugin implements IngestPlugin, ScriptPl
         ArrayList<SearchPlugin.AggregationSpec> r = new ArrayList<>();
 
         r.add(
-                new SearchPlugin.AggregationSpec(
-                        GeoShapeBuilder.NAME,
-                        GeoShapeBuilder::new,
-                        GeoShapeBuilder::parse)
-                        .addResultReader(InternalGeoShape::new)
-                        .setAggregatorRegistrar(GeoShapeBuilder::registerAggregators)
+            new SearchPlugin.AggregationSpec(GeoShapeBuilder.NAME, GeoShapeBuilder::new, GeoShapeBuilder::parse).addResultReader(
+                InternalGeoShape::new
+            ).setAggregatorRegistrar(GeoShapeBuilder::registerAggregators)
         );
 
         return r;
