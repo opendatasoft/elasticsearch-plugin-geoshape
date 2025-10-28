@@ -68,7 +68,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
 
     @Override
     public TransportVersion getMinimalSupportedVersion() {
-        return TransportVersions.MINIMUM_COMPATIBLE;
+        return TransportVersion.zero();
     }
 
     static class SimplifyKeysParser {

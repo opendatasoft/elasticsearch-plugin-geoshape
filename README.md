@@ -14,7 +14,7 @@ You can find past releases [here](https://github.com/opendatasoft/elasticsearch-
 The first 3 digits of the plugin version is the corresponding Elasticsearch version. The last digit is used for plugin versioning.
 
 To install it, launch this command in Elasticsearch directory replacing the url by the correct link for your Elasticsearch version (see table)
-`bin/elasticsearch-plugin install https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v8.19.4.0/elasticsearch-plugin-geoshape-8.19.4.0.zip"`
+`bin/elasticsearch-plugin install https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v8.19.6.0/elasticsearch-plugin-geoshape-8.19.6.0.zip"`
 
 
 ## Build
