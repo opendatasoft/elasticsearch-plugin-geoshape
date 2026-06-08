@@ -291,6 +291,7 @@ Result:
 ```
 "aggregations": {
   "geo_preview": {
+    "sum_other_doc_count": 0,
     "buckets": [
       {
         "key": "AAAAAAMAAAABAAAABkAALAAAAAAAQEhMXSKIhts/+uT//////0BIhrDKsBJAQACGAAAAAABASJ2wcvbTDkAGPIAAAAAAQEiZGKALhAxAChqAAAAAAEBIdhR0tDaAQAAsAAAAAABASExdIoiG2w==",
@@ -302,6 +303,10 @@ Result:
   }
 }
 ```
+
+`sum_other_doc_count` is the total number of documents carried by the shapes that are **not** returned (because of `size` or `shard_size`). It is `0` when every shape is returned, and `> 0` when the result is truncated. It is **exact**, including shapes dropped per-shard by `shard_size`, and mirrors the field of the same name on elasticsearch's `terms` aggregation.
+
+Note: because buckets are ranked by perimeter (an intrinsic property of each shape, identical on every shard), `shard_size` does not need to exceed `size` to return the exact top-`size` largest shapes (unlike `terms`, where `shard_size` trades off accuracy).
 
 
 

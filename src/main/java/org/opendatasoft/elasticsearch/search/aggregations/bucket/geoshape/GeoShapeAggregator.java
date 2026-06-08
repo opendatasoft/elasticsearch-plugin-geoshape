@@ -137,7 +137,10 @@ public class GeoShapeAggregator extends BucketsAggregator {
                 InternalGeoShape.BucketPriorityQueue ordered = new InternalGeoShape.BucketPriorityQueue(size);
 
                 InternalGeoShape.InternalBucket spare = null;
+                // Total doc count of every distinct shape collected on this shard, before `shard_size` truncation.
+                long totalDocCount = 0;
                 for (int i = 0; i < bucketOrds.size(); i++) {
+                    totalDocCount += bucketDocCount(i);
                     if (spare == null) {
                         spare = new InternalGeoShape.InternalBucket(new BytesRef(), null, null, 0, 0, null);
                     }
@@ -190,12 +193,21 @@ public class GeoShapeAggregator extends BucketsAggregator {
                     topBucketsPerOrd.get(ordIdx)[i] = bucket;
                 }
 
+                // Docs carried by the shapes this shard actually returns; the rest is reported as "other".
+                long returnedDocCount = 0;
+                for (InternalGeoShape.InternalBucket bucket : topBucketsPerOrd.get(ordIdx)) {
+                    if (bucket != null) {
+                        returnedDocCount += bucket.docCount;
+                    }
+                }
+
                 results[Math.toIntExact(ordIdx)] = new InternalGeoShape(
                     name,
                     Arrays.asList(topBucketsPerOrd.get(ordIdx)),
                     output_format,
                     bucketCountThresholds.getRequiredSize(),
                     bucketCountThresholds.getShardSize(),
+                    totalDocCount - returnedDocCount,
                     metadata()
                 );
             }
@@ -214,6 +226,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
             output_format,
             bucketCountThresholds.getRequiredSize(),
             bucketCountThresholds.getShardSize(),
+            0,
             metadata()
         );
     }

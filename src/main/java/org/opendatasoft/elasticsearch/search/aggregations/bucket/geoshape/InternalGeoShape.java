@@ -150,6 +150,9 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
     private List<InternalBucket> buckets;
     private final int requiredSize;
     private final int shardSize;
+    // Total doc count of the shapes that are NOT returned (dropped by `size` at the coordinator or by
+    // `shard_size` at the shard). Exact: each shard knows precisely how many docs it dropped.
+    private final long otherDocCount;
     private OutputFormat output_format;
     private GeoJsonWriter geoJsonWriter;
 
@@ -159,6 +162,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         OutputFormat output_format,
         int requiredSize,
         int shardSize,
+        long otherDocCount,
         Map<String, Object> metadata
     ) {
         super(name, metadata);
@@ -166,6 +170,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         this.output_format = output_format;
         this.requiredSize = requiredSize;
         this.shardSize = shardSize;
+        this.otherDocCount = otherDocCount;
         geoJsonWriter = new GeoJsonWriter();
     }
 
@@ -177,6 +182,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         output_format = OutputFormat.valueOf(in.readString());
         requiredSize = readSize(in);
         shardSize = readSize(in);
+        otherDocCount = in.readVLong();
         this.buckets = in.readCollectionAsList(InternalBucket::new);
     }
 
@@ -188,6 +194,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         out.writeString(output_format.name());
         writeSize(requiredSize, out);
         writeSize(shardSize, out);
+        out.writeVLong(otherDocCount);
         out.writeCollection(buckets);
     }
 
@@ -198,7 +205,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
 
     @Override
     public InternalGeoShape create(List<InternalBucket> buckets) {
-        return new InternalGeoShape(this.name, buckets, output_format, requiredSize, shardSize, this.metadata);
+        return new InternalGeoShape(this.name, buckets, output_format, requiredSize, shardSize, otherDocCount, this.metadata);
     }
 
     @Override
@@ -222,10 +229,13 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
     protected AggregatorReducer getLeaderReducer(AggregationReduceContext reduceContext, int size) {
         return new AggregatorReducer() {
             private LongObjectPagedHashMap<List<InternalBucket>> buckets = new LongObjectPagedHashMap<>(size, reduceContext.bigArrays());
+            // Carry the doc count of shapes already dropped upstream (per-shard `shard_size`, earlier partial reduces).
+            private long otherDocCountSum = 0;
 
             @Override
             public void accept(InternalAggregation aggregation) {
                 InternalGeoShape shape = (InternalGeoShape) aggregation;
+                otherDocCountSum += shape.otherDocCount;
 
                 if (buckets == null) {
                     buckets = new LongObjectPagedHashMap<>(shape.buckets.size(), reduceContext.bigArrays());
@@ -243,20 +253,40 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
 
             @Override
             public InternalAggregation get() {
-                final int size = !reduceContext.isFinalReduce() ? (int) buckets.size() : Math.min(requiredSize, (int) buckets.size());
+                final boolean isFinalReduce = reduceContext.isFinalReduce();
+                final long distinctShapes = buckets.size();
+                final int size = !isFinalReduce ? (int) distinctShapes : Math.min(requiredSize, (int) distinctShapes);
 
                 BucketPriorityQueue ordered = new BucketPriorityQueue(size);
+                long totalDocCount = 0;
                 for (LongObjectPagedHashMap.Cursor<List<InternalBucket>> cursor : buckets) {
                     List<InternalBucket> sameCellBuckets = cursor.value;
-                    ordered.insertWithOverflow(reduceBucket(sameCellBuckets, reduceContext));
+                    InternalBucket reducedBucket = reduceBucket(sameCellBuckets, reduceContext);
+                    totalDocCount += reducedBucket.docCount;
+                    ordered.insertWithOverflow(reducedBucket);
                 }
                 buckets.close();
                 InternalBucket[] list = new InternalBucket[ordered.size()];
+                long returnedDocCount = 0;
                 for (int i = ordered.size() - 1; i >= 0; i--) {
                     list[i] = ordered.pop();
+                    returnedDocCount += list[i].docCount;
                 }
 
-                return new InternalGeoShape(getName(), Arrays.asList(list), output_format, requiredSize, shardSize, getMetadata());
+                // Docs hidden = those dropped upstream + those merged here but dropped by `size`.
+                // At a non-final reduce nothing is dropped by `size` (the queue keeps every shape), so this
+                // just carries otherDocCountSum forward.
+                long reducedOtherDocCount = otherDocCountSum + (totalDocCount - returnedDocCount);
+
+                return new InternalGeoShape(
+                    getName(),
+                    Arrays.asList(list),
+                    output_format,
+                    requiredSize,
+                    shardSize,
+                    reducedOtherDocCount,
+                    getMetadata()
+                );
             }
         };
     }
@@ -278,6 +308,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
 
     @Override
     public XContentBuilder doXContentBody(XContentBuilder builder, Params params) throws IOException {
+        builder.field("sum_other_doc_count", otherDocCount);
         builder.startArray(CommonFields.BUCKETS.getPreferredName());
         for (InternalBucket bucket : buckets) {
             builder.startObject();
@@ -298,7 +329,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), buckets, output_format, requiredSize, shardSize);
+        return Objects.hash(super.hashCode(), buckets, output_format, requiredSize, shardSize, otherDocCount);
     }
 
     @Override
@@ -311,7 +342,8 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         return Objects.equals(buckets, that.buckets)
             && Objects.equals(output_format, that.output_format)
             && Objects.equals(requiredSize, that.requiredSize)
-            && Objects.equals(shardSize, that.shardSize);
+            && Objects.equals(shardSize, that.shardSize)
+            && Objects.equals(otherDocCount, that.otherDocCount);
     }
 
     // The priority queue is used to retain the top N buckets (i.e. shapes)
