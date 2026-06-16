@@ -203,3 +203,136 @@
 
   # coordinates length must be 37. it's not possible to test this length because the shape is dumped as a text, so we're testing the full shape length here instead
   - length: {aggregations.g.buckets.1.key: 935}
+
+---
+"Test truncation reporting: sum_other_doc_count":
+
+# Create the pipeline
+  - do:
+      ingest.put_pipeline:
+        id: "geo_extension"
+        body:  >
+          {
+            "description": "Add extra geo fields to geo_shape fields.",
+            "processors": [
+              {
+                "geo_extension": {
+                  "field": "geo_shape_*"
+                }
+              }
+            ]
+          }
+  - match: { acknowledged: true }
+
+# Single shard so the shard_size behaviour is deterministic
+  - do:
+      indices.create:
+        index: test_index
+        body:
+          settings:
+            number_of_shards: 1
+
+  - do:
+      indices.put_mapping:
+        index: test_index
+        body:
+          dynamic_templates: [
+            {
+              "geo_shapes": {
+                "match": "geo_shape_*",
+                "mapping": {
+                  "properties": {
+                    "shape": {"enabled": false},
+                    "fixed_shape": {"type": "geo_shape"},
+                    "hash": {"type": "keyword"},
+                    "wkb": {"type": "binary", "doc_values": true},
+                    "type": {"type": "keyword"},
+                    "area": {"type": "half_float"},
+                    "bbox": {"type": "geo_point"},
+                    "centroid": {"type": "geo_point"}
+                  }
+                }
+              }
+            }
+          ]
+
+# 3 distinct shapes, 4 docs total:
+#   BIG   (~1 deg perimeter)   x1  -> largest perimeter, returned first
+#   MED   (~0.1 deg perimeter) x2  -> same WKB twice => docCount 2
+#   SMALL (~0.01 deg perimeter)x1
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": 1, "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[1,0],[1,1],[0,1],[0,0]]] } }
+
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": 2, "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[0.1,0],[0.1,0.1],[0,0.1],[0,0]]] } }
+
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": 3, "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[0.1,0],[0.1,0.1],[0,0.1],[0,0]]] } }
+
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": 4, "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[0.01,0],[0.01,0.01],[0,0.01],[0,0]]] } }
+
+  - do:
+      indices.refresh: {}
+
+# size:1, shard_size:10 -> BIG returned; MED & SMALL dropped by `size` at the coordinator.
+#   sum_other_doc_count = 3 docs hidden (MED x2 + SMALL x1)
+  - do:
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: geojson
+                size: 1
+                shard_size: 10
+  - length: { aggregations.g.buckets: 1 }
+  - match: { aggregations.g.sum_other_doc_count: 3 }
+  # other_bucket_count was removed: the field must no longer be present
+  - is_false: aggregations.g.other_bucket_count
+
+# size:10, shard_size:10 -> everything fits, nothing hidden
+  - do:
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: geojson
+                size: 10
+                shard_size: 10
+  - length: { aggregations.g.buckets: 3 }
+  - match: { aggregations.g.sum_other_doc_count: 0 }
+
+# size:1, shard_size:1 -> the shard itself drops MED & SMALL before reduce.
+#   sum_other_doc_count stays EXACT (3) thanks to per-shard propagation, even though
+#   those shapes never reached the coordinator.
+  - do:
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: geojson
+                size: 1
+                shard_size: 1
+  - length: { aggregations.g.buckets: 1 }
+  - match: { aggregations.g.sum_other_doc_count: 3 }
