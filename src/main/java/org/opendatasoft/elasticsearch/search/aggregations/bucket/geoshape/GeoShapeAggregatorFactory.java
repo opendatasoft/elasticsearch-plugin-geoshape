@@ -53,6 +53,7 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory {
             output_format,
             bucketCountThresholds.getRequiredSize(),
             bucketCountThresholds.getShardSize(),
+            0,
             metadata
         );
         return new NonCollectingAggregator(name, context, parent, factories, metadata) {

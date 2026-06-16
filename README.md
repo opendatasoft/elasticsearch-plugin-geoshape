@@ -14,7 +14,7 @@ You can find past releases [here](https://github.com/opendatasoft/elasticsearch-
 The first 3 digits of the plugin version is the corresponding Elasticsearch version. The last digit is used for plugin versioning.
 
 To install it, launch this command in Elasticsearch directory replacing the url by the correct link for your Elasticsearch version (see table)
-`bin/elasticsearch-plugin install https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v8.19.6.0/elasticsearch-plugin-geoshape-8.19.6.0.zip"`
+`bin/elasticsearch-plugin install https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v8.19.6.1/elasticsearch-plugin-geoshape-8.19.6.1.zip"`
 
 
 ## Build
@@ -291,6 +291,7 @@ Result:
 ```
 "aggregations": {
   "geo_preview": {
+    "sum_other_doc_count": 0,
     "buckets": [
       {
         "key": "AAAAAAMAAAABAAAABkAALAAAAAAAQEhMXSKIhts/+uT//////0BIhrDKsBJAQACGAAAAAABASJ2wcvbTDkAGPIAAAAAAQEiZGKALhAxAChqAAAAAAEBIdhR0tDaAQAAsAAAAAABASExdIoiG2w==",
@@ -302,6 +303,10 @@ Result:
   }
 }
 ```
+
+`sum_other_doc_count` is the total number of documents carried by the shapes that are **not** returned (because of `size` or `shard_size`). It is `0` when every shape is returned, and `> 0` when the result is truncated. It is **exact**, including shapes dropped per-shard by `shard_size`, and mirrors the field of the same name on elasticsearch's `terms` aggregation.
+
+Note: because buckets are ranked by perimeter (an intrinsic property of each shape, identical on every shard), `shard_size` does not need to exceed `size` to return the exact top-`size` largest shapes (unlike `terms`, where `shard_size` trades off accuracy).
 
 
 
