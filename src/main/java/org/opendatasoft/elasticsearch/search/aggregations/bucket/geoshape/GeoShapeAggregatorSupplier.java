@@ -21,6 +21,7 @@ public interface GeoShapeAggregatorSupplier {
         boolean must_simplify,
         int zoom,
         GeoShape.Algorithm algorithm,
+        TileParams tile,
         GeoShapeAggregator.BucketCountThresholds bucketCountThresholds,
         Aggregator parent,
         CardinalityUpperBound cardinalityUpperBound,

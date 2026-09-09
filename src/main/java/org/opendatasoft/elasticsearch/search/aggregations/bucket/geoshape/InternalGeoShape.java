@@ -110,8 +110,12 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
             return wkb.compareTo(other.wkb);
         }
 
+        /**
+         * Key the coordinator merges buckets on: the 64-bit hash of the shape <b>as stored</b>, not of
+         * {@link #wkb}, in which two distinct shapes that simplified or quantized alike would collide.
+         */
         private long getShapeHash() {
-            return wkb.hashCode();
+            return Long.parseLong(wkbHash);
         }
 
         private String getType() {

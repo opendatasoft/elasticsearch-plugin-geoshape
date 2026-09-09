@@ -6,8 +6,13 @@ import org.elasticsearch.geometry.MultiPolygon;
 import org.elasticsearch.geometry.Polygon;
 import org.elasticsearch.test.ESTestCase;
 import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.Point;
+import org.locationtech.jts.io.ByteOrderValues;
+import org.locationtech.jts.io.WKBWriter;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -138,5 +143,23 @@ public class GeoUtilsTests extends ESTestCase {
         double[] lats = coordinates.stream().mapToDouble(coord -> coord.y).toArray();
 
         return new LinearRing(lats, lons);
+    }
+
+    /**
+     * A point is recognized from its WKB header alone, so the length must match too: a truncated value
+     * with a point header would otherwise skip the parser that rejects it, and fail the response later.
+     */
+    public void testWkbIsPoint() {
+        GeometryFactory factory = new GeometryFactory();
+        Point point = factory.createPoint(new Coordinate(1, 2));
+        byte[] bigEndian = new WKBWriter(2, ByteOrderValues.BIG_ENDIAN).write(point);
+        byte[] littleEndian = new WKBWriter(2, ByteOrderValues.LITTLE_ENDIAN).write(point);
+
+        assertTrue(GeoUtils.wkbIsPoint(bigEndian));
+        assertTrue(GeoUtils.wkbIsPoint(littleEndian));
+        assertFalse("a truncated point is not a point", GeoUtils.wkbIsPoint(Arrays.copyOf(littleEndian, 5)));
+        assertFalse(GeoUtils.wkbIsPoint(Arrays.copyOf(littleEndian, 20)));
+        Coordinate[] segment = { new Coordinate(0, 0), new Coordinate(1, 1) };
+        assertFalse(GeoUtils.wkbIsPoint(new WKBWriter().write(factory.createLineString(segment))));
     }
 }
