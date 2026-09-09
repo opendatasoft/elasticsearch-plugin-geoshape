@@ -9,14 +9,31 @@ import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LinearRing;
 import org.locationtech.jts.geom.Point;
+import org.locationtech.jts.geom.Polygon;
+import org.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.TileParams;
 
 /**
  * Covers the geometric primitives the tile pipeline is built from: projection, clipping, ring
- * orientation, and the sign convention they all have to agree on.
+ * orientation, and the sign convention they all have to agree on, plus the tile window they are
+ * driven by.
+ *
+ * <p>The fixture tile is z=6/x=31/y=22, the one the perf investigation profiled.
  */
 public class TilePipelineTests extends ESTestCase {
 
+    private static final int EXTENT = 4096;
+
+    // z=6/x=31/y=22 bounds, as mercantile computes them.
+    private static final double TILE_MIN_LON = -5.625;
+    private static final double TILE_MIN_LAT = 45.089035564831015;
+    private static final double TILE_MAX_LON = 0.0;
+    private static final double TILE_MAX_LAT = 48.92249926375824;
+
     private final GeometryFactory factory = new GeometryFactory();
+
+    private TileParams tileParams() {
+        return new TileParams(TILE_MIN_LON, TILE_MIN_LAT, TILE_MAX_LON, TILE_MAX_LAT, EXTENT, TileParams.DEFAULT_BUFFER);
+    }
 
     private LinearRing ccwRing(double minLon, double minLat, double maxLon, double maxLat) {
         return factory.createLinearRing(
@@ -151,5 +168,103 @@ public class TilePipelineTests extends ESTestCase {
         GeoUtils.orientRings(line);
         CoordinateSequence sequence = ((org.locationtech.jts.geom.LineString) line).getCoordinateSequence();
         assertEquals("line direction must be preserved", -4.0, sequence.getOrdinate(0, CoordinateSequence.X), 0.0);
+    }
+
+    private LinearRing cwRing(double minLon, double minLat, double maxLon, double maxLat) {
+        return (LinearRing) ccwRing(minLon, minLat, maxLon, maxLat).reverse();
+    }
+
+    /** A polygon fully inside the tile, with a hole, wound per RFC 7946. */
+    private Polygon insideTileWithHole() {
+        return factory.createPolygon(ccwRing(-4.0, 46.0, -2.0, 48.0), new LinearRing[] { cwRing(-3.5, 46.5, -2.5, 47.5) });
+    }
+
+    public void testGridOriginIsTopLeftCorner() {
+        TileParams tile = tileParams();
+
+        Point topLeft = factory.createPoint(new Coordinate(TILE_MIN_LON, TILE_MAX_LAT));
+        GeoUtils.toTileGrid(topLeft, tile.mercatorEnvelope(), EXTENT);
+        assertEquals("top-left x", 0.0, topLeft.getX(), 0.0);
+        assertEquals("top-left y", 0.0, topLeft.getY(), 0.0);
+
+        Point bottomRight = factory.createPoint(new Coordinate(TILE_MAX_LON, TILE_MIN_LAT));
+        GeoUtils.toTileGrid(bottomRight, tile.mercatorEnvelope(), EXTENT);
+        assertEquals("bottom-right x", (double) EXTENT, bottomRight.getX(), 0.0);
+        assertEquals("bottom-right y", (double) EXTENT, bottomRight.getY(), 0.0);
+    }
+
+    public void testBufferFallsOutsideTheExtent() {
+        TileParams tile = tileParams();
+        // Just west of the tile, inside the 6.25% buffer.
+        Point point = factory.createPoint(new Coordinate(TILE_MIN_LON - 0.1, TILE_MAX_LAT - 0.1));
+        assertTrue("point should survive the clip window", tile.clipEnvelope().contains(point.getCoordinate()));
+
+        GeoUtils.toTileGrid(point, tile.mercatorEnvelope(), EXTENT);
+        assertTrue("a point in the buffer must land outside [0, extent]", point.getX() < 0);
+    }
+
+    public void testWorldWideBboxStillQuantizesOntoTheGrid() {
+        TileParams world = new TileParams(-180, -90, 180, 90, EXTENT, 0);
+        Envelope mercator = world.mercatorEnvelope();
+        assertTrue("envelope height must be finite", Double.isFinite(mercator.getHeight()));
+        assertTrue("envelope height must not be zero", mercator.getHeight() > 0);
+
+        Point point = factory.createPoint(new Coordinate(0, 0));
+        GeoUtils.toTileGrid(point, mercator, EXTENT);
+        assertTrue("x must land on the grid, got " + point.getX(), point.getX() >= 0 && point.getX() <= EXTENT);
+        assertTrue("y must land on the grid, got " + point.getY(), point.getY() >= 0 && point.getY() <= EXTENT);
+    }
+
+    public void testClipKeepsAShapeAlreadyInsideUntouched() {
+        Polygon polygon = insideTileWithHole();
+        Geometry clipped = GeoUtils.clipToBbox(polygon, tileParams().clipEnvelope());
+        assertSame("a shape fully inside must not go through an overlay", polygon, clipped);
+    }
+
+    public void testClipEmptiesAShapeOutsideTheWindow() {
+        Polygon faraway = factory.createPolygon(ccwRing(20.0, 20.0, 21.0, 21.0));
+        Geometry clipped = GeoUtils.clipToBbox(faraway, tileParams().clipEnvelope());
+        assertTrue("a shape outside the window must clip to empty", clipped.isEmpty());
+    }
+
+    /**
+     * Latitude is not cyclic, so both orderings describe the same band and both are accepted. This is
+     * what lets a caller pass mercantile's (west, south, east, north) or elasticsearch's envelope
+     * ordering (west, north, east, south) interchangeably.
+     */
+    public void testEitherLatitudeOrderIsAccepted() {
+        TileParams southFirst = tileParams();
+        TileParams northFirst = new TileParams(TILE_MIN_LON, TILE_MAX_LAT, TILE_MAX_LON, TILE_MIN_LAT, EXTENT, TileParams.DEFAULT_BUFFER);
+
+        assertEquals(southFirst.mercatorEnvelope(), northFirst.mercatorEnvelope());
+        assertEquals(southFirst.clipEnvelope(), northFirst.clipEnvelope());
+    }
+
+    /**
+     * Longitude is cyclic, so a decreasing pair is ambiguous: [170, -170] could be the 20 degree
+     * strip across the antimeridian or the 340 degree band the other way. Rejected rather than
+     * guessed at.
+     */
+    public void testDecreasingLongitudeIsRejected() {
+        IllegalArgumentException e = expectThrows(
+            IllegalArgumentException.class,
+            () -> new TileParams(170, 40, -170, 50, EXTENT, TileParams.DEFAULT_BUFFER)
+        );
+        assertTrue(e.getMessage(), e.getMessage().contains("antimeridian"));
+    }
+
+    public void testCoordinatesOutsideTheirRangeAreRejected() {
+        expectThrows(IllegalArgumentException.class, () -> new TileParams(-181, 40, 10, 50, EXTENT, 0));
+        expectThrows(IllegalArgumentException.class, () -> new TileParams(0, 40, 181, 50, EXTENT, 0));
+        expectThrows(IllegalArgumentException.class, () -> new TileParams(0, -91, 10, 50, EXTENT, 0));
+        expectThrows(IllegalArgumentException.class, () -> new TileParams(0, 40, 10, 91, EXTENT, 0));
+    }
+
+    /** validate() must guard every entry point, not just the JSON parser. */
+    public void testDegenerateBboxIsRejectedByTheConstructor() {
+        IllegalArgumentException sameLon = expectThrows(IllegalArgumentException.class, () -> new TileParams(5, 45, 5, 48, EXTENT, 0));
+        assertTrue(sameLon.getMessage(), sameLon.getMessage().contains("degenerate"));
+
+        expectThrows(IllegalArgumentException.class, () -> new TileParams(0, 45, 5, 45, EXTENT, 0));
     }
 }

@@ -43,6 +43,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
 
     private static final ParseField OUTPUT_FORMAT_FIELD = new ParseField("output_format");
     public static final ParseField SIMPLIFY_FIELD = new ParseField("simplify");
+    public static final ParseField TILE_FIELD = new ParseField("tile");
     public static final ParseField SIZE_FIELD = new ParseField("size");
     public static final ParseField SHARD_SIZE_FIELD = new ParseField("shard_size");
 
@@ -58,6 +59,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
             (p, c) -> SimplifyKeysParser.Parser.parseSimplifyParam(p),
             SIMPLIFY_FIELD
         );
+        PARSER.declareObject(GeoShapeBuilder::tile, (p, c) -> TileParams.parse(p), TILE_FIELD);
         PARSER.declareInt(GeoShapeBuilder::size, SIZE_FIELD);
         PARSER.declareInt(GeoShapeBuilder::shardSize, SHARD_SIZE_FIELD);
     }
@@ -105,6 +107,8 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
     private GeoUtils.OutputFormat output_format = DEFAULT_OUTPUT_FORMAT;
     private int simplify_zoom = DEFAULT_ZOOM;
     private GeoShape.Algorithm simplify_algorithm = DEFAULT_ALGORITHM;
+    // Optional: when null, shapes are returned whole, in WGS84, exactly as before.
+    private TileParams tile = null;
     private GeoShapeAggregator.BucketCountThresholds bucketCountThresholds = new GeoShapeAggregator.BucketCountThresholds(
         DEFAULT_BUCKET_COUNT_THRESHOLDS
     );
@@ -124,6 +128,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
         output_format = GeoUtils.OutputFormat.valueOf(in.readString());
         simplify_zoom = in.readInt();
         simplify_algorithm = GeoShape.Algorithm.valueOf(in.readString());
+        tile = in.readOptionalWriteable(TileParams::new);
     }
 
     /**
@@ -136,6 +141,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
         out.writeString(output_format.name());
         out.writeInt(simplify_zoom);
         out.writeString(simplify_algorithm.name());
+        out.writeOptionalWriteable(tile);
     }
 
     private GeoShapeBuilder(GeoShapeBuilder clone, Builder factoriesBuilder, Map<String, Object> metaData) {
@@ -144,6 +150,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
         must_simplify = clone.must_simplify;
         simplify_zoom = clone.simplify_zoom;
         simplify_algorithm = clone.simplify_algorithm;
+        tile = clone.tile;
         this.bucketCountThresholds = new GeoShapeAggregator.BucketCountThresholds(clone.bucketCountThresholds);
     }
 
@@ -170,6 +177,11 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
             this.simplify_zoom = (int) simplify_keys.get(0);
             this.simplify_algorithm = GeoShape.Algorithm.valueOf(((String) simplify_keys.get(1)).toUpperCase(Locale.getDefault()));
         }
+        return this;
+    }
+
+    private GeoShapeBuilder tile(TileParams tile) {
+        this.tile = tile;
         return this;
     }
 
@@ -218,6 +230,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
             must_simplify,
             simplify_zoom,
             simplify_algorithm,
+            tile,
             bucketCountThresholds,
             queryShardContext,
             parent,
@@ -234,6 +247,10 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
             builder.field(OUTPUT_FORMAT_FIELD.getPreferredName(), output_format);
         }
 
+        if (tile != null) {
+            builder.field(TILE_FIELD.getPreferredName(), tile);
+        }
+
         return builder.endObject();
     }
 
@@ -242,7 +259,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
      */
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), output_format, must_simplify, simplify_zoom, simplify_algorithm, bucketCountThresholds);
+        return Objects.hash(super.hashCode(), output_format, must_simplify, simplify_zoom, simplify_algorithm, tile, bucketCountThresholds);
     }
 
     @Override
@@ -256,6 +273,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
             && Objects.equals(must_simplify, other.must_simplify)
             && Objects.equals(simplify_zoom, other.simplify_zoom)
             && Objects.equals(simplify_algorithm, other.simplify_algorithm)
+            && Objects.equals(tile, other.tile)
             && Objects.equals(bucketCountThresholds, other.bucketCountThresholds);
     }
 

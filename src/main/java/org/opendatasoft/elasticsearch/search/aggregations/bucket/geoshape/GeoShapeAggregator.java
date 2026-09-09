@@ -48,6 +48,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
     private boolean must_simplify;
     private int zoom;
     private GeoShape.Algorithm algorithm;
+    private final TileParams tile;
 
     private WKBReader wkbReader;
     private final GeometryFactory geometryFactory;
@@ -61,6 +62,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
         boolean must_simplify,
         int zoom,
         GeoShape.Algorithm algorithm,
+        TileParams tile,
         BucketCountThresholds bucketCountThresholds,
         Aggregator parent,
         CardinalityUpperBound cardinalityUpperBound,
@@ -72,6 +74,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
         this.must_simplify = must_simplify;
         this.zoom = zoom;
         this.algorithm = algorithm;
+        this.tile = tile;
         bucketOrds = new BytesRefHash(1, context.bigArrays());
         this.bucketCountThresholds = bucketCountThresholds;
 

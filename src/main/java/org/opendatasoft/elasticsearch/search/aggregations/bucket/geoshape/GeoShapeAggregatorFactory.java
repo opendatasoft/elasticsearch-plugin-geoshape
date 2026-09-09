@@ -22,6 +22,7 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory {
     private boolean must_simplify;
     private int zoom;
     private GeoShape.Algorithm algorithm;
+    private final TileParams tile;
     private final GeoShapeAggregator.BucketCountThresholds bucketCountThresholds;
 
     GeoShapeAggregatorFactory(
@@ -31,6 +32,7 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory {
         boolean must_simplify,
         int zoom,
         GeoShape.Algorithm algorithm,
+        TileParams tile,
         GeoShapeAggregator.BucketCountThresholds bucketCountThresholds,
         AggregationContext context,
         AggregatorFactory parent,
@@ -42,6 +44,7 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory {
         this.must_simplify = must_simplify;
         this.zoom = zoom;
         this.algorithm = algorithm;
+        this.tile = tile;
         this.bucketCountThresholds = bucketCountThresholds;
     }
 
@@ -81,6 +84,7 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory {
             must_simplify,
             zoom,
             algorithm,
+            tile,
             bucketCountThresholds,
             parent,
             cardinality,
