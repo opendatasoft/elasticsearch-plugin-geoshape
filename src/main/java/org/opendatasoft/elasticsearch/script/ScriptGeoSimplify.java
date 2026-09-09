@@ -110,7 +110,7 @@ public class ScriptGeoSimplify implements ScriptEngine {
             }
 
             // geojson_decimals = 20;
-            geoJsonWriter = new GeoJsonWriter();
+            geoJsonWriter = GeoUtils.createGeoJsonWriter();
         }
 
         @Override

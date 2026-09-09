@@ -220,6 +220,20 @@ public class GeoUtils {
         return 360 / (256 * Math.pow(2, zoom));
     }
 
+    /**
+     * The single place geojson writers are built, so none of them can drift apart.
+     *
+     * <p>The {@code crs} member is not emitted. RFC 7946 removed it from GeoJSON, and the value JTS
+     * would write is the geometry's SRID, which nothing here ever sets: it came out as the meaningless
+     * {@code EPSG:0} on every response. There is also no value that would be correct for a caller that
+     * asked for a reprojected geometry, so the coordinate space is documented rather than announced.
+     */
+    public static GeoJsonWriter createGeoJsonWriter() {
+        GeoJsonWriter writer = new GeoJsonWriter();
+        writer.setEncodeCRS(false);
+        return writer;
+    }
+
     public static String exportWkbTo(BytesRef wkb, OutputFormat output_format, GeoJsonWriter geoJsonWriter) throws ParseException {
         switch (output_format) {
             case WKT:

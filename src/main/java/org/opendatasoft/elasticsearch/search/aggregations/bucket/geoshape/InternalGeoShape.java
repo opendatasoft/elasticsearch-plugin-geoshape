@@ -171,7 +171,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         this.requiredSize = requiredSize;
         this.shardSize = shardSize;
         this.otherDocCount = otherDocCount;
-        geoJsonWriter = new GeoJsonWriter();
+        geoJsonWriter = GeoUtils.createGeoJsonWriter();
     }
 
     /**
@@ -184,6 +184,8 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         shardSize = readSize(in);
         otherDocCount = in.readVLong();
         this.buckets = in.readCollectionAsList(InternalBucket::new);
+        // Also needed here: doXContentBody uses it, and a deserialized instance can reach it.
+        geoJsonWriter = GeoUtils.createGeoJsonWriter();
     }
 
     /**
