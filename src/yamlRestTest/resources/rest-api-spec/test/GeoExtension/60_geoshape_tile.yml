@@ -77,6 +77,20 @@ setup:
         pipeline: "geo_extension"
         body: { "id": 4, "geo_shape_0": { "type": "Polygon", "coordinates": [[[5,5],[5.0001,5],[5.0001,5.0001],[5,5.0001],[5,5]]] } }
 
+# ids 5 and 6: distinct shapes 0.0001 degrees apart, which is under one grid unit, so both quantize
+# onto the very same ring. They must stay two features.
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": 5, "geo_shape_0": { "type": "Polygon", "coordinates": [[[1,1],[2,1],[2,2],[1,2],[1,1]]] } }
+
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": 6, "geo_shape_0": { "type": "Polygon", "coordinates": [[[1.0001,1.0001],[2.0001,1.0001],[2.0001,2.0001],[1.0001,2.0001],[1.0001,1.0001]]] } }
+
   - do:
       indices.refresh: {}
 
@@ -149,10 +163,41 @@ setup:
                   extent: 4096
                   buffer: 0
 
-# ids 1 and 2 survive. id 3 falls outside the window and id 4 collapses on the grid; both are gone
-# entirely rather than returned empty, and their documents are accounted for as hidden.
-  - length: { aggregations.g.buckets: 2 }
+# ids 1, 2, 5 and 6 survive. id 3 falls outside the window and id 4 collapses on the grid; both are
+# gone entirely rather than returned empty, and their documents are accounted for as hidden.
+  - length: { aggregations.g.buckets: 4 }
   - match: { aggregations.g.sum_other_doc_count: 2 }
+
+---
+"Distinct shapes quantizing onto the same ring stay distinct features":
+
+  - do:
+      search:
+        body:
+          query:
+            terms:
+              id: [5, 6]
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                size: 10
+                tile:
+                  bbox: [0, 0, 10, 10]
+                  extent: 4096
+                  buffer: 0
+
+# Both shapes round onto the same grid ring, so their returned geometry is identical. They must not
+# be merged: the coordinator keys buckets on the hash of the shape as stored, not on what it was
+# rescaled to. Merging them would sum their doc counts and make one of the two vanish.
+  - length: { aggregations.g.buckets: 2 }
+  - match: { aggregations.g.buckets.0.key: "POLYGON ((819 3688, 410 3688, 410 3281, 819 3281, 819 3688))" }
+  - match: { aggregations.g.buckets.1.key: "POLYGON ((819 3688, 410 3688, 410 3281, 819 3281, 819 3688))" }
+  - match: { aggregations.g.buckets.0.doc_count: 1 }
+  - match: { aggregations.g.buckets.1.doc_count: 1 }
+  - match: { aggregations.g.sum_other_doc_count: 0 }
 
 ---
 "Shape that collapses on the grid is dropped from the response":

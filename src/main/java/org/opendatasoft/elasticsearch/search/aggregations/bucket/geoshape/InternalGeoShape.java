@@ -110,8 +110,18 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
             return wkb.compareTo(other.wkb);
         }
 
+        /**
+         * Key the coordinator merges buckets on.
+         *
+         * <p>Derived from {@link #wkbHash}, the 64-bit hash of the shape <b>as stored</b>, and
+         * deliberately not from {@link #wkb}: once a tile transform has run, {@code wkb} holds the
+         * quantized geometry, so two distinct shapes that round onto the same grid ring would hash
+         * alike and be merged into a single bucket, dropping one feature and summing its doc count
+         * into the other. {@code wkbHash} is computed before any transform, and is 64 bits rather
+         * than the 32 of {@code BytesRef.hashCode()}.
+         */
         private long getShapeHash() {
-            return wkb.hashCode();
+            return Long.parseLong(wkbHash);
         }
 
         private String getType() {
