@@ -39,6 +39,14 @@ public class GeoShapeTransform {
     }
 
     /**
+     * True when there is nothing to compute and the stored WKB is what gets returned. Lets the caller
+     * skip parsing the WKB altogether on the default path.
+     */
+    public boolean isNoop() {
+        return mustSimplify == false && tile == null;
+    }
+
+    /**
      * Whether any part of this shape can survive the clip.
      *
      * <p>An envelope comparison, so callers holding a parsed geometry can ask this for free. Used to

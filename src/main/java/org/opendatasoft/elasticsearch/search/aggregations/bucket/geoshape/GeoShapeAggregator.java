@@ -199,15 +199,14 @@ public class GeoShapeAggregator extends BucketsAggregator {
                 // array: every bucket is later dereferenced by buildSubAggsForAllBuckets.
                 final List<InternalGeoShape.InternalBucket> keptBuckets = new ArrayList<>(popped.length);
                 for (InternalGeoShape.InternalBucket bucket : popped) {
-                    try {
-                        Geometry geom = wkbReader.read(bucket.wkb.bytes);
-                        if (must_simplify == false && tile == null) {
-                            // Nothing to compute: the stored WKB is what gets returned.
-                            keptBuckets.add(bucket);
-                            continue;
-                        }
+                    if (transform.isNoop()) {
+                        // Nothing to compute, so do not pay for parsing the WKB back.
+                        keptBuckets.add(bucket);
+                        continue;
+                    }
 
-                        geom = transform.apply(geom);
+                    try {
+                        Geometry geom = transform.apply(wkbReader.read(bucket.wkb.bytes));
                         if (geom.isEmpty()) {
                             // Nothing of this shape falls inside the window. Dropping it is safe: the
                             // neighbouring tiles that do cover it still return it, and its doc count is
