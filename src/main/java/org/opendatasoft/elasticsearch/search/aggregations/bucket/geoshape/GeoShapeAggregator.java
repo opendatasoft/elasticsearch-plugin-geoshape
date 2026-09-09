@@ -34,7 +34,9 @@ import org.locationtech.jts.simplify.TopologyPreservingSimplifier;
 import org.opendatasoft.elasticsearch.plugin.GeoUtils;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -172,11 +174,19 @@ public class GeoShapeAggregator extends BucketsAggregator {
                     spare = ordered.insertWithOverflow(spare);
                 }
 
-                // Once we get the top N results, we can compute a simplification
-                topBucketsPerOrd.set(ordIdx, new InternalGeoShape.InternalBucket[ordered.size()]);
-                for (int i = ordered.size() - 1; i >= 0; --i) {
-                    final InternalGeoShape.InternalBucket bucket = ordered.pop();
+                // Once we get the top N results, we can compute a simplification.
+                // Pop the queue first: it hands buckets back smallest-perimeter first, and the result
+                // has to stay ordered largest first.
+                final InternalGeoShape.InternalBucket[] popped = new InternalGeoShape.InternalBucket[ordered.size()];
+                for (int i = popped.length - 1; i >= 0; --i) {
+                    popped[i] = ordered.pop();
+                }
 
+                // A shape whose WKB cannot be read is skipped. Collect the survivors rather than
+                // leaving holes in a pre-sized array: buildSubAggsForAllBuckets dereferences every
+                // element below, and would throw on a null.
+                final List<InternalGeoShape.InternalBucket> keptBuckets = new ArrayList<>(popped.length);
+                for (InternalGeoShape.InternalBucket bucket : popped) {
                     Geometry geom;
                     try {
                         geom = wkbReader.read(bucket.wkb.bytes);
@@ -187,18 +197,16 @@ public class GeoShapeAggregator extends BucketsAggregator {
                         geom = simplifyGeoShape(geom);
                         bucket.wkb = new BytesRef(new WKBWriter().write(geom));
                         bucket.perimeter = geom.getLength();
-
                     }
 
-                    topBucketsPerOrd.get(ordIdx)[i] = bucket;
+                    keptBuckets.add(bucket);
                 }
+                topBucketsPerOrd.set(ordIdx, keptBuckets.toArray(new InternalGeoShape.InternalBucket[0]));
 
                 // Docs carried by the shapes this shard actually returns; the rest is reported as "other".
                 long returnedDocCount = 0;
-                for (InternalGeoShape.InternalBucket bucket : topBucketsPerOrd.get(ordIdx)) {
-                    if (bucket != null) {
-                        returnedDocCount += bucket.docCount;
-                    }
+                for (InternalGeoShape.InternalBucket bucket : keptBuckets) {
+                    returnedDocCount += bucket.docCount;
                 }
 
                 results[Math.toIntExact(ordIdx)] = new InternalGeoShape(
