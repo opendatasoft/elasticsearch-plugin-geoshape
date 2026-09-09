@@ -1,0 +1,502 @@
+---
+setup:
+
+  - do:
+      ingest.put_pipeline:
+        id: "geo_extension"
+        body:  >
+          {
+            "description": "Add extra geo fields to geo_shape fields.",
+            "processors": [
+              {
+                "geo_extension": {
+                  "field": "geo_shape_*"
+                }
+              }
+            ]
+          }
+
+# Single shard so bucket ordering and shard_size behaviour stay deterministic
+  - do:
+      indices.create:
+        index: test_index
+        body:
+          settings:
+            number_of_shards: 1
+
+  - do:
+      indices.put_mapping:
+        index: test_index
+        body:
+          dynamic_templates: [
+            {
+              "geo_shapes": {
+                "match": "geo_shape_*",
+                "mapping": {
+                  "properties": {
+                    "shape": {"enabled": false},
+                    "fixed_shape": {"type": "geo_shape"},
+                    "hash": {"type": "keyword"},
+                    "wkb": {"type": "binary", "doc_values": true},
+                    "type": {"type": "keyword"},
+                    "area": {"type": "half_float"},
+                    "bbox": {"type": "geo_point"},
+                    "centroid": {"type": "geo_point"}
+                  }
+                }
+              }
+            }
+          ]
+
+# id 1: exactly covers the [0,0,10,10] window
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": 1, "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[10,0],[10,10],[0,10],[0,0]]] } }
+
+# id 2: straddles the eastern edge of the window
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": 2, "geo_shape_0": { "type": "Polygon", "coordinates": [[[5,0],[30,0],[30,5],[5,5],[5,0]]] } }
+
+# id 3: nowhere near the window
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": 3, "geo_shape_0": { "type": "Polygon", "coordinates": [[[50,50],[51,50],[51,51],[50,51],[50,50]]] } }
+
+# id 4: inside the window, but 0.0001 degrees across, well under one grid unit (10/4096 = 0.00244),
+# so it collapses to a single point once quantized
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": 4, "geo_shape_0": { "type": "Polygon", "coordinates": [[[5,5],[5.0001,5],[5.0001,5.0001],[5,5.0001],[5,5]]] } }
+
+# ids 5 and 6: distinct shapes 0.0001 degrees apart, which is under one grid unit, so both quantize
+# onto the very same ring. They must stay two features.
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": 5, "geo_shape_0": { "type": "Polygon", "coordinates": [[[1,1],[2,1],[2,2],[1,2],[1,1]]] } }
+
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": 6, "geo_shape_0": { "type": "Polygon", "coordinates": [[[1.0001,1.0001],[2.0001,1.0001],[2.0001,2.0001],[1.0001,2.0001],[1.0001,1.0001]]] } }
+
+  - do:
+      indices.refresh: {}
+
+---
+"Shape covering the window maps onto the whole grid":
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 1
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                tile:
+                  bbox: [0, 0, 10, 10]
+                  extent: 4096
+                  buffer: 0
+
+# The window corners map to the grid corners, y growing downwards (origin top-left). The exterior
+# ring has a positive signed area over these coordinates (4096*4096 = 16777216), which is what the
+# MVT spec requires of exteriors, and reads as clockwise on screen in a y-down grid.
+  - match: { aggregations.g.buckets.0.key: "POLYGON ((4096 4096, 0 4096, 0 0, 4096 0, 4096 4096))" }
+  - match: { aggregations.g.buckets.0.doc_count: 1 }
+  - match: { aggregations.g.sum_other_doc_count: 0 }
+
+---
+"Shape straddling the window is clipped to it":
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 2
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                tile:
+                  bbox: [0, 0, 10, 10]
+                  extent: 4096
+                  buffer: 0
+
+# Clipped at x=4096 (lon 10) instead of running out to lon 30.
+  - match: { aggregations.g.buckets.0.key: "POLYGON ((2048 4096, 2048 2056, 4096 2056, 4096 4096, 2048 4096))" }
+  - match: { aggregations.g.sum_other_doc_count: 0 }
+
+---
+"Shape outside the window is dropped from the response":
+
+  - do:
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                size: 10
+                tile:
+                  bbox: [0, 0, 10, 10]
+                  extent: 4096
+                  buffer: 0
+
+# ids 1, 2, 5 and 6 survive. id 3 falls outside the window and id 4 collapses on the grid; both are
+# gone entirely rather than returned empty, and their documents are accounted for as hidden.
+  - length: { aggregations.g.buckets: 4 }
+  - match: { aggregations.g.sum_other_doc_count: 2 }
+
+---
+"Distinct shapes quantizing onto the same ring stay distinct features":
+
+  - do:
+      search:
+        body:
+          query:
+            terms:
+              id: [5, 6]
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                size: 10
+                tile:
+                  bbox: [0, 0, 10, 10]
+                  extent: 4096
+                  buffer: 0
+
+# Both shapes round onto the same grid ring, so their returned geometry is identical. They must not
+# be merged: the coordinator keys buckets on the hash of the shape as stored, not on what it was
+# rescaled to. Merging them would sum their doc counts and make one of the two vanish.
+  - length: { aggregations.g.buckets: 2 }
+  - match: { aggregations.g.buckets.0.key: "POLYGON ((819 3688, 410 3688, 410 3281, 819 3281, 819 3688))" }
+  - match: { aggregations.g.buckets.1.key: "POLYGON ((819 3688, 410 3688, 410 3281, 819 3281, 819 3688))" }
+  - match: { aggregations.g.buckets.0.doc_count: 1 }
+  - match: { aggregations.g.buckets.1.doc_count: 1 }
+  - match: { aggregations.g.sum_other_doc_count: 0 }
+
+---
+"Shape that collapses on the grid is dropped from the response":
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 4
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                tile:
+                  bbox: [0, 0, 10, 10]
+                  extent: 4096
+                  buffer: 0
+
+# Sub-pixel: every vertex rounds onto the same grid point, so nothing is left to draw.
+  - length: { aggregations.g.buckets: 0 }
+  - match: { aggregations.g.sum_other_doc_count: 1 }
+
+---
+"A shape that collapses is kept when no extent is requested":
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 4
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                tile:
+                  bbox: [0, 0, 10, 10]
+                  buffer: 0
+
+# Without quantization there is no rounding, so the shape survives in mercator meters.
+  - length: { aggregations.g.buckets: 1 }
+  - match: { aggregations.g.sum_other_doc_count: 0 }
+
+---
+"Buffer widens the clip window past the extent":
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 2
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                tile:
+                  bbox: [0, 0, 10, 10]
+                  extent: 4096
+                  buffer: 0.0625
+
+# With a 6.25% buffer the shape is kept out to lon 10.625, i.e. x = 4352 > extent.
+  - match: { aggregations.g.buckets.0.key: "POLYGON ((4352 4096, 2048 4096, 2048 2056, 4352 2056, 4352 4096))" }
+
+---
+"Without extent shapes come back in mercator meters":
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 1
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                tile:
+                  bbox: [0, 0, 10, 10]
+                  buffer: 0
+
+  - match: { aggregations.g.buckets.0.key: "POLYGON ((1113194.9079327357 -0.0000000007081155, 1113194.9079327357 1118889.9748579597, 0 1118889.9748579597, 0 -0.0000000007081155, 1113194.9079327357 -0.0000000007081155))" }
+
+---
+"Simplification runs on the clipped shape":
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 2
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                simplify:
+                  zoom: 6
+                  algorithm: DOUGLAS_PEUCKER
+                tile:
+                  bbox: [0, 0, 10, 10]
+                  extent: 4096
+                  buffer: 0
+
+  - match: { aggregations.g.buckets.0.key: "POLYGON ((2048 4096, 2048 2056, 4096 2056, 4096 4096, 2048 4096))" }
+
+---
+"Omitting tile leaves the previous behaviour untouched":
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 1
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+
+  - match: { aggregations.g.buckets.0.key: "POLYGON ((10 0, 10 10, 0 10, 0 0, 10 0))" }
+
+---
+"An incomplete bbox is rejected":
+
+  - do:
+      catch: bad_request
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                tile:
+                  bbox: [0, 0, 10]
+                  extent: 4096
+
+---
+"A missing bbox is rejected":
+
+  - do:
+      catch: bad_request
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                tile:
+                  extent: 4096
+
+---
+"A negative extent is rejected":
+
+  - do:
+      catch: bad_request
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                tile:
+                  bbox: [0, 0, 10, 10]
+                  extent: -1
+
+---
+"The result does not depend on the query carrying a spatial filter":
+
+# Shapes that the clip would empty are kept out of the top-N ranking, so a size slot cannot be spent
+# on something invisible. Without that, this first request returned zero buckets: the single slot
+# went to id 2, which has the largest perimeter in the fixture set and does not reach this window.
+  - do:
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                size: 1
+                tile:
+                  bbox: [1, 1, 2, 2]
+                  extent: 4096
+                  buffer: 0
+
+  - length: { aggregations.g.buckets: 1 }
+  - set: { aggregations.g.buckets.0.key: unfiltered_key }
+
+# Same window, same size, now with the spatial filter the Explore API sends. The filter is a large
+# performance win, since elasticsearch then skips the out-of-window documents through the index
+# instead of handing them to the aggregation, but it must not change the answer.
+  - do:
+      search:
+        body:
+          query:
+            geo_shape:
+              geo_shape_0.fixed_shape:
+                shape:
+                  type: "envelope"
+                  coordinates: [[1, 2], [2, 1]]
+                relation: "intersects"
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                size: 1
+                tile:
+                  bbox: [1, 1, 2, 2]
+                  extent: 4096
+                  buffer: 0
+
+  - length: { aggregations.g.buckets: 1 }
+  - match: { aggregations.g.buckets.0.key: $unfiltered_key }
+
+---
+"A bbox crossing the antimeridian is rejected":
+
+  - do:
+      catch: bad_request
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                tile:
+                  bbox: [170, 40, -170, 50]
+                  extent: 4096
+
+---
+"Coordinates outside their range are rejected":
+
+  - do:
+      catch: bad_request
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                tile:
+                  bbox: [0, 40, 181, 50]
+                  extent: 4096
+
+  - do:
+      catch: bad_request
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                tile:
+                  bbox: [0, -91, 10, 50]
+                  extent: 4096
+
+---
+"A bbox given with latitude decreasing is accepted":
+
+# Elasticsearch's own envelope ordering is (west, north, east, south). Latitude is not cyclic, so
+# this is unambiguous and must work exactly like the increasing form.
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 1
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                tile:
+                  bbox: [0, 10, 10, 0]
+                  extent: 4096
+                  buffer: 0
+
+  - match: { aggregations.g.buckets.0.key: "POLYGON ((4096 4096, 0 4096, 0 0, 4096 0, 4096 4096))" }

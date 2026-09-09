@@ -148,7 +148,7 @@
                   algorithm: DOUGLAS_PEUCKER
                 size: 4
 
-  - match: {aggregations.g.buckets.0.key: "{\"type\":\"Point\",\"coordinates\":[-3.3889389,47.73770713],\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:0\"}}}" }
+  - match: {aggregations.g.buckets.0.key: "{\"type\":\"Point\",\"coordinates\":[-3.3889389,47.73770713]}" }
 
 # With topology preservation
   - do:
@@ -168,7 +168,7 @@
                   algorithm: TOPOLOGY_PRESERVING
                 size: 4
 
-  - match: {aggregations.g.buckets.0.key: "{\"type\":\"Polygon\",\"coordinates\":[[[-3.3889389,47.73770713],[-3.37778091,47.73851525],[-3.385849,47.74428718],[-3.3889389,47.73770713]]],\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:0\"}}}"}
+  - match: {aggregations.g.buckets.0.key: "{\"type\":\"Polygon\",\"coordinates\":[[[-3.3889389,47.73770713],[-3.37778091,47.73851525],[-3.385849,47.74428718],[-3.3889389,47.73770713]]]}"}
 
 # Test size restriction will return the largest shape
   - do:
@@ -185,7 +185,7 @@
                   algorithm: TOPOLOGY_PRESERVING
                 size: 1 # size restriction here
 
-  - match: {aggregations.g.buckets.0.key: "{\"type\":\"Polygon\",\"coordinates\":[[[-3.3889389,47.73770713],[-3.37778091,47.73851525],[-3.385849,47.74428718],[-3.3889389,47.73770713]]],\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:0\"}}}"}
+  - match: {aggregations.g.buckets.0.key: "{\"type\":\"Polygon\",\"coordinates\":[[[-3.3889389,47.73770713],[-3.37778091,47.73851525],[-3.385849,47.74428718],[-3.3889389,47.73770713]]]}"}
 
 # test with high zoom and TOPOLOGY_PRESERVING  (exact same test as 30_simplify_script.yml one!)
   - do:
@@ -202,7 +202,7 @@
                   algorithm: TOPOLOGY_PRESERVING
 
   # coordinates length must be 37. it's not possible to test this length because the shape is dumped as a text, so we're testing the full shape length here instead
-  - length: {aggregations.g.buckets.1.key: 935}
+  - length: {aggregations.g.buckets.1.key: 882}
 
 ---
 "Test truncation reporting: sum_other_doc_count":

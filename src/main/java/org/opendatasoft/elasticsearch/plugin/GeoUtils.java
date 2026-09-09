@@ -2,7 +2,6 @@ package org.opendatasoft.elasticsearch.plugin;
 
 import org.apache.lucene.util.BytesRef;
 import org.elasticsearch.common.geo.GeoPoint;
-import org.elasticsearch.common.geo.Orientation;
 import org.elasticsearch.common.hash.MurmurHash3;
 import org.elasticsearch.geometry.GeometryCollection;
 import org.elasticsearch.geometry.Line;
@@ -12,9 +11,14 @@ import org.elasticsearch.geometry.MultiPoint;
 import org.elasticsearch.geometry.MultiPolygon;
 import org.elasticsearch.geometry.Point;
 import org.elasticsearch.geometry.Polygon;
+import org.locationtech.jts.algorithm.Orientation;
 import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.CoordinateSequence;
+import org.locationtech.jts.geom.CoordinateSequenceFilter;
+import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.LineString;
+import org.locationtech.jts.geom.util.GeometryFixer;
 import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKBReader;
 import org.locationtech.jts.io.WKBWriter;
@@ -218,6 +222,278 @@ public class GeoUtils {
         double tol = GeoUtils.getDecimalDegreeFromMeter(meterByPixel, lat);
          */
         return 360 / (256 * Math.pow(2, zoom));
+    }
+
+    /**
+     * Earth radius used by the web mercator projection (EPSG:3857). Same value as the one used by
+     * python's {@code mercantile.xy}, so both produce identical coordinates.
+     */
+    public static final double MERCATOR_EARTH_RADIUS = 6378137.0;
+
+    public static double lonToMercatorX(double lon) {
+        return MERCATOR_EARTH_RADIUS * Math.toRadians(lon);
+    }
+
+    /**
+     * Smallest tangent value the projection will take the logarithm of. Same guard, and same value, as
+     * elasticsearch's own {@code SphericalMercatorUtils.latToSphericalMercator}.
+     */
+    private static final double TAN_LOWER_LIMIT = Math.tan(Math.nextUp(0.0));
+
+    public static double latToMercatorY(double lat) {
+        // At lat -90 the tangent is exactly 0 and the logarithm would be -Infinity, which silently
+        // turns the whole tile envelope infinitely tall and flattens every y coordinate onto 0.
+        return MERCATOR_EARTH_RADIUS * Math.log(Math.max(TAN_LOWER_LIMIT, Math.tan(Math.PI / 4 + Math.toRadians(lat) / 2)));
+    }
+
+    /**
+     * Cut a WGS84 geometry down to a WGS84 window.
+     *
+     * <p>Clipping in WGS84 rather than after projecting is not a shortcut: web mercator is
+     * axis-separable (x depends on longitude only, y on latitude only), so a rectangle stays a
+     * rectangle through the projection and the lon/lat window is exactly equivalent to its
+     * projected counterpart.
+     *
+     * <p>Returns an empty geometry when nothing of {@code geom} falls inside the window. Callers are
+     * expected to drop such shapes rather than emit an empty one.
+     *
+     * @return the clipped geometry, or {@code geom} itself when it is already fully inside
+     */
+    public static Geometry clipToBbox(Geometry geom, Envelope clipEnvelope) {
+        Envelope geomEnvelope = geom.getEnvelopeInternal();
+
+        // Both shortcuts spare us a full overlay computation, which is by far the costly part here.
+        if (clipEnvelope.contains(geomEnvelope)) {
+            return geom;
+        }
+        if (clipEnvelope.intersects(geomEnvelope) == false) {
+            return geom.getFactory().createEmpty(geom.getDimension());
+        }
+
+        return keepDimensionOf(geom.intersection(geom.getFactory().toGeometry(clipEnvelope)), geom.getDimension());
+    }
+
+    /**
+     * Discard clip output of a lower dimension than the input.
+     *
+     * <p>An intersection is not guaranteed to preserve dimension: a polygon merely tangent to the
+     * window intersects it along a line, or at a single point, and JTS returns exactly that (verified:
+     * an edge flush against the window gives a {@code LineString}, a corner contact gives a
+     * {@code Point}). Such a result is valid and non-empty, so neither the validity repair nor the
+     * empty check further down catches it, and the aggregation would emit a linear geometry for a
+     * shape whose reported {@code type} still says Polygon.
+     *
+     * <p>Same behaviour as {@code ST_AsMVTGeom}, which drops result components below the input
+     * dimension. Implemented here rather than through {@code OverlayNG.setStrictMode(true)} so the
+     * clip keeps going through {@code OverlayNGRobust} and its snapping fallbacks.
+     */
+    private static Geometry keepDimensionOf(Geometry clipped, int dimension) {
+        if (clipped.isEmpty() || clipped.getDimension() == dimension && isHeterogeneous(clipped) == false) {
+            return clipped;
+        }
+
+        if (clipped.getDimension() < dimension) {
+            // Nothing of the right dimension survived: the shape only touched the window.
+            return clipped.getFactory().createEmpty(dimension);
+        }
+
+        List<Geometry> kept = new ArrayList<>();
+        for (int i = 0; i < clipped.getNumGeometries(); i++) {
+            if (clipped.getGeometryN(i).getDimension() == dimension) {
+                kept.add(clipped.getGeometryN(i));
+            }
+        }
+        return clipped.getFactory().buildGeometry(kept);
+    }
+
+    /** A mixed collection, as opposed to a MultiPolygon or MultiLineString, whose parts all match. */
+    private static boolean isHeterogeneous(Geometry geom) {
+        return "GeometryCollection".equals(geom.getGeometryType());
+    }
+
+    /**
+     * Force every ring of {@code geom} to a positive signed area for exteriors and a negative one for
+     * holes, measured by the surveyor's formula over the coordinates <b>as they currently stand</b>.
+     *
+     * <p>Apply this <b>after</b> any reprojection, never before. The convention is a property of the
+     * coordinate values, not of the shape, so a transform that flips an axis flips it too. Both output
+     * spaces want the same thing once expressed this way:
+     * <ul>
+     *   <li>in the y-down tile grid, a positive exterior area is what the MVT spec requires (section
+     *       4.3.3.3), and is what reads as clockwise on screen;</li>
+     *   <li>in y-up web mercator, a positive exterior area is the right-hand rule of RFC 7946, the
+     *       same convention the ingest processor stores.</li>
+     * </ul>
+     *
+     * <p>This cannot be skipped by assuming the input orientation carries through the pipeline: JTS
+     * overlay operations rebuild their output rings and emit clockwise shells, so a clipped shape
+     * comes out wound the opposite way from a shape that was small enough to pass through
+     * {@link #clipToBbox} untouched. Re-establishing the convention here is what makes the output
+     * orientation independent of the path a given shape took.
+     *
+     * <p>Mutates {@code geom} in place. Rings are only reversed when they need to be, and reversing
+     * is a swap over the existing coordinate array: no geometry is rebuilt.
+     *
+     * <p>Note that {@code Orientation.isCCW} reads raw ordinates, so it reports a ring with a positive
+     * area as counter-clockwise whichever way the y axis points. That is the sense used below.
+     */
+    public static void orientRings(Geometry geom) {
+        orientRingsWithoutInvalidating(geom);
+        // Once, at the top: geometryChanged() walks every component, so calling it inside the
+        // recursion would cost one full traversal per part.
+        geom.geometryChanged();
+    }
+
+    private static void orientRingsWithoutInvalidating(Geometry geom) {
+        if (geom instanceof org.locationtech.jts.geom.Polygon polygon) {
+            orientRing(polygon.getExteriorRing(), true);
+            for (int i = 0; i < polygon.getNumInteriorRing(); i++) {
+                orientRing(polygon.getInteriorRingN(i), false);
+            }
+        } else if (geom instanceof org.locationtech.jts.geom.GeometryCollection collection) {
+            // Covers MultiPolygon and GeometryCollection alike.
+            for (int i = 0; i < collection.getNumGeometries(); i++) {
+                orientRingsWithoutInvalidating(collection.getGeometryN(i));
+            }
+        }
+        // Points and lines carry no orientation.
+    }
+
+    private static void orientRing(org.locationtech.jts.geom.LinearRing ring, boolean counterClockwise) {
+        CoordinateSequence sequence = ring.getCoordinateSequence();
+        if (Orientation.isCCW(sequence) != counterClockwise) {
+            reverseXY(sequence);
+        }
+    }
+
+    /**
+     * Repair geometry that rounding onto the integer grid has broken, dropping whatever collapsed.
+     *
+     * <p>Quantization moves every vertex to the nearest grid unit, which is destructive by nature:
+     * sub-pixel holes and parts land on a single point, thin slivers flatten onto a line, and a notch
+     * narrower than one unit closes into a zero-width spike that makes the ring touch itself. None of
+     * these are exotic; on real data a few shapes per tile hit one.
+     *
+     * <p>{@link GeometryFixer} handles all of them in one pass and, importantly, keeps the visible
+     * area intact: a ring pinched by a sub-pixel notch is repaired rather than thrown away, which is
+     * what dropping every invalid part would have cost. Fully collapsed shapes come back empty, and
+     * the caller drops those.
+     *
+     * <p>Only invalid geometry is rebuilt. Validity is checked first because the check is far cheaper
+     * than the repair and almost everything passes it.
+     *
+     * <p>This mirrors what {@code ST_AsMVTGeom} does after its own grid snapping. Note that testing
+     * for degenerate rings by hand (too few distinct points, zero area) is <b>not</b> equivalent: it
+     * misses the pinched-ring case, which keeps a large area and plenty of distinct points while
+     * still being invalid.
+     */
+    public static Geometry fixCollapsedGeometry(Geometry geom) {
+        if (geom.isValid()) {
+            return geom;
+        }
+        return GeometryFixer.fix(geom);
+    }
+
+    /**
+     * Reverse a coordinate sequence in place, swapping x and y only.
+     *
+     * <p>JTS' own {@code CoordinateSequences.reverse} cannot be used here: it swaps every ordinate up
+     * to {@code getDimension()}, and the sequences {@code WKBReader} hands us hold {@link
+     * org.locationtech.jts.geom.CoordinateXY} instances, which reject an ordinate index of 2. Only x
+     * and y are meaningful downstream anyway, since the WKB written back out is two-dimensional.
+     */
+    private static void reverseXY(CoordinateSequence sequence) {
+        for (int i = 0, j = sequence.size() - 1; i < j; i++, j--) {
+            double x = sequence.getOrdinate(i, CoordinateSequence.X);
+            double y = sequence.getOrdinate(i, CoordinateSequence.Y);
+            sequence.setOrdinate(i, CoordinateSequence.X, sequence.getOrdinate(j, CoordinateSequence.X));
+            sequence.setOrdinate(i, CoordinateSequence.Y, sequence.getOrdinate(j, CoordinateSequence.Y));
+            sequence.setOrdinate(j, CoordinateSequence.X, x);
+            sequence.setOrdinate(j, CoordinateSequence.Y, y);
+        }
+    }
+
+    /**
+     * Reproject a WGS84 geometry to web mercator meters, in place.
+     */
+    public static void toWebMercator(Geometry geom) {
+        geom.apply(new MercatorFilter(null, 0));
+    }
+
+    /**
+     * Reproject a WGS84 geometry to the integer grid {@code [0, extent]} local to
+     * {@code mercatorBbox}, in place.
+     *
+     * <p>Projection and rescaling are fused into a single traversal of the coordinates. The grid
+     * origin is the <b>top-left</b> corner of the box and y grows downwards, matching tile-local
+     * pixel space; coordinates falling in the clip buffer land outside {@code [0, extent]}.
+     *
+     * <p>Flipping the y axis reverses the signed area of every ring, so ring orientation is only
+     * meaningful once this has run. Call {@link #orientRings} afterwards, not before.
+     */
+    public static void toTileGrid(Geometry geom, Envelope mercatorBbox, int extent) {
+        geom.apply(new MercatorFilter(mercatorBbox, extent));
+    }
+
+    /**
+     * Projects WGS84 to web mercator and, when given a box and an extent, rescales to a tile-local
+     * integer grid. One pass over every coordinate, no intermediate geometry.
+     */
+    private static final class MercatorFilter implements CoordinateSequenceFilter {
+        private final Envelope mercatorBbox;
+        private final double scaleX;
+        private final double scaleY;
+
+        MercatorFilter(Envelope mercatorBbox, int extent) {
+            this.mercatorBbox = mercatorBbox;
+            if (mercatorBbox != null) {
+                this.scaleX = extent / mercatorBbox.getWidth();
+                this.scaleY = extent / mercatorBbox.getHeight();
+            } else {
+                this.scaleX = 0;
+                this.scaleY = 0;
+            }
+        }
+
+        @Override
+        public void filter(CoordinateSequence sequence, int i) {
+            double x = lonToMercatorX(sequence.getOrdinate(i, CoordinateSequence.X));
+            double y = latToMercatorY(sequence.getOrdinate(i, CoordinateSequence.Y));
+
+            if (mercatorBbox != null) {
+                x = Math.round((x - mercatorBbox.getMinX()) * scaleX);
+                // Flip: the grid origin is the top-left corner, y grows downwards.
+                y = Math.round((mercatorBbox.getMaxY() - y) * scaleY);
+            }
+
+            sequence.setOrdinate(i, CoordinateSequence.X, x);
+            sequence.setOrdinate(i, CoordinateSequence.Y, y);
+        }
+
+        @Override
+        public boolean isDone() {
+            return false;
+        }
+
+        @Override
+        public boolean isGeometryChanged() {
+            return true;
+        }
+    }
+
+    /**
+     * The single place geojson writers are built, so none of them can drift apart.
+     *
+     * <p>The {@code crs} member is not emitted. RFC 7946 removed it from GeoJSON, and the value JTS
+     * would write is the geometry's SRID, which nothing here ever sets: it came out as the meaningless
+     * {@code EPSG:0} on every response. There is also no value that would be correct across this
+     * plugin's output spaces, since a quantized tile-local grid has no EPSG code at all. The
+     * coordinate space is a function of the request (see the README), not of the stored data.
+     */
+    public static GeoJsonWriter createGeoJsonWriter() {
+        GeoJsonWriter writer = new GeoJsonWriter();
+        writer.setEncodeCRS(false);
+        return writer;
     }
 
     public static String exportWkbTo(BytesRef wkb, OutputFormat output_format, GeoJsonWriter geoJsonWriter) throws ParseException {

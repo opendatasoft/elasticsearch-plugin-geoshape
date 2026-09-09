@@ -14,7 +14,7 @@ You can find past releases [here](https://github.com/opendatasoft/elasticsearch-
 The first 3 digits of the plugin version is the corresponding Elasticsearch version. The last digit is used for plugin versioning.
 
 To install it, launch this command in Elasticsearch directory replacing the url by the correct link for your Elasticsearch version (see table)
-`bin/elasticsearch-plugin install https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v8.19.19.0/elasticsearch-plugin-geoshape-8.19.19.0.zip"`
+`bin/elasticsearch-plugin install https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v8.19.19.1/elasticsearch-plugin-geoshape-8.19.19.1.zip"`
 
 
 ## Build
@@ -261,8 +261,22 @@ Moreover, compared to regular search results, results of an aggregation can be [
 - `simplify`:
   - `zoom`: the zoom level in range [0, 20]. 0 is the most simplified and 20 is the least. Default to 0.
   - `algorithm`: simplify algorithm in [`DOUGLAS_PEUCKER`, `TOPOLOGY_PRESERVING`]. Default to `DOUGLAS_PEUCKER`.
+- `tile` (optional): cut the returned shapes down to a bounding box and deliver them in that box's own coordinate space. See [Tile clipping and quantization](#tile-clipping-and-quantization) below.
+  - `bbox` (mandatory): the WGS84 window, as `[lon1, lat1, lon2, lat2]`. Longitude must increase (`lon1 < lon2`); latitude may be given in either order, so both mercantile's `(west, south, east, north)` and elasticsearch's envelope ordering `(west, north, east, south)` are accepted. Coordinates must be within +/-180 and +/-90. A box crossing the antimeridian cannot be expressed and is rejected rather than silently reinterpreted as its complement: split it into two requests.
+  - `extent` (optional): rescale coordinates to the integer grid `[0, extent]` local to `bbox`, e.g. `4096`. When omitted, shapes are returned in web mercator meters without being quantized.
+  - `buffer` (optional): fraction of the bounding box size kept on each side, so adjacent windows do not show a seam. Default to `0.0625` (6.25%, the PostGIS default).
 - `size`: can be set to define how many buckets should be returned. See elasticsearch official terms aggregation documentation for more explanation. Buckets are ordered by the length (perimeter for polygons) of their shape, longer shapes first.
 - `shard_size`: can be used to minimize the extra work that comes with bigger requested `size`. See elasticsearch official terms aggregation documentation for more explanation.
+
+#### Coordinate space of the returned shapes
+
+The request determines the space the shapes come back in:
+
+| Request | Coordinate space |
+|---|---|
+| no `tile` | WGS84 lon/lat (EPSG:4326) |
+| `tile` without `extent` | web mercator meters (EPSG:3857) |
+| `tile` with `extent` | integer grid local to `bbox`, `[0, extent]`, origin top-left, y downwards. No EPSG code describes this space. |
 
 
 #### Example
@@ -307,6 +321,76 @@ Result:
 `sum_other_doc_count` is the total number of documents carried by the shapes that are **not** returned (because of `size` or `shard_size`). It is `0` when every shape is returned, and `> 0` when the result is truncated. It is **exact**, including shapes dropped per-shard by `shard_size`, and mirrors the field of the same name on elasticsearch's `terms` aggregation.
 
 Note: because buckets are ranked by perimeter (an intrinsic property of each shape, identical on every shard), `shard_size` does not need to exceed `size` to return the exact top-`size` largest shapes (unlike `terms`, where `shard_size` trades off accuracy).
+
+
+#### Tile clipping and quantization
+
+The `tile` parameter turns the aggregation's output into a purely local view of a bounding box. It applies, in order:
+
+1. **clip** the shape to `bbox` widened by `buffer`, in WGS84;
+2. **simplify** it, if `simplify` was given (so simplification only ever runs on the part of the shape that can be seen);
+3. **reproject** to web mercator, and **rescale** to `[0, extent]` when an extent is given;
+4. **repair** whatever the rounding broke, dropping the pieces that collapsed;
+5. **orient** its rings, on the coordinates that are actually emitted.
+
+**Filter the query on the same window too, for performance.** The answer does not depend on it:
+shapes that the clip would empty are kept out of the `size`/`shard_size` ranking, so a slot is never
+spent on something invisible. But a spatial filter lets elasticsearch skip the out-of-window
+documents through its index rather than handing them to the aggregation, which on a country-wide
+index is the difference between visiting a few thousand documents and visiting all of them.
+
+This exists to keep per-coordinate work out of the client. Without it, a client rendering vector tiles reprojects, quantizes and re-winds every coordinate of every shape itself, and pays that cost on the *whole* shape even when only a sliver of it falls inside the tile being served. It is the same job as PostGIS' `ST_AsMVTGeom(geom, bounds, extent, buffer)`.
+
+Clipping in WGS84 is exact, not an approximation: web mercator is axis-separable (x depends on longitude only, y on latitude only), so a rectangle stays a rectangle through the projection.
+
+Things worth knowing about the output:
+- The grid origin is the **top-left** corner of `bbox` and **y grows downwards**, the usual tile-local pixel convention. Coordinates are rounded to integers.
+- Rings are oriented so that **exteriors have a positive signed area and holes a negative one**, under the surveyor's formula applied to the returned coordinates. In the y-down grid that is exactly what the Mapbox Vector Tile spec requires of exteriors (section 4.3.3.3), and it reads as clockwise on screen. A client can encode the rings as they come, with no winding check of its own. Without `extent` the same rule applies to mercator meters, where a positive exterior area is the RFC 7946 right-hand rule.
+- Beware when checking this yourself: orientation is a property of the coordinate *values*, so the y-down flip reverses it, and "clockwise on screen" corresponds to what most libraries report as counter-clockwise (JTS `Orientation.isCCW`, shapely's `is_ccw`), since they read raw ordinates. Compare signed areas rather than reasoning about the flip.
+- Coordinates falling inside `buffer` land **outside** `[0, extent]`, on purpose: `extent` measures the box, not the buffered window.
+- A shape with nothing inside the window is **dropped from the response** rather than returned empty, and its documents are counted in `sum_other_doc_count`. Neighbouring windows that do cover the shape still return it.
+- **Returned geometry keeps the dimension of the stored shape.** A polygon merely tangent to the window intersects it along a line, or at a single point; such a result is dropped rather than returned, so a polygon layer never receives a linear feature.
+- **Returned geometry is always valid.** Rounding onto the grid is destructive: sub-pixel holes and parts land on a single point, and a notch narrower than one grid unit closes into a zero-width spike that makes a ring touch itself. Those pieces are repaired away, keeping the visible area intact, and a shape left with nothing at all is dropped like a clipped-away one. A client does not need a geometry-validity repair pass of its own.
+- `perimeter`, which orders the buckets, keeps measuring the whole WGS84 shape. Ranking therefore stays comparable across shards and does not depend on how much of a shape a given window happens to show.
+- `type` reports the type of the stored shape. A clip can turn a `Polygon` into a `MultiPolygon`; read the returned geometry itself if the effective type matters.
+
+
+#### Tile example
+
+```
+GET main/_search?size=0
+{
+  "query": {
+    "geo_shape": {
+      "geoshape_0.fixed_shape": {
+        "shape": {
+          "type": "envelope",
+          "coordinates": [[-5.625, 48.92249926375824], [0.0, 45.089035564831015]]
+        },
+        "relation": "intersects"
+      }
+    }
+  },
+  "aggs": {
+    "geo_preview": {
+      "geoshape": {
+        "field": "geoshape_0.wkb",
+        "output_format": "wkb",
+        "simplify": {
+          "zoom": 6,
+          "algorithm": "douglas_peucker"
+        },
+        "tile": {
+          "bbox": [-5.625, 45.089035564831015, 0.0, 48.92249926375824],
+          "extent": 4096,
+          "buffer": 0.0625
+        },
+        "size": 100
+      }
+    }
+  }
+}
+```
 
 
 
@@ -395,4 +479,4 @@ change before running `docker-compose` up again.
 
 ## License
 
-This software is under AGPL (GNU Affero General Public License)
+This software is under AGPL (GNU Affero General Public License).

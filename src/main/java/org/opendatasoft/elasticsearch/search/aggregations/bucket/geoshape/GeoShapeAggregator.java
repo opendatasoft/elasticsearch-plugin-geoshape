@@ -25,16 +25,16 @@ import org.elasticsearch.search.aggregations.support.ValuesSource;
 import org.elasticsearch.xcontent.ToXContentFragment;
 import org.elasticsearch.xcontent.XContentBuilder;
 import org.locationtech.jts.geom.Geometry;
-import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.TopologyException;
 import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKBReader;
 import org.locationtech.jts.io.WKBWriter;
-import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
-import org.locationtech.jts.simplify.TopologyPreservingSimplifier;
 import org.opendatasoft.elasticsearch.plugin.GeoUtils;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -46,9 +46,11 @@ public class GeoShapeAggregator extends BucketsAggregator {
     private boolean must_simplify;
     private int zoom;
     private GeoShape.Algorithm algorithm;
+    private final TileParams tile;
+    private final GeoShapeTransform transform;
 
     private WKBReader wkbReader;
-    private final GeometryFactory geometryFactory;
+    private final WKBWriter wkbWriter;
 
     public GeoShapeAggregator(
         String name,
@@ -59,6 +61,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
         boolean must_simplify,
         int zoom,
         GeoShape.Algorithm algorithm,
+        TileParams tile,
         BucketCountThresholds bucketCountThresholds,
         Aggregator parent,
         CardinalityUpperBound cardinalityUpperBound,
@@ -70,11 +73,14 @@ public class GeoShapeAggregator extends BucketsAggregator {
         this.must_simplify = must_simplify;
         this.zoom = zoom;
         this.algorithm = algorithm;
+        this.tile = tile;
         bucketOrds = new BytesRefHash(1, context.bigArrays());
         this.bucketCountThresholds = bucketCountThresholds;
 
+        this.transform = new GeoShapeTransform(must_simplify, zoom, algorithm, tile);
+
         this.wkbReader = new WKBReader();
-        this.geometryFactory = new GeometryFactory();
+        this.wkbWriter = new WKBWriter();
     }
 
     /**
@@ -162,6 +168,15 @@ public class GeoShapeAggregator extends BucketsAggregator {
                             continue;
                         }
 
+                        if (transform.intersectsWindow(geom) == false) {
+                            // The clip would empty this shape, so it must not take a slot in the
+                            // ranking: doing so would hide a shape that is actually visible in the
+                            // window. Free to check, the geometry is already parsed here. Its docs
+                            // still count towards sum_other_doc_count, exactly as they did when the
+                            // shape was ranked and then dropped further down.
+                            continue;
+                        }
+
                         spare.perimeter = geom.getLength();
                         spare.realType = geom.getGeometryType();
 
@@ -172,33 +187,55 @@ public class GeoShapeAggregator extends BucketsAggregator {
                     spare = ordered.insertWithOverflow(spare);
                 }
 
-                // Once we get the top N results, we can compute a simplification
-                topBucketsPerOrd.set(ordIdx, new InternalGeoShape.InternalBucket[ordered.size()]);
-                for (int i = ordered.size() - 1; i >= 0; --i) {
-                    final InternalGeoShape.InternalBucket bucket = ordered.pop();
+                // Pop the queue first: it hands buckets back smallest-perimeter first, and the result
+                // has to stay ordered largest first.
+                final InternalGeoShape.InternalBucket[] popped = new InternalGeoShape.InternalBucket[ordered.size()];
+                for (int i = popped.length - 1; i >= 0; --i) {
+                    popped[i] = ordered.pop();
+                }
 
-                    Geometry geom;
-                    try {
-                        geom = wkbReader.read(bucket.wkb.bytes);
-                    } catch (ParseException e) {
+                // A shape can drop out here (unreadable or unprocessable WKB, or nothing of it left
+                // inside the tile window). Collect the survivors rather than leaving holes in the
+                // array: every bucket is later dereferenced by buildSubAggsForAllBuckets.
+                final List<InternalGeoShape.InternalBucket> keptBuckets = new ArrayList<>(popped.length);
+                for (InternalGeoShape.InternalBucket bucket : popped) {
+                    if (transform.isNoop()) {
+                        // Nothing to compute, so do not pay for parsing the WKB back.
+                        keptBuckets.add(bucket);
                         continue;
                     }
-                    if (must_simplify) {
-                        geom = simplifyGeoShape(geom);
-                        bucket.wkb = new BytesRef(new WKBWriter().write(geom));
-                        bucket.perimeter = geom.getLength();
 
+                    try {
+                        Geometry geom = transform.apply(wkbReader.read(bucket.wkb.bytes));
+                        if (geom.isEmpty()) {
+                            // Nothing of this shape falls inside the window. Dropping it is safe: the
+                            // neighbouring tiles that do cover it still return it, and its doc count is
+                            // reported through sum_other_doc_count below.
+                            continue;
+                        }
+                        bucket.wkb = new BytesRef(wkbWriter.write(geom));
+                        if (transform.rescalesGeometry() == false) {
+                            // perimeter is the ranking key, and the coordinator re-ranks buckets with it
+                            // across shards. Once a shape is clipped or rescaled its length no longer says
+                            // anything about the shape itself, only about how much of it this window shows,
+                            // so keep the whole-shape WGS84 length assigned above instead.
+                            bucket.perimeter = geom.getLength();
+                        }
+                        keptBuckets.add(bucket);
+                    } catch (ParseException | IllegalArgumentException | TopologyException e) {
+                        // One malformed shape must not fail the shard, and with it the whole search.
+                        // Clipping runs an overlay on raw stored geometry, and JTS throws
+                        // TopologyException (or IllegalArgumentException on a malformed ring) when it
+                        // cannot process one. Drop the bucket like an unreadable one; its docs are
+                        // reported through sum_other_doc_count.
                     }
-
-                    topBucketsPerOrd.get(ordIdx)[i] = bucket;
                 }
+                topBucketsPerOrd.set(ordIdx, keptBuckets.toArray(new InternalGeoShape.InternalBucket[0]));
 
                 // Docs carried by the shapes this shard actually returns; the rest is reported as "other".
                 long returnedDocCount = 0;
-                for (InternalGeoShape.InternalBucket bucket : topBucketsPerOrd.get(ordIdx)) {
-                    if (bucket != null) {
-                        returnedDocCount += bucket.docCount;
-                    }
+                for (InternalGeoShape.InternalBucket bucket : keptBuckets) {
+                    returnedDocCount += bucket.docCount;
                 }
 
                 results[Math.toIntExact(ordIdx)] = new InternalGeoShape(
@@ -229,25 +266,6 @@ public class GeoShapeAggregator extends BucketsAggregator {
             0,
             metadata()
         );
-    }
-
-    private Geometry simplifyGeoShape(Geometry geom) {
-        Geometry polygonSimplified = getSimplifiedShape(geom);
-        if (polygonSimplified.isEmpty()) {
-            polygonSimplified = this.geometryFactory.createPoint(geom.getCoordinate());
-        }
-        return polygonSimplified;
-    }
-
-    private Geometry getSimplifiedShape(Geometry geometry) {
-        double tol = GeoUtils.getToleranceFromZoom(zoom);
-
-        switch (algorithm) {
-            case TOPOLOGY_PRESERVING:
-                return TopologyPreservingSimplifier.simplify(geometry, tol);
-            default:
-                return DouglasPeuckerSimplifier.simplify(geometry, tol);
-        }
     }
 
     @Override
