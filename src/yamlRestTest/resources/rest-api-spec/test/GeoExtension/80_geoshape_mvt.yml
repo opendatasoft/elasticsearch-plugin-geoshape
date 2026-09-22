@@ -1,0 +1,347 @@
+---
+setup:
+
+  - do:
+      ingest.put_pipeline:
+        id: "geo_extension"
+        body:  >
+          {
+            "description": "Add extra geo fields to geo_shape fields.",
+            "processors": [
+              {
+                "geo_extension": {
+                  "field": "geo_shape_*"
+                }
+              }
+            ]
+          }
+
+# Single shard so bucket ordering and shard_size behaviour stay deterministic
+  - do:
+      indices.create:
+        index: test_index
+        body:
+          settings:
+            number_of_shards: 1
+
+  - do:
+      indices.put_mapping:
+        index: test_index
+        body:
+          dynamic_templates: [
+            {
+              "geo_shapes": {
+                "match": "geo_shape_*",
+                "mapping": {
+                  "properties": {
+                    "shape": {"enabled": false},
+                    "fixed_shape": {"type": "geo_shape"},
+                    "hash": {"type": "keyword"},
+                    "wkb": {"type": "binary", "doc_values": true},
+                    "type": {"type": "keyword"},
+                    "area": {"type": "half_float"},
+                    "bbox": {"type": "geo_point"},
+                    "centroid": {"type": "geo_point"}
+                  }
+                }
+              }
+            }
+          ]
+
+# id 1: exactly covers the [0,0,10,10] window
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": 1, "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[10,0],[10,10],[0,10],[0,0]]] } }
+
+# id 2: straddles the eastern edge of the window
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": 2, "geo_shape_0": { "type": "Polygon", "coordinates": [[[5,0],[30,0],[30,5],[5,5],[5,0]]] } }
+
+# id 3: inside the window, but 0.0001 degrees across, well under one grid unit (10/4096 = 0.00244),
+# so every one of its vertices rounds onto the same cell and it draws nothing
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": 3, "geo_shape_0": { "type": "Polygon", "coordinates": [[[5,5],[5.0001,5],[5.0001,5.0001],[5,5.0001],[5,5]]] } }
+
+# id 4: a diagonal line across the window, to exercise the open-path form of the encoding
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": 4, "geo_shape_0": { "type": "LineString", "coordinates": [[0,0],[10,10]] } }
+
+# id 5: a square with a square hole, to exercise the shared cursor across rings
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: >
+          {
+            "id": 5,
+            "geo_shape_0": {
+              "type": "Polygon",
+              "coordinates": [
+                [[0,0],[10,0],[10,10],[0,10],[0,0]],
+                [[2.5,2.5],[2.5,7.5],[7.5,7.5],[7.5,2.5],[2.5,2.5]]
+              ]
+            }
+          }
+
+# id 6: a line 0.0001 degrees long, so both of its ends round onto the same cell. Unlike id 3 it
+# stays a valid, non-empty geometry, so only the encoder can tell that it draws nothing
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": 6, "geo_shape_0": { "type": "LineString", "coordinates": [[8,8],[8.0001,8.0001]] } }
+
+  - do:
+      indices.refresh: {}
+
+---
+"A polygon is returned as an MVT command stream":
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 1
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: mvt
+                tile:
+                  bbox: [0, 0, 10, 10]
+                  extent: 4096
+                  buffer: 0
+
+# The same ring 60_geoshape_tile.yml reads as "POLYGON ((4096 4096, 0 4096, 0 0, 4096 0, 4096 4096))":
+# MoveTo 1 to (4096,4096), LineTo 3, ClosePath. The repeated closing coordinate is gone, and the
+# deltas are zigzag encoded, so -4096 is 8191 and +4096 is 8192.
+  - match: { aggregations.g.buckets.0.key: [9, 8192, 8192, 26, 8191, 0, 0, 8191, 8192, 0, 15] }
+  - match: { aggregations.g.buckets.0.type: "Polygon" }
+  - match: { aggregations.g.buckets.0.doc_count: 1 }
+  - match: { aggregations.g.sum_other_doc_count: 0 }
+
+---
+"A clipped polygon is returned as an MVT command stream":
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 2
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: mvt
+                tile:
+                  bbox: [0, 0, 10, 10]
+                  extent: 4096
+                  buffer: 0
+
+# "POLYGON ((2048 2056, 4096 2056, 4096 4096, 2048 4096, 2048 2056))" in the wkt test.
+  - match: { aggregations.g.buckets.0.key: [9, 4096, 4112, 26, 4096, 0, 0, 4080, 4095, 0, 15] }
+
+---
+"A hole continues the cursor of its shell":
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 5
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: mvt
+                tile:
+                  bbox: [0, 0, 10, 10]
+                  extent: 4096
+                  buffer: 0
+
+# Shell, then hole, in one stream: two MoveTo/LineTo/ClosePath groups. The hole's first pair is a
+# delta from where the shell left the pen, at (4096,0), not from the origin: zigzag 6143 is -3072,
+# which lands on x=1024. Decoded, the hole runs (1024,1031) (1024,3077) (3072,3077) (3072,1031),
+# a negative signed area, which is what the MVT winding convention asks of an interior ring.
+  - match:
+      aggregations.g.buckets.0.key: [9, 8192, 8192, 26, 8191, 0, 0, 8191, 8192, 0, 15,
+                                     9, 6143, 2062, 26, 0, 4092, 4096, 0, 0, 4091, 15]
+
+---
+"A linestring carries no ClosePath":
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 4
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: mvt
+                tile:
+                  bbox: [0, 0, 10, 10]
+                  extent: 4096
+                  buffer: 0
+
+# MoveTo 1 to (0,4096), then LineTo 1 to (4096,0). Nothing closes an open path.
+  - match: { aggregations.g.buckets.0.key: [9, 0, 8192, 10, 8192, 8191] }
+  - match: { aggregations.g.buckets.0.type: "LineString" }
+
+---
+"A shape that draws nothing is dropped from the response":
+
+  - do:
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: mvt
+                size: 10
+                tile:
+                  bbox: [0, 0, 10, 10]
+                  extent: 4096
+                  buffer: 0
+
+# Two shapes collapse onto a single grid cell. id 3 comes back as an empty geometry, as it already
+# did before this format existed; id 6 stays a valid, non-empty line and is caught by the encoder,
+# which draws nothing for it. Neither is returned as a feature, and both count as hidden.
+  - length: { aggregations.g.buckets: 4 }
+  - match: { aggregations.g.sum_other_doc_count: 2 }
+
+---
+"The wkb output of the same index is unchanged":
+
+  - do:
+      search:
+        body:
+          query:
+            term:
+              id: 1
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkb
+                tile:
+                  bbox: [0, 0, 10, 10]
+                  extent: 4096
+                  buffer: 0
+
+# Same ring as the mvt case above, still serialized and hex encoded exactly as before.
+  - match: { aggregations.g.buckets.0.key: "0000000003000000010000000540B000000000000040B0000000000000000000000000000040B00000000000000000000000000000000000000000000040B0000000000000000000000000000040B000000000000040B0000000000000" }
+
+---
+"mvt without a tile extent is rejected":
+
+  - do:
+      catch: /\[output_format\] \[mvt\] requires \[tile.extent\]/
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: mvt
+                tile:
+                  bbox: [0, 0, 10, 10]
+
+---
+"mvt without a tile param at all is rejected":
+
+  - do:
+      catch: bad_request
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: mvt
+
+---
+"A stored GeometryCollection is dropped from every tile":
+
+# id 7: a polygon and a point crossing the eastern edge of the [0,0,10,10] window, and inside [0,0,20,20]
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        refresh: true
+        body: >
+          {
+            "id": 7,
+            "geo_shape_0": {
+              "type": "GeometryCollection",
+              "geometries": [
+                {"type": "Polygon", "coordinates": [[[8,2],[12,2],[12,4],[8,4],[8,2]]]},
+                {"type": "Point", "coordinates": [9,3]}
+              ]
+            }
+          }
+
+# Crossing the window edge: the clip keeps the polygon part alone, which must not make it encodable.
+  - do:
+      search:
+        body:
+          size: 0
+          query:
+            term:
+              id: 7
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: mvt
+                tile:
+                  bbox: [0, 0, 10, 10]
+                  extent: 4096
+                  buffer: 0
+  - length: { aggregations.g.buckets: 0 }
+  - match: { aggregations.g.sum_other_doc_count: 1 }
+
+# Fully inside the window: the collection skips the clip and comes back whole.
+  - do:
+      search:
+        body:
+          size: 0
+          query:
+            term:
+              id: 7
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: mvt
+                tile:
+                  bbox: [0, 0, 20, 20]
+                  extent: 4096
+                  buffer: 0
+  - length: { aggregations.g.buckets: 0 }
+  - match: { aggregations.g.sum_other_doc_count: 1 }

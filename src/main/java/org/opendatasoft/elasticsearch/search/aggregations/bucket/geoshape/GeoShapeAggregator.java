@@ -30,6 +30,7 @@ import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKBReader;
 import org.locationtech.jts.io.WKBWriter;
 import org.opendatasoft.elasticsearch.plugin.GeoUtils;
+import org.opendatasoft.elasticsearch.plugin.MvtEncoder;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -48,6 +49,8 @@ public class GeoShapeAggregator extends BucketsAggregator {
     private final CollectFieldsParams collectFieldsParams;
     private final CollectedFields collectedFields;
     private final GeoShapeTransform transform;
+    // The command stream replaces the serialized geometry, so the two are never both computed.
+    private final boolean mvtOutput;
 
     private WKBReader wkbReader;
     private final WKBWriter wkbWriter;
@@ -80,6 +83,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
         this.bucketCountThresholds = bucketCountThresholds;
 
         this.transform = new GeoShapeTransform(must_simplify, zoom, algorithm, tile);
+        this.mvtOutput = output_format == GeoUtils.OutputFormat.MVT;
 
         this.wkbReader = new WKBReader();
         this.wkbWriter = new WKBWriter();
@@ -183,11 +187,14 @@ public class GeoShapeAggregator extends BucketsAggregator {
                         }
 
                         if (transform.intersectsWindow(geom) == false) {
-                            // The clip would empty this shape, so it must not take a slot in the
-                            // ranking: doing so would hide a shape that is actually visible in the
-                            // window. Free to check, the geometry is already parsed here. Its docs
-                            // still count towards sum_other_doc_count, exactly as they did when the
-                            // shape was ranked and then dropped further down.
+                            // The clip would empty this shape: keep it from taking a slot a visible shape
+                            // needs. Its docs still count towards sum_other_doc_count.
+                            continue;
+                        }
+
+                        if (mvtOutput && Geometry.TYPENAME_GEOMETRYCOLLECTION.equals(geom.getGeometryType())) {
+                            // No MVT counterpart. Checked on the stored shape, before the clip can turn a
+                            // collection crossing the window edge into an encodable polygon.
                             continue;
                         }
 
@@ -222,17 +229,27 @@ public class GeoShapeAggregator extends BucketsAggregator {
                     try {
                         Geometry geom = transform.apply(wkbReader.read(bucket.wkb.bytes));
                         if (geom.isEmpty()) {
-                            // Nothing of this shape falls inside the window. Dropping it is safe: the
-                            // neighbouring tiles that do cover it still return it, and its doc count is
-                            // reported through sum_other_doc_count below.
+                            // Nothing of this shape falls inside the window; its docs go to sum_other_doc_count.
                             continue;
                         }
-                        bucket.wkb = new BytesRef(wkbWriter.write(geom));
-                        if (transform.rescalesGeometry() == false) {
-                            // perimeter is the ranking key, and the coordinator re-ranks buckets with it
-                            // across shards. Once a shape is clipped or rescaled its length no longer says
-                            // anything about the shape itself, only about how much of it this window shows,
-                            // so keep the whole-shape WGS84 length assigned above instead.
+                        if (mvtOutput) {
+                            // The stream replaces the WKB. The builder guarantees a tile extent, so the
+                            // coordinates are on the grid.
+                            bucket.mvt = MvtEncoder.encode(geom);
+                            if (bucket.mvt.length == 0) {
+                                // Every ring collapsed onto a single grid cell. The geometry is not
+                                // empty, but it draws nothing, so the bucket goes the same way as one
+                                // the window emptied.
+                                continue;
+                            }
+                            bucket.wkb = new BytesRef();
+                        } else {
+                            bucket.wkb = new BytesRef(wkbWriter.write(geom));
+                        }
+                        // perimeter is the ranking key, and the coordinator re-ranks buckets with it across
+                        // shards. Under a tile the returned length only says how much of the shape this
+                        // window shows, so the whole-shape WGS84 length assigned above is kept.
+                        if (tile == null) {
                             bucket.perimeter = geom.getLength();
                         }
                         keptBuckets.add(bucket);

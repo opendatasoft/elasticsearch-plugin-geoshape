@@ -38,7 +38,9 @@ public class GeoUtils {
     public enum OutputFormat {
         WKT,
         WKB,
-        GEOJSON
+        GEOJSON,
+        /** The MVT command stream, an array of integers built by {@link MvtEncoder}; needs a {@code tile.extent}. */
+        MVT
     }
 
     public enum SimplifyAlgorithm {
@@ -466,27 +468,26 @@ public class GeoUtils {
     }
 
     public static String exportWkbTo(BytesRef wkb, OutputFormat output_format, GeoJsonWriter geoJsonWriter) throws ParseException {
-        switch (output_format) {
-            case WKT:
-                Geometry geom = new WKBReader().read(wkb.bytes);
-                return new WKTWriter().write(geom);
-            case WKB:
-                return WKBWriter.toHex(wkb.bytes);
-            default:
-                Geometry geo = new WKBReader().read(wkb.bytes);
-                return geoJsonWriter.write(geo);
-        }
+        return switch (output_format) {
+            case WKT -> new WKTWriter().write(new WKBReader().read(wkb.bytes));
+            case WKB -> WKBWriter.toHex(wkb.bytes);
+            case GEOJSON -> geoJsonWriter.write(new WKBReader().read(wkb.bytes));
+            case MVT -> throw notTextual();
+        };
     }
 
     public static String exportGeoTo(Geometry geom, OutputFormat outputFormat, GeoJsonWriter geoJsonWriter) {
-        switch (outputFormat) {
-            case WKT:
-                return new WKTWriter().write(geom);
-            case WKB:
-                return WKBWriter.toHex(new WKBWriter().write(geom));
-            default:
-                return geoJsonWriter.write(geom);
-        }
+        return switch (outputFormat) {
+            case WKT -> new WKTWriter().write(geom);
+            case WKB -> WKBWriter.toHex(new WKBWriter().write(geom));
+            case GEOJSON -> geoJsonWriter.write(geom);
+            case MVT -> throw notTextual();
+        };
+    }
+
+    /** The geoshape aggregation renders {@link OutputFormat#MVT} itself, as an array of integers. */
+    private static IllegalArgumentException notTextual() {
+        return new IllegalArgumentException("[mvt] is a command stream, not a text format");
     }
 
     /**

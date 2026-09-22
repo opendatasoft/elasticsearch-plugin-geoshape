@@ -292,6 +292,21 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
         }
     }
 
+    /** Reject {@code output_format: mvt} without a {@code tile.extent}: the stream moves over that grid. */
+    private void validateOutputFormat() {
+        if (output_format == GeoUtils.OutputFormat.MVT && (tile == null || tile.hasExtent() == false)) {
+            throw new IllegalArgumentException(
+                "["
+                    + OUTPUT_FORMAT_FIELD.getPreferredName()
+                    + "] [mvt] requires ["
+                    + TILE_FIELD.getPreferredName()
+                    + "."
+                    + TileParams.EXTENT_FIELD.getPreferredName()
+                    + "] to be set in geoshape aggregation."
+            );
+        }
+    }
+
     @Override
     protected ValuesSourceAggregatorFactory innerBuild(
         AggregationContext queryShardContext,
@@ -299,6 +314,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
         AggregatorFactory parent,
         AggregatorFactories.Builder subFactoriesBuilder
     ) throws IOException {
+        validateOutputFormat();
         validateCollectFields(queryShardContext);
         return new GeoShapeAggregatorFactory(
             name,

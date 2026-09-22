@@ -44,14 +44,6 @@ public class GeoShapeTransform {
     }
 
     /**
-     * True when the returned geometry no longer measures the whole shape, so its length must not be
-     * used as a ranking key.
-     */
-    public boolean rescalesGeometry() {
-        return tile != null;
-    }
-
-    /**
      * Run the pipeline.
      *
      * <p>Orienting comes <b>last</b>, on the coordinates that are actually emitted. Ring orientation

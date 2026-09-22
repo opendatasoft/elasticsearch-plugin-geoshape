@@ -5,13 +5,15 @@ The README documents each param in full.
 * Add an optional `tile` param to the geoshape aggregation: clip shapes to a bbox (+ buffer), reproject them to
   web mercator and, with `extent`, quantize them to a tile-local integer grid. Returned geometry is valid, keeps
   the dimension of the stored shape and follows the MVT winding. A bbox crossing the antimeridian is rejected
+* Add the `mvt` value to `output_format`: return each shape as the command stream of an MVT feature, an array of
+  unsigned integers, instead of a serialized geometry. Requires `tile.extent`; the `geo_simplify` script rejects it
 * Add an optional `collect_fields` param: return, per bucket, the doc-values of some keyword, numeric, date or
   boolean fields of the documents it holds, read from at most `max_docs_per_bucket` documents (default 10,
   maximum 100)
 * **Breaking**: geojson output no longer carries the `crs` member, which always announced `EPSG:0`. This affects
   every geojson response, with or without `tile`
-* Shapes that the clip empties, or that collapse under quantization, are dropped from the response and counted in
-  `sum_other_doc_count`
+* Shapes that the clip empties, or that collapse under quantization or MVT encoding, are dropped from the
+  response and counted in `sum_other_doc_count`
 * Fix bucket merging: two distinct shapes that simplified or quantized alike were merged into one
 * Fix a latent NPE when a bucket was skipped on unreadable WKB
 * A shape that JTS cannot process no longer fails the whole search; its bucket is dropped

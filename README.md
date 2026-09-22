@@ -257,7 +257,7 @@ Moreover, compared to regular search results, results of an aggregation can be [
 #### Params
 
 - `field` (mandatory): the field used for aggregating. Must be of wkb type. E.g.: "geoshape_0.wkb".
-- `output_format`: the output_format in [`geojson`, `wkt`, `wkb`]. Default to `geojson`.
+- `output_format`: the output_format in [`geojson`, `wkt`, `wkb`, `mvt`]. Default to `geojson`. `mvt` returns the MVT command stream instead of a serialized geometry and requires `tile.extent`; see [MVT command stream output](#mvt-command-stream-output) below.
 - `simplify`:
   - `zoom`: the zoom level in range [0, 20]. 0 is the most simplified and 20 is the least. Default to 0.
   - `algorithm`: simplify algorithm in [`DOUGLAS_PEUCKER`, `TOPOLOGY_PRESERVING`]. Default to `DOUGLAS_PEUCKER`.
@@ -280,6 +280,9 @@ The request determines the space the shapes come back in:
 | no `tile` | WGS84 lon/lat (EPSG:4326) |
 | `tile` without `extent` | web mercator meters (EPSG:3857) |
 | `tile` with `extent` | integer grid local to `bbox`, `[0, extent]`, origin top-left, y downwards. No EPSG code describes this space. |
+
+`output_format` decides how those coordinates are written, not what they are: `mvt` delivers the last
+line of the table as a command stream rather than as a geometry.
 
 
 #### Example
@@ -360,6 +363,117 @@ Things worth knowing about the output:
 - `type` reports the type of the stored shape. A clip can turn a `Polygon` into a `MultiPolygon`; read the returned geometry itself if the effective type matters.
 
 
+#### Tile example
+
+```
+GET main/_search?size=0
+{
+  "query": {
+    "geo_shape": {
+      "geoshape_0.fixed_shape": {
+        "shape": {
+          "type": "envelope",
+          "coordinates": [[-5.625, 48.92249926375824], [0.0, 45.089035564831015]]
+        },
+        "relation": "intersects"
+      }
+    }
+  },
+  "aggs": {
+    "geo_preview": {
+      "geoshape": {
+        "field": "geoshape_0.wkb",
+        "output_format": "wkb",
+        "simplify": {
+          "zoom": 6,
+          "algorithm": "douglas_peucker"
+        },
+        "tile": {
+          "bbox": [-5.625, 45.089035564831015, 0.0, 48.92249926375824],
+          "extent": 4096,
+          "buffer": 0.0625
+        },
+        "size": 100
+      }
+    }
+  }
+}
+```
+
+
+#### MVT command stream output
+
+`output_format: mvt` returns each shape as the integer stream a Mapbox Vector Tile feature carries,
+rather than as WKB, WKT or GeoJSON. It requires `tile.extent`: the stream describes a pen moving over
+the tile grid, so without a grid there is nothing to describe. A request that asks for it without one
+is rejected.
+
+```
+GET main/_search?size=0
+{
+  "aggs": {
+    "geo_preview": {
+      "geoshape": {
+        "field": "geoshape_0.wkb",
+        "simplify": {"zoom": 5, "algorithm": "topology_preserving"},
+        "tile": {"bbox": [0.0, 40.9799, 22.5, 55.7766], "extent": 4096, "buffer": 0.0625},
+        "size": 20000,
+        "output_format": "mvt"
+      }
+    }
+  }
+}
+```
+
+`key` then holds an array of unsigned integers instead of a string:
+
+```json
+{
+  "key": [9, 4102, 3560, 26, 5, 0, 0, 7, 2, 1, 15],
+  "digest": "3722138163066086183",
+  "type": "MultiPolygon",
+  "doc_count": 1
+}
+```
+
+That array is the value of an MVT feature's `geometry` field: it can be appended to a protobuf
+`repeated uint32` as it stands, with no decoding step. The plugin emits the geometry of one shape and
+nothing else; assembling layers, keys, values and the tile envelope around it stays the caller's job.
+
+Elasticsearch's own
+[vector tile search API](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-vector-tile-api.html)
+(`_mvt`) builds whole tiles, but from search hits: one feature per document, at most 10,000 of them.
+This aggregation returns each distinct shape once, however many documents share it, ranked by
+perimeter and without that cap. On a basic license, `_mvt` on a `geo_shape` field also needs
+`grid_precision: 0`, since its default aggregation layer runs `geotile_grid` on that field, a paid
+feature.
+
+The encoding follows section 4.3 of the MVT 2.1 spec:
+
+- a **command integer** packs a command id in its low 3 bits and a repeat count in the other 29, as
+  `count << 3 | id`. `MoveTo` is 1, `LineTo` is 2, `ClosePath` is 7;
+- a point is a pair of **deltas from the pen's current position**, zigzag encoded (`n << 1 ^ n >> 31`)
+  so that a small negative delta stays a small unsigned integer;
+- the **cursor is shared** across the rings of a polygon and the parts of a multi-geometry;
+- a ring is `MoveTo 1`, `LineTo n-1`, `ClosePath`, and does **not** repeat its first point, which
+  `ClosePath` already draws.
+
+What this format drops, compared to returning the same geometry as WKB:
+
+- vertices that quantization moved onto the **same grid cell** as their predecessor, and a last vertex
+  that landed on the ring's first one. They would draw nothing and cost two integers each;
+- a **ring left with fewer than two `LineTo` pairs**, which encloses no area. It is dropped whole,
+  header included, and a polygon whose exterior went this way is dropped with its holes;
+- a **shape whose every ring went this way**. Its bucket is left out of the response and its documents
+  are counted in `sum_other_doc_count`, exactly as for a shape the window emptied.
+
+A `GeometryCollection` has no MVT counterpart, since a feature carries a single geometry type, so a
+stored collection is dropped from the response under this format. The other output formats still
+return it.
+
+Rings come back already wound the way the spec asks, because `tile` orients them (see above). There is
+nothing left for the caller to do per coordinate.
+
 #### Collecting document fields
 
 A bucket groups the documents that share a shape, and `collect_fields` returns some of their field
@@ -433,43 +547,6 @@ Things worth knowing about the output:
   per collected document for a 40-character id. Values are collected for every shape the shard sees,
   including those `size`/`shard_size` later drops.
 
-#### Tile example
-
-```
-GET main/_search?size=0
-{
-  "query": {
-    "geo_shape": {
-      "geoshape_0.fixed_shape": {
-        "shape": {
-          "type": "envelope",
-          "coordinates": [[-5.625, 48.92249926375824], [0.0, 45.089035564831015]]
-        },
-        "relation": "intersects"
-      }
-    }
-  },
-  "aggs": {
-    "geo_preview": {
-      "geoshape": {
-        "field": "geoshape_0.wkb",
-        "output_format": "wkb",
-        "simplify": {
-          "zoom": 6,
-          "algorithm": "douglas_peucker"
-        },
-        "tile": {
-          "bbox": [-5.625, 45.089035564831015, 0.0, 48.92249926375824],
-          "extent": 4096,
-          "buffer": 0.0625
-        },
-        "size": 100
-      }
-    }
-  }
-}
-```
-
 
 
 
@@ -483,7 +560,7 @@ Search script for simplifying shapes dynamically.
 - `field`: the field to apply the script to.
 - `zoom`: the zoom level in range [0, 20]. 0 is the most simplified and 20 is the least. Default to 0.
 - `algorithm`: simplify algorithm in [`DOUGLAS_PEUCKER`, `TOPOLOGY_PRESERVING`]. Default to `DOUGLAS_PEUCKER`.
-- `output_format`: the output_format in [`geojson`, `wkt`, `wkb`]. Default to `geojson`.
+- `output_format`: the output_format in [`geojson`, `wkt`, `wkb`]. Default to `geojson`. `mvt` is rejected: it is specific to the geoshape aggregation.
 
 
 #### Example
