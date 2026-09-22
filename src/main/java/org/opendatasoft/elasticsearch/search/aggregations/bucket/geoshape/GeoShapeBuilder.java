@@ -4,6 +4,7 @@ import org.elasticsearch.TransportVersion;
 import org.elasticsearch.TransportVersions;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
+import org.elasticsearch.index.mapper.MappedFieldType;
 import org.elasticsearch.search.aggregations.AggregationBuilder;
 import org.elasticsearch.search.aggregations.AggregatorFactories;
 import org.elasticsearch.search.aggregations.AggregatorFactories.Builder;
@@ -28,6 +29,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * The builder of the aggregatorFactory. Also implements the parsing of the request.
@@ -44,6 +46,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
     private static final ParseField OUTPUT_FORMAT_FIELD = new ParseField("output_format");
     public static final ParseField SIMPLIFY_FIELD = new ParseField("simplify");
     public static final ParseField TILE_FIELD = new ParseField("tile");
+    public static final ParseField COLLECT_FIELDS_FIELD = new ParseField("collect_fields");
     public static final ParseField SIZE_FIELD = new ParseField("size");
     public static final ParseField SHARD_SIZE_FIELD = new ParseField("shard_size");
 
@@ -60,6 +63,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
             SIMPLIFY_FIELD
         );
         PARSER.declareObject(GeoShapeBuilder::tile, (p, c) -> TileParams.parse(p), TILE_FIELD);
+        PARSER.declareObject(GeoShapeBuilder::collectFields, (p, c) -> CollectFieldsParams.parse(p), COLLECT_FIELDS_FIELD);
         PARSER.declareInt(GeoShapeBuilder::size, SIZE_FIELD);
         PARSER.declareInt(GeoShapeBuilder::shardSize, SHARD_SIZE_FIELD);
     }
@@ -109,6 +113,8 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
     private GeoShape.Algorithm simplify_algorithm = DEFAULT_ALGORITHM;
     // Optional: when null, shapes are returned whole, in WGS84, exactly as before.
     private TileParams tile = null;
+    // Optional: when null, buckets carry no doc-values payload, exactly as before.
+    private CollectFieldsParams collectFields = null;
     private GeoShapeAggregator.BucketCountThresholds bucketCountThresholds = new GeoShapeAggregator.BucketCountThresholds(
         DEFAULT_BUCKET_COUNT_THRESHOLDS
     );
@@ -129,6 +135,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
         simplify_zoom = in.readInt();
         simplify_algorithm = GeoShape.Algorithm.valueOf(in.readString());
         tile = in.readOptionalWriteable(TileParams::new);
+        collectFields = in.readOptionalWriteable(CollectFieldsParams::new);
     }
 
     /**
@@ -142,6 +149,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
         out.writeInt(simplify_zoom);
         out.writeString(simplify_algorithm.name());
         out.writeOptionalWriteable(tile);
+        out.writeOptionalWriteable(collectFields);
     }
 
     private GeoShapeBuilder(GeoShapeBuilder clone, Builder factoriesBuilder, Map<String, Object> metaData) {
@@ -151,6 +159,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
         simplify_zoom = clone.simplify_zoom;
         simplify_algorithm = clone.simplify_algorithm;
         tile = clone.tile;
+        collectFields = clone.collectFields;
         this.bucketCountThresholds = new GeoShapeAggregator.BucketCountThresholds(clone.bucketCountThresholds);
     }
 
@@ -185,6 +194,11 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
         return this;
     }
 
+    private GeoShapeBuilder collectFields(CollectFieldsParams collectFields) {
+        this.collectFields = collectFields;
+        return this;
+    }
+
     @Override
     protected ValuesSourceType defaultValueSourceType() {
         return CoreValuesSourceType.KEYWORD;
@@ -216,6 +230,68 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
         return this;
     }
 
+    /**
+     * The field types whose doc values read back as text: a keyword gives its term, the others their number.
+     * The rest (ip, binary, geo, ...) store an encoding that would come back unreadable, or fail the request.
+     */
+    private static final Set<String> COLLECTABLE_TYPES = Set.of(
+        "keyword",
+        "long",
+        "integer",
+        "short",
+        "byte",
+        "double",
+        "float",
+        "half_float",
+        "scaled_float",
+        "unsigned_long",
+        "date",
+        "date_nanos",
+        "boolean"
+    );
+
+    /**
+     * Reject a collected field that cannot be read from doc values, or whose doc values are not text.
+     *
+     * <p>Such a request can never be served and failing it names the mistake. An unmapped field is left
+     * alone, because a search can span indices that do not all carry it, and it simply contributes no value.
+     */
+    private void validateCollectFields(AggregationContext queryShardContext) {
+        if (collectFields == null) {
+            return;
+        }
+        for (String field : collectFields.getFields()) {
+            MappedFieldType fieldType = queryShardContext.getFieldType(field);
+            if (fieldType == null) {
+                continue;
+            }
+            if (fieldType.hasDocValues() == false) {
+                throw new IllegalArgumentException(
+                    "["
+                        + COLLECT_FIELDS_FIELD.getPreferredName()
+                        + "] cannot read ["
+                        + field
+                        + "]: field of type ["
+                        + fieldType.typeName()
+                        + "] has no doc values, in geoshape aggregation."
+                );
+            }
+            if (COLLECTABLE_TYPES.contains(fieldType.typeName()) == false) {
+                throw new IllegalArgumentException(
+                    "["
+                        + COLLECT_FIELDS_FIELD.getPreferredName()
+                        + "] cannot read ["
+                        + field
+                        + "]: field of type ["
+                        + fieldType.typeName()
+                        + "] has no readable doc-values representation, in geoshape aggregation. Supported types: "
+                        + COLLECTABLE_TYPES.stream().sorted().toList()
+                        + "."
+                );
+            }
+        }
+    }
+
     @Override
     protected ValuesSourceAggregatorFactory innerBuild(
         AggregationContext queryShardContext,
@@ -223,6 +299,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
         AggregatorFactory parent,
         AggregatorFactories.Builder subFactoriesBuilder
     ) throws IOException {
+        validateCollectFields(queryShardContext);
         return new GeoShapeAggregatorFactory(
             name,
             config,
@@ -231,6 +308,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
             simplify_zoom,
             simplify_algorithm,
             tile,
+            collectFields,
             bucketCountThresholds,
             queryShardContext,
             parent,
@@ -251,6 +329,10 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
             builder.field(TILE_FIELD.getPreferredName(), tile);
         }
 
+        if (collectFields != null) {
+            builder.field(COLLECT_FIELDS_FIELD.getPreferredName(), collectFields);
+        }
+
         return builder.endObject();
     }
 
@@ -259,7 +341,16 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
      */
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), output_format, must_simplify, simplify_zoom, simplify_algorithm, tile, bucketCountThresholds);
+        return Objects.hash(
+            super.hashCode(),
+            output_format,
+            must_simplify,
+            simplify_zoom,
+            simplify_algorithm,
+            tile,
+            collectFields,
+            bucketCountThresholds
+        );
     }
 
     @Override
@@ -274,6 +365,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
             && Objects.equals(simplify_zoom, other.simplify_zoom)
             && Objects.equals(simplify_algorithm, other.simplify_algorithm)
             && Objects.equals(tile, other.tile)
+            && Objects.equals(collectFields, other.collectFields)
             && Objects.equals(bucketCountThresholds, other.bucketCountThresholds);
     }
 

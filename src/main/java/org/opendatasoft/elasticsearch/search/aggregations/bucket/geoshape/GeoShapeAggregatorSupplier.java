@@ -22,6 +22,7 @@ public interface GeoShapeAggregatorSupplier {
         int zoom,
         GeoShape.Algorithm algorithm,
         TileParams tile,
+        CollectFieldsParams collectFields,
         GeoShapeAggregator.BucketCountThresholds bucketCountThresholds,
         Aggregator parent,
         CardinalityUpperBound cardinalityUpperBound,

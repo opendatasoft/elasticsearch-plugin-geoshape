@@ -265,6 +265,9 @@ Moreover, compared to regular search results, results of an aggregation can be [
   - `bbox` (mandatory): the WGS84 window, as `[lon1, lat1, lon2, lat2]`. Longitude must increase (`lon1 < lon2`); latitude may be given in either order, so both mercantile's `(west, south, east, north)` and elasticsearch's envelope ordering `(west, north, east, south)` are accepted. Coordinates must be within +/-180 and +/-90. A box crossing the antimeridian cannot be expressed and is rejected rather than silently reinterpreted as its complement: split it into two requests. Latitudes beyond +/-85.0511, where web mercator ends, are accepted but squash the grid: on a `-90` to `90` box the data only fills a thin band of `[0, extent]`.
   - `extent` (optional): rescale coordinates to the integer grid `[0, extent]` local to `bbox`, e.g. `4096`. Must be at least `1`. When omitted, shapes are returned in web mercator meters without being quantized.
   - `buffer` (optional): fraction of the bounding box size kept on each side, so adjacent windows do not show a seam. Must be a number `>= 0`. Default to `0.0625` (6.25%, the PostGIS default).
+- `collect_fields` (optional): return, per bucket, the values of some doc-values fields of the documents that bucket holds. See [Collecting document fields](#collecting-document-fields) below.
+  - `fields` (mandatory): the field names to read, e.g. `["id"]`. Each must have doc values.
+  - `max_docs_per_bucket` (optional): how many documents per bucket the values are read from. Default to `10`, maximum `100`.
 - `size`: can be set to define how many buckets should be returned. See elasticsearch official terms aggregation documentation for more explanation. Buckets are ordered by the length (perimeter for polygons) of their shape, longer shapes first.
 - `shard_size`: can be used to minimize the extra work that comes with bigger requested `size`. See elasticsearch official terms aggregation documentation for more explanation.
 
@@ -356,6 +359,79 @@ Things worth knowing about the output:
 - `perimeter`, which orders the buckets, keeps measuring the whole WGS84 shape. Ranking therefore stays comparable across shards and does not depend on how much of a shape a given window happens to show.
 - `type` reports the type of the stored shape. A clip can turn a `Polygon` into a `MultiPolygon`; read the returned geometry itself if the effective type matters.
 
+
+#### Collecting document fields
+
+A bucket groups the documents that share a shape, and `collect_fields` returns some of their field
+values alongside it, so a caller can resolve a returned shape back to the docs behind it:
+
+```
+GET main/_search?size=0
+{
+  "aggs": {
+    "geo_preview": {
+      "geoshape": {
+        "field": "geoshape_0.wkb",
+        "output_format": "wkb",
+        "size": 10000,
+        "collect_fields": {
+          "fields": ["id"],
+          "max_docs_per_bucket": 10
+        }
+      }
+    }
+  }
+}
+```
+
+Each bucket then carries two extra members:
+
+```
+{
+  "key": "AAAAAAMAAAAB...",
+  "digest": "-5012816342630707936",
+  "type": "Polygon",
+  "doc_count": 3,
+  "collected_fields": { "id": ["a7dfd900", "d5c8b04b", "a0210ba1"] },
+  "collected_docs_truncated": false
+}
+```
+
+This is the service a `top_hits` sub-aggregation or `docvalue_fields` provides, without their
+per-bucket collector and fetch phase: values are read in the pass that already walks the shape's doc
+values. Measured on two real datasets (34,746 polygons with one document each, and 7.1M documents on
+2,953 lines), reading a 40-character id from 10 documents per shape adds 0% to 66% to the
+aggregation's `took` over two runs. A `top_hits` sub-aggregation reading the same id from doc values
+adds 24% to 142% and returns about twice the payload. The ranges move between runs; the ranking does
+not. A `terms` sub-aggregation on the id multiplies the `took`
+by up to 16 when many documents share a shape, and its buckets count against `search.max_buckets`:
+with the 20,000 limit of the measured cluster, it failed on both full datasets.
+
+Things worth knowing about the output:
+- **Values come back as their doc-values string representation.** A `keyword` gives its term; a
+  numeric, date or boolean field gives the number, as a string (an `unsigned_long` goes through a
+  double, so values above 2^53 lose precision). Other field types (`ip`, `binary`, geo fields...)
+  have no textual doc-values representation and are rejected, as is a field mapped without doc
+  values. A field that is not mapped at all returns an empty array, so a search spanning indices that
+  do not all carry it still works.
+- **Documents are neither sorted nor filtered.** A bucket returns the first `max_docs_per_bucket`
+  documents in collection order, which is index order within a shard and unspecified across shards.
+  Sorting is what makes `top_hits` expensive, and it is deliberately not done here.
+- **`max_docs_per_bucket` bounds documents, not values.** Every value of every collected document is
+  returned, so a multi-valued field can return more values than there are documents. The cut always
+  falls on a document boundary, including when the coordinator merges what several shards collected
+  for the same shape. The bound is checked against the bucket's `doc_count`, so on an index carrying
+  `_doc_count` (rollups, downsampled indices) a single document can exhaust it: fewer documents are
+  collected than the bound allows, and `collected_docs_truncated` is `true`.
+- **`collected_docs_truncated` is per bucket**, not per field, because the bound is on documents:
+  when it bites, it bites on every field at the same document. It is `true` when the bucket holds
+  more documents than the values came from, and it is the only thing that distinguishes a complete
+  bucket from a cut one.
+- A field the collected documents have no value for returns an empty array, not a missing key.
+- Memory is bounded by `distinct shapes on the shard x max_docs_per_bucket x value length`, is
+  allocated against the request circuit breaker and is released with the aggregation: about 360 bytes
+  per collected document for a 40-character id. Values are collected for every shape the shard sees,
+  including those `size`/`shard_size` later drops.
 
 #### Tile example
 

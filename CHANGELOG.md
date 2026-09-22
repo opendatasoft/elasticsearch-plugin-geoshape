@@ -5,6 +5,9 @@ The README documents each param in full.
 * Add an optional `tile` param to the geoshape aggregation: clip shapes to a bbox (+ buffer), reproject them to
   web mercator and, with `extent`, quantize them to a tile-local integer grid. Returned geometry is valid, keeps
   the dimension of the stored shape and follows the MVT winding. A bbox crossing the antimeridian is rejected
+* Add an optional `collect_fields` param: return, per bucket, the doc-values of some keyword, numeric, date or
+  boolean fields of the documents it holds, read from at most `max_docs_per_bucket` documents (default 10,
+  maximum 100)
 * **Breaking**: geojson output no longer carries the `crs` member, which always announced `EPSG:0`. This affects
   every geojson response, with or without `tile`
 * Shapes that the clip empties, or that collapse under quantization, are dropped from the response and counted in

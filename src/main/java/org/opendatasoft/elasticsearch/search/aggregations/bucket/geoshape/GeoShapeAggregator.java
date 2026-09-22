@@ -44,6 +44,9 @@ public class GeoShapeAggregator extends BucketsAggregator {
     private final BucketCountThresholds bucketCountThresholds;
     private GeoUtils.OutputFormat output_format;
     private final TileParams tile;
+    // Optional: when null, no doc-values payload is collected and nothing changes in the hot loop.
+    private final CollectFieldsParams collectFieldsParams;
+    private final CollectedFields collectedFields;
     private final GeoShapeTransform transform;
 
     private WKBReader wkbReader;
@@ -59,6 +62,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
         int zoom,
         GeoShape.Algorithm algorithm,
         TileParams tile,
+        CollectFieldsParams collectFields,
         BucketCountThresholds bucketCountThresholds,
         Aggregator parent,
         CardinalityUpperBound cardinalityUpperBound,
@@ -68,6 +72,10 @@ public class GeoShapeAggregator extends BucketsAggregator {
         this.valuesSource = valuesSource;
         this.output_format = output_format;
         this.tile = tile;
+        this.collectFieldsParams = collectFields;
+        this.collectedFields = collectFields == null
+            ? null
+            : new CollectedFields(context, collectFields, this::addRequestCircuitBreakerBytes);
         bucketOrds = new BytesRefHash(1, context.bigArrays());
         this.bucketCountThresholds = bucketCountThresholds;
 
@@ -89,6 +97,9 @@ public class GeoShapeAggregator extends BucketsAggregator {
             return LeafBucketCollector.NO_OP_COLLECTOR;
         }
         final SortedBinaryDocValues values = valuesSource.bytesValues(aggCtx.getLeafReaderContext());
+        final LeafReaderContext leafCtx = aggCtx.getLeafReaderContext();
+        final CollectedFields.Leaf collectLeaf = collectedFields == null ? null : collectedFields.forLeaf(leafCtx);
+        final int maxDocsPerBucket = collectedFields == null ? 0 : collectedFields.getMaxDocsPerBucket();
         return new LeafBucketCollectorBase(sub, values) {
             final BytesRefBuilder previous = new BytesRefBuilder();
 
@@ -114,6 +125,12 @@ public class GeoShapeAggregator extends BucketsAggregator {
                             collectExistingBucket(sub, doc, bucketOrdinal);
                         } else {
                             collectBucket(sub, doc, bucketOrdinal);
+                        }
+                        // The bucket's doc count has just been incremented, so it is the 1-based
+                        // rank of this document within the bucket: the bound stops the read and the
+                        // allocation, not just the output.
+                        if (collectLeaf != null && bucketDocCount(bucketOrdinal) <= maxDocsPerBucket) {
+                            collectLeaf.collect(doc, bucketOrdinal);
                         }
                         previous.copyBytes(bytesValue);
                     }
@@ -142,7 +159,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
                 for (int i = 0; i < bucketOrds.size(); i++) {
                     totalDocCount += bucketDocCount(i);
                     if (spare == null) {
-                        spare = new InternalGeoShape.InternalBucket(new BytesRef(), null, null, 0, 0, null);
+                        spare = new InternalGeoShape.InternalBucket(new BytesRef(), null, null, 0, 0, null, null, false);
                     }
                     bucketOrds.get(i, spare.wkb);
 
@@ -220,13 +237,18 @@ public class GeoShapeAggregator extends BucketsAggregator {
                         }
                         keptBuckets.add(bucket);
                     } catch (ParseException | IllegalArgumentException | TopologyException e) {
-                        // One malformed shape must not fail the shard, and with it the whole search.
-                        // Clipping runs an overlay on raw stored geometry, and JTS throws
-                        // TopologyException (or IllegalArgumentException on a malformed ring) when it
-                        // cannot process one. Drop the bucket like an unreadable one; its docs are
-                        // reported through sum_other_doc_count.
+                        // One shape JTS cannot process (a malformed ring, an overlay it cannot compute)
+                        // must not fail the shard. Drop it like an unreadable one.
                     }
                 }
+                // Values are collected for every ordinal, but only the survivors pay for a copy.
+                if (collectedFields != null) {
+                    for (InternalGeoShape.InternalBucket bucket : keptBuckets) {
+                        bucket.collectedValues = collectedFields.valuesFor(bucket.bucketOrd);
+                        bucket.collectedDocsTruncated = bucket.docCount > collectedFields.getMaxDocsPerBucket();
+                    }
+                }
+
                 topBucketsPerOrd.set(ordIdx, keptBuckets.toArray(new InternalGeoShape.InternalBucket[0]));
 
                 // Docs carried by the shapes this shard actually returns; the rest is reported as "other".
@@ -239,6 +261,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
                     name,
                     Arrays.asList(topBucketsPerOrd.get(ordIdx)),
                     output_format,
+                    collectFieldsParams,
                     bucketCountThresholds.getRequiredSize(),
                     bucketCountThresholds.getShardSize(),
                     totalDocCount - returnedDocCount,
@@ -258,6 +281,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
             name,
             null,
             output_format,
+            collectFieldsParams,
             bucketCountThresholds.getRequiredSize(),
             bucketCountThresholds.getShardSize(),
             0,
@@ -267,7 +291,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
 
     @Override
     protected void doClose() {
-        Releasables.close(bucketOrds);
+        Releasables.close(bucketOrds, collectedFields);
     }
 
     public static class BucketCountThresholds implements Writeable, ToXContentFragment {

@@ -1,0 +1,539 @@
+---
+setup:
+
+  - do:
+      ingest.put_pipeline:
+        id: "geo_extension"
+        body:  >
+          {
+            "description": "Add extra geo fields to geo_shape fields.",
+            "processors": [
+              {
+                "geo_extension": {
+                  "field": "geo_shape_*"
+                }
+              }
+            ]
+          }
+
+# Single shard so bucket ordering and collection order stay deterministic
+  - do:
+      indices.create:
+        index: test_index
+        body:
+          settings:
+            number_of_shards: 1
+
+  - do:
+      indices.put_mapping:
+        index: test_index
+        body:
+          dynamic_templates: [
+            {
+              "geo_shapes": {
+                "match": "geo_shape_*",
+                "mapping": {
+                  "properties": {
+                    "shape": {"enabled": false},
+                    "fixed_shape": {"type": "geo_shape"},
+                    "hash": {"type": "keyword"},
+                    "wkb": {"type": "binary", "doc_values": true},
+                    "type": {"type": "keyword"},
+                    "area": {"type": "half_float"},
+                    "bbox": {"type": "geo_point"},
+                    "centroid": {"type": "geo_point"}
+                  }
+                }
+              }
+            }
+          ]
+          properties:
+            id: {"type": "keyword"}
+            tags: {"type": "keyword"}
+            no_dv: {"type": "keyword", "doc_values": false}
+            rank: {"type": "long"}
+            seen: {"type": "date"}
+            flag: {"type": "boolean"}
+            client_ip: {"type": "ip"}
+
+# Shape S1, perimeter 40, carried by documents a, c and d
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": "a", "tags": ["x", "y"], "no_dv": "a", "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[10,0],[10,10],[0,10],[0,0]]] } }
+
+# Shape S2, perimeter 20, carried by document b alone
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": "b", "tags": ["w"], "no_dv": "b", "geo_shape_0": { "type": "Polygon", "coordinates": [[[20,0],[25,0],[25,5],[20,5],[20,0]]] } }
+
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": "c", "tags": ["z"], "no_dv": "c", "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[10,0],[10,10],[0,10],[0,0]]] } }
+
+# No tags at all: the document still takes a slot, so the fields of one bucket stay aligned
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "id": "d", "no_dv": "d", "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[10,0],[10,10],[0,10],[0,0]]] } }
+
+# Three shards, the same shape everywhere, so the coordinator has several contributions to merge
+  - do:
+      indices.create:
+        index: test_index_sharded
+        body:
+          settings:
+            number_of_shards: 3
+
+  - do:
+      indices.put_mapping:
+        index: test_index_sharded
+        body:
+          dynamic_templates: [
+            {
+              "geo_shapes": {
+                "match": "geo_shape_*",
+                "mapping": {
+                  "properties": {
+                    "shape": {"enabled": false},
+                    "fixed_shape": {"type": "geo_shape"},
+                    "hash": {"type": "keyword"},
+                    "wkb": {"type": "binary", "doc_values": true},
+                    "type": {"type": "keyword"},
+                    "area": {"type": "half_float"},
+                    "bbox": {"type": "geo_point"},
+                    "centroid": {"type": "geo_point"}
+                  }
+                }
+              }
+            }
+          ]
+          properties:
+            id: {"type": "keyword"}
+
+  - do:
+      index: { index: test_index_sharded, pipeline: "geo_extension", body: { "id": "s1", "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[10,0],[10,10],[0,10],[0,0]]] } } }
+  - do:
+      index: { index: test_index_sharded, pipeline: "geo_extension", body: { "id": "s2", "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[10,0],[10,10],[0,10],[0,0]]] } } }
+  - do:
+      index: { index: test_index_sharded, pipeline: "geo_extension", body: { "id": "s3", "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[10,0],[10,10],[0,10],[0,0]]] } } }
+  - do:
+      index: { index: test_index_sharded, pipeline: "geo_extension", body: { "id": "s4", "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[10,0],[10,10],[0,10],[0,0]]] } } }
+  - do:
+      index: { index: test_index_sharded, pipeline: "geo_extension", body: { "id": "s5", "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[10,0],[10,10],[0,10],[0,0]]] } } }
+  - do:
+      index: { index: test_index_sharded, pipeline: "geo_extension", body: { "id": "s6", "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[10,0],[10,10],[0,10],[0,0]]] } } }
+
+# A larger shape, so a truncating `size` has something to drop
+  - do:
+      index: { index: test_index_sharded, pipeline: "geo_extension", body: { "id": "big", "geo_shape_0": { "type": "Polygon", "coordinates": [[[-40,-40],[40,-40],[40,40],[-40,40],[-40,-40]]] } } }
+
+  - do:
+      indices.refresh: {}
+
+---
+"A bucket returns the values of every document it holds":
+
+  - do:
+      search:
+        index: test_index
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                size: 10
+                collect_fields:
+                  fields: ["id"]
+
+# Buckets are ordered by perimeter, so S1 (40) comes before S2 (20). Values follow collection
+# order, which on a single shard is the order the documents were indexed in.
+  - match: { aggregations.g.buckets.0.doc_count: 3 }
+  - match: { aggregations.g.buckets.0.collected_fields.id: ["a", "c", "d"] }
+  - match: { aggregations.g.buckets.0.collected_docs_truncated: false }
+  - match: { aggregations.g.buckets.1.doc_count: 1 }
+  - match: { aggregations.g.buckets.1.collected_fields.id: ["b"] }
+  - match: { aggregations.g.buckets.1.collected_docs_truncated: false }
+
+---
+"Several fields are returned, multi-valued and missing ones included":
+
+  - do:
+      search:
+        index: test_index
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                size: 10
+                collect_fields:
+                  fields: ["id", "tags"]
+
+# Every value of every collected document is returned: a and c bring two and one tag, d brings
+# none. The bound is on documents, so a multi-valued field is never cut short.
+  - match: { aggregations.g.buckets.0.collected_fields.id: ["a", "c", "d"] }
+  - match: { aggregations.g.buckets.0.collected_fields.tags: ["x", "y", "z"] }
+  - match: { aggregations.g.buckets.0.collected_docs_truncated: false }
+
+---
+"max_docs_per_bucket truncates and says so":
+
+  - do:
+      search:
+        index: test_index
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                size: 10
+                collect_fields:
+                  fields: ["id", "tags"]
+                  max_docs_per_bucket: 2
+
+# The bucket holds three documents and only two were read, so the flag is raised. The cut falls on
+# a document boundary: tags stops at the tags of a and c, not two values in.
+  - match: { aggregations.g.buckets.0.doc_count: 3 }
+  - match: { aggregations.g.buckets.0.collected_fields.id: ["a", "c"] }
+  - match: { aggregations.g.buckets.0.collected_fields.tags: ["x", "y", "z"] }
+  - match: { aggregations.g.buckets.0.collected_docs_truncated: true }
+# The bucket that holds a single document is complete, and says so
+  - match: { aggregations.g.buckets.1.collected_fields.id: ["b"] }
+  - match: { aggregations.g.buckets.1.collected_docs_truncated: false }
+
+---
+"Values of the same shape are merged across shards":
+
+  - do:
+      search:
+        index: test_index_sharded
+        body:
+          query:
+            terms:
+              id: ["s1", "s2", "s3", "s4", "s5", "s6"]
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                size: 10
+                collect_fields:
+                  fields: ["id"]
+
+# One shape, six documents spread over three shards: the contributions of every shard are
+# concatenated. Their order across shards is not specified, so only the count is asserted.
+  - length: { aggregations.g.buckets: 1 }
+  - match: { aggregations.g.buckets.0.doc_count: 6 }
+  - length: { aggregations.g.buckets.0.collected_fields.id: 6 }
+  - match: { aggregations.g.buckets.0.collected_docs_truncated: false }
+
+---
+"max_docs_per_bucket is re-applied when shards are merged":
+
+  - do:
+      search:
+        index: test_index_sharded
+        body:
+          query:
+            terms:
+              id: ["s1", "s2", "s3", "s4", "s5", "s6"]
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                size: 10
+                collect_fields:
+                  fields: ["id"]
+                  max_docs_per_bucket: 2
+
+# Each shard may hand over up to two documents, so the merge has to cut again.
+  - length: { aggregations.g.buckets: 1 }
+  - match: { aggregations.g.buckets.0.doc_count: 6 }
+  - length: { aggregations.g.buckets.0.collected_fields.id: 2 }
+  - match: { aggregations.g.buckets.0.collected_docs_truncated: true }
+
+---
+"Values survive the per-shard shard_size truncation":
+
+  - do:
+      search:
+        index: test_index_sharded
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                size: 1
+                collect_fields:
+                  fields: ["id"]
+
+# Only the largest shape is kept, on the shard and then at the coordinator, and it still carries
+# the values of its own document.
+  - length: { aggregations.g.buckets: 1 }
+  - match: { aggregations.g.buckets.0.collected_fields.id: ["big"] }
+  - match: { aggregations.g.buckets.0.collected_docs_truncated: false }
+  - match: { aggregations.g.sum_other_doc_count: 6 }
+
+---
+"Collected fields work alongside simplify":
+
+  - do:
+      search:
+        index: test_index
+        body:
+          query:
+            terms:
+              id: ["a", "c", "d"]
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                simplify:
+                  zoom: 5
+                  algorithm: DOUGLAS_PEUCKER
+                size: 10
+                collect_fields:
+                  fields: ["id"]
+
+  - match: { aggregations.g.buckets.0.key: "POLYGON ((10 0, 10 10, 0 10, 0 0, 10 0))" }
+  - match: { aggregations.g.buckets.0.collected_fields.id: ["a", "c", "d"] }
+
+---
+"Collected fields work alongside tile":
+
+  - do:
+      search:
+        index: test_index
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                size: 10
+                tile:
+                  bbox: [0, 0, 10, 10]
+                  extent: 4096
+                  buffer: 0
+                collect_fields:
+                  fields: ["id"]
+
+# S2 lies outside the window and is dropped; the surviving bucket keeps its values.
+  - length: { aggregations.g.buckets: 1 }
+  - match: { aggregations.g.buckets.0.key: "POLYGON ((4096 4096, 0 4096, 0 0, 4096 0, 4096 4096))" }
+  - match: { aggregations.g.buckets.0.collected_fields.id: ["a", "c", "d"] }
+  - match: { aggregations.g.sum_other_doc_count: 1 }
+
+---
+"Collected fields work alongside a sub-aggregation":
+
+  - do:
+      search:
+        index: test_index
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                size: 10
+                collect_fields:
+                  fields: ["id"]
+              aggs:
+                n:
+                  value_count:
+                    field: "id"
+
+  - match: { aggregations.g.buckets.0.collected_fields.id: ["a", "c", "d"] }
+  - match: { aggregations.g.buckets.0.n.value: 3 }
+  - match: { aggregations.g.buckets.1.collected_fields.id: ["b"] }
+  - match: { aggregations.g.buckets.1.n.value: 1 }
+
+---
+"Omitting collect_fields leaves the previous response untouched":
+
+  - do:
+      search:
+        index: test_index
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                size: 10
+
+  - match: { aggregations.g.buckets.0.key: "POLYGON ((10 0, 10 10, 0 10, 0 0, 10 0))" }
+  - match: { aggregations.g.buckets.0.doc_count: 3 }
+  - is_false: aggregations.g.buckets.0.collected_fields
+  - is_false: aggregations.g.buckets.0.collected_docs_truncated
+
+---
+"A field without doc values is rejected":
+
+  - do:
+      catch: bad_request
+      search:
+        index: test_index
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                collect_fields:
+                  fields: ["no_dv"]
+
+---
+"Numeric, date and boolean fields come back as their number":
+
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        refresh: true
+        body: { "id": "e", "rank": 7, "seen": "2026-01-02T00:00:00Z", "flag": true, "geo_shape_0": { "type": "Polygon", "coordinates": [[[40,0],[41,0],[41,1],[40,1],[40,0]]] } }
+
+  - do:
+      search:
+        index: test_index
+        body:
+          query:
+            term:
+              id: "e"
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                collect_fields:
+                  fields: ["rank", "seen", "flag"]
+
+  - match: { aggregations.g.buckets.0.collected_fields.rank: ["7"] }
+  - match: { aggregations.g.buckets.0.collected_fields.seen: ["1767312000000"] }
+  - match: { aggregations.g.buckets.0.collected_fields.flag: ["1"] }
+
+---
+"A field without a readable doc-values representation is rejected":
+
+  - do:
+      catch: /\[collect_fields\] cannot read \[client_ip\]/
+      search:
+        index: test_index
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                collect_fields:
+                  fields: ["client_ip"]
+
+---
+"An unmapped field returns no value rather than failing":
+
+  - do:
+      search:
+        index: test_index
+        body:
+          query:
+            term:
+              id: "b"
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                collect_fields:
+                  fields: ["id", "not_a_field"]
+
+  - match: { aggregations.g.buckets.0.collected_fields.id: ["b"] }
+  - match: { aggregations.g.buckets.0.collected_fields.not_a_field: [] }
+
+---
+"An empty field list is rejected":
+
+  - do:
+      catch: bad_request
+      search:
+        index: test_index
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                collect_fields:
+                  fields: []
+
+---
+"A duplicated field is rejected":
+
+  - do:
+      catch: bad_request
+      search:
+        index: test_index
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                collect_fields:
+                  fields: ["id", "id"]
+
+---
+"A max_docs_per_bucket outside its range is rejected":
+
+  - do:
+      catch: bad_request
+      search:
+        index: test_index
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                collect_fields:
+                  fields: ["id"]
+                  max_docs_per_bucket: 0
+
+  - do:
+      catch: bad_request
+      search:
+        index: test_index
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                collect_fields:
+                  fields: ["id"]
+                  max_docs_per_bucket: 101
