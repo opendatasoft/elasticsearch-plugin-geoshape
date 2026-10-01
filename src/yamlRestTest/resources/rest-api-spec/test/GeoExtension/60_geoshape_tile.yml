@@ -356,7 +356,9 @@ setup:
                 field: "geo_shape_0.wkb"
                 output_format: wkt
 
-  - match: { aggregations.g.buckets.0.key: "POLYGON ((11.25 0, 11.25 11.178401873711781, 0 11.178401873711781, 0 0, 11.25 0))" }
+  - match:
+      aggregations.g.buckets.0.key: "POLYGON ((11.25 0, 11.25 11.178401873711781, 0 11.178401873711781, 0 0,
+        11.25 0))"
 
 ---
 "A bbox is rejected, alone or next to z/x/y":
