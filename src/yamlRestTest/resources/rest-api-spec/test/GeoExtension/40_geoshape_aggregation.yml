@@ -472,3 +472,35 @@
         body:
           persistent:
             search.max_buckets: null
+
+# Under a multi-bucket parent, every parent bucket would get the shapes of all of them: rejected.
+  - do:
+      catch: /\[geoshape\] aggregation \[g\] cannot be nested under a multi-bucket aggregation/
+      search:
+        body:
+          size: 0
+          aggs:
+            tags:
+              terms:
+                field: tag
+              aggs:
+                g:
+                  geoshape:
+                    field: "geo_shape_0.wkb"
+
+# A single-bucket parent is fine.
+  - do:
+      search:
+        body:
+          size: 0
+          aggs:
+            only_med:
+              filter:
+                prefix:
+                  tag: "med"
+              aggs:
+                g:
+                  geoshape:
+                    field: "geo_shape_0.wkb"
+  - length: { aggregations.only_med.g.buckets: 1 }
+  - match: { aggregations.only_med.g.buckets.0.doc_count: 2 }

@@ -271,6 +271,9 @@ Moreover, compared to regular search results, results of an aggregation can be [
 - `size`: can be set to define how many buckets should be returned. See elasticsearch official terms aggregation documentation for more explanation. Buckets are ordered by the length (perimeter for polygons) of their shape, longer shapes first.
 - `shard_size`: can be used to minimize the extra work that comes with bigger requested `size`. See elasticsearch official terms aggregation documentation for more explanation.
 
+The aggregation must sit at the top level or under a single-bucket aggregation such as `filter`: under a
+multi-bucket one such as `terms`, it is rejected.
+
 #### Coordinate space of the returned shapes
 
 The request determines the space the shapes come back in:

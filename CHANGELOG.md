@@ -19,6 +19,8 @@ The README documents each param in full.
 * Reduce sub-aggregations and collected values only for the shapes `size` keeps: those of the dropped shapes
   were computed anyway, and counted against `search.max_buckets`
 * Fix a latent NPE when a bucket was skipped on unreadable WKB
+* Reject the geoshape aggregation under a multi-bucket parent such as `terms`, where every parent bucket
+  silently came back with the shapes of all of them
 * A shape that JTS cannot process no longer fails the whole search; its bucket is dropped
 * **Upgrade note**: the aggregation's wire format changes, even for requests that use none of the new params.
   Nodes on 8.19.19.0 and 8.19.19.1 cannot exchange a geoshape aggregation, so during a rolling restart a search
