@@ -26,37 +26,39 @@ public class CollectFieldsTests extends ESTestCase {
 
     /** One bucket holding {@code documents}, given as one array of values per document and per field. */
     private static InternalGeoShape.InternalBucket bucket(String wkbHash, boolean truncated, String[][]... documentsPerField) {
-        BytesRef[][][] collected = null;
-        if (documentsPerField.length > 0) {
-            collected = new BytesRef[documentsPerField.length][][];
-            for (int field = 0; field < documentsPerField.length; field++) {
-                String[][] documents = documentsPerField[field];
-                BytesRef[][] perDocument = new BytesRef[documents.length][];
-                for (int document = 0; document < documents.length; document++) {
-                    BytesRef[] values = new BytesRef[documents[document].length];
-                    for (int value = 0; value < values.length; value++) {
-                        values[value] = ref(documents[document][value]);
-                    }
-                    perDocument[document] = values;
-                }
-                collected[field] = perDocument;
-            }
-        }
+        CollectedValues collected = documentsPerField.length == 0 ? null : values(truncated, documentsPerField);
         return new InternalGeoShape.InternalBucket(
             ref("wkb-" + wkbHash),
+            null,
             wkbHash,
             "Polygon",
             42.0,
             documentsPerField.length == 0 ? 1 : documentsPerField[0].length,
             InternalAggregations.EMPTY,
-            collected,
-            truncated
+            collected
         );
     }
 
-    private static List<String> flatten(InternalGeoShape.InternalBucket bucket, int field) {
+    private static CollectedValues values(boolean truncated, String[][]... documentsPerField) {
+        BytesRef[][][] collected = new BytesRef[documentsPerField.length][][];
+        for (int field = 0; field < documentsPerField.length; field++) {
+            String[][] documents = documentsPerField[field];
+            BytesRef[][] perDocument = new BytesRef[documents.length][];
+            for (int document = 0; document < documents.length; document++) {
+                BytesRef[] values = new BytesRef[documents[document].length];
+                for (int value = 0; value < values.length; value++) {
+                    values[value] = ref(documents[document][value]);
+                }
+                perDocument[document] = values;
+            }
+            collected[field] = perDocument;
+        }
+        return new CollectedValues(collected, truncated);
+    }
+
+    private static List<String> flatten(CollectedValues collected, int field) {
         List<String> values = new ArrayList<>();
-        for (BytesRef[] perDocument : bucket.collectedValuesOf(field)) {
+        for (BytesRef[] perDocument : collected.valuesOf(field)) {
             for (BytesRef value : perDocument) {
                 values.add(value.utf8ToString());
             }
@@ -90,57 +92,59 @@ public class CollectFieldsTests extends ESTestCase {
         InternalGeoShape read = roundTrip(shape);
 
         assertEquals(2, read.getBuckets().size());
-        assertEquals(List.of("a", "c", "d"), flatten(read.getBuckets().get(0), 0));
-        assertEquals(List.of("x", "y", "z"), flatten(read.getBuckets().get(0), 1));
+        CollectedValues first = read.getBuckets().get(0).collected;
+        assertEquals(List.of("a", "c", "d"), flatten(first, 0));
+        assertEquals(List.of("x", "y", "z"), flatten(first, 1));
         // A document with no value for a field still holds its own, empty, slot
-        assertEquals(3, read.getBuckets().get(0).getCollectedDocCount());
-        assertEquals(0, read.getBuckets().get(0).collectedValuesOf(1)[2].length);
-        assertFalse(read.getBuckets().get(0).collectedDocsTruncated);
+        assertEquals(3, first.documentCount());
+        assertEquals(0, first.valuesOf(1)[2].length);
+        assertFalse(first.truncated());
 
-        assertEquals(List.of("b"), flatten(read.getBuckets().get(1), 0));
-        assertTrue(read.getBuckets().get(1).collectedDocsTruncated);
+        assertEquals(List.of("b"), flatten(read.getBuckets().get(1).collected, 0));
+        assertTrue(read.getBuckets().get(1).collected.truncated());
     }
 
     public void testRoundTripWithoutCollectedValuesCarriesNothing() throws IOException {
         InternalGeoShape read = roundTrip(shape(null, bucket("1", false)));
 
         assertEquals(1, read.getBuckets().size());
-        assertNull(read.getBuckets().get(0).collectedValues);
-        assertFalse(read.getBuckets().get(0).collectedDocsTruncated);
-        assertEquals(0, read.getBuckets().get(0).getCollectedDocCount());
+        assertNull(read.getBuckets().get(0).collected);
     }
 
     public void testMergeConcatenatesInContributionOrder() {
-        InternalGeoShape.InternalBucket first = bucket("1", false, new String[][] { { "a" }, { "b" } });
-        InternalGeoShape.InternalBucket second = bucket("1", false, new String[][] { { "c" } });
+        CollectedValues merged = CollectedValues.merge(
+            List.of(values(false, new String[][] { { "a" }, { "b" } }), values(false, new String[][] { { "c" } })),
+            10
+        );
 
-        InternalGeoShape.mergeCollectedValues(first, List.of(first, second), 1, 10);
-
-        assertEquals(List.of("a", "b", "c"), flatten(first, 0));
-        assertFalse(first.collectedDocsTruncated);
+        assertEquals(List.of("a", "b", "c"), flatten(merged, 0));
+        assertFalse(merged.truncated());
     }
 
     public void testMergeCutsOnADocumentBoundaryAndRaisesTheFlag() {
         // Two documents per contribution, each carrying two values: a bound of three documents keeps
         // all of the first contribution and one document of the second, values included.
-        InternalGeoShape.InternalBucket first = bucket("1", false, new String[][] { { "a1", "a2" }, { "b1", "b2" } });
-        InternalGeoShape.InternalBucket second = bucket("1", false, new String[][] { { "c1", "c2" }, { "d1", "d2" } });
+        CollectedValues merged = CollectedValues.merge(
+            List.of(
+                values(false, new String[][] { { "a1", "a2" }, { "b1", "b2" } }),
+                values(false, new String[][] { { "c1", "c2" }, { "d1", "d2" } })
+            ),
+            3
+        );
 
-        InternalGeoShape.mergeCollectedValues(first, List.of(first, second), 1, 3);
-
-        assertEquals(List.of("a1", "a2", "b1", "b2", "c1", "c2"), flatten(first, 0));
-        assertEquals(3, first.getCollectedDocCount());
-        assertTrue(first.collectedDocsTruncated);
+        assertEquals(List.of("a1", "a2", "b1", "b2", "c1", "c2"), flatten(merged, 0));
+        assertEquals(3, merged.documentCount());
+        assertTrue(merged.truncated());
     }
 
     public void testMergeKeepsATruncationFlagRaisedByAShard() {
-        InternalGeoShape.InternalBucket first = bucket("1", true, new String[][] { { "a" } });
-        InternalGeoShape.InternalBucket second = bucket("1", false, new String[][] { { "b" } });
+        CollectedValues merged = CollectedValues.merge(
+            List.of(values(true, new String[][] { { "a" } }), values(false, new String[][] { { "b" } })),
+            10
+        );
 
-        InternalGeoShape.mergeCollectedValues(first, List.of(first, second), 1, 10);
-
-        assertEquals(List.of("a", "b"), flatten(first, 0));
-        assertTrue(first.collectedDocsTruncated);
+        assertEquals(List.of("a", "b"), flatten(merged, 0));
+        assertTrue(merged.truncated());
     }
 
     public void testParamsRejectAnEmptyFieldList() {

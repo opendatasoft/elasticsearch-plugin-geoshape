@@ -165,7 +165,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
                 for (int i = 0; i < bucketOrds.size(); i++) {
                     totalDocCount += bucketDocCount(i);
                     if (spare == null) {
-                        spare = new InternalGeoShape.InternalBucket(new BytesRef(), null, null, 0, 0, null, null, false);
+                        spare = new InternalGeoShape.InternalBucket(new BytesRef(), null, null, null, 0, 0, null, null);
                     }
                     bucketOrds.get(i, spare.wkb);
 
@@ -263,8 +263,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
                 // Values are collected for every ordinal, but only the survivors pay for a copy.
                 if (collectedFields != null) {
                     for (InternalGeoShape.InternalBucket bucket : keptBuckets) {
-                        bucket.collectedValues = collectedFields.valuesFor(bucket.bucketOrd);
-                        bucket.collectedDocsTruncated = bucket.docCount > collectedFields.getMaxDocsPerBucket();
+                        bucket.collected = collectedFields.valuesFor(bucket.bucketOrd, bucket.docCount);
                     }
                 }
 

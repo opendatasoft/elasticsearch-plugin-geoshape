@@ -53,80 +53,47 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         long bucketOrd;
         protected long docCount;
         protected InternalAggregations subAggregations;
-        /**
-         * Values read from the documents of this bucket, as {@code [field][document][value]}, or
-         * {@code null} when the aggregation was not asked for any.
-         *
-         * <p>Grouped by document rather than flattened so that the coordinator can cut the merge of
-         * several shards on a document boundary, which is what {@code max_docs_per_bucket} bounds.
-         * Every field holds the same number of document groups, empty ones included.
-         */
-        protected BytesRef[][][] collectedValues;
-        /** Whether the bucket holds more documents than the ones {@link #collectedValues} came from. */
-        protected boolean collectedDocsTruncated;
+        /** What {@code collect_fields} read from this bucket's documents, or {@code null} when it was not asked for. */
+        protected CollectedValues collected;
         /**
          * The MVT command stream drawing the returned geometry, or {@code null} unless
-         * {@code output_format} is {@code mvt}.
-         *
-         * <p>When it is set, {@link #wkb} is left empty on purpose: the shard computed the stream
-         * <b>instead of</b> serializing the transformed geometry, not in addition to it. The stored
-         * shape is still identified by {@link #wkbHash}, which is what the coordinator merges on.
+         * {@code output_format} is {@code mvt}. When it is set, {@link #wkb} is left empty: the stream
+         * replaces the serialized geometry.
          */
         protected int[] mvt;
 
         public InternalBucket(
             BytesRef wkb,
+            int[] mvt,
             String wkbHash,
             String realType,
             double perimeter,
             long docCount,
             InternalAggregations subAggregations,
-            BytesRef[][][] collectedValues,
-            boolean collectedDocsTruncated
+            CollectedValues collected
         ) {
             this.wkb = wkb;
+            this.mvt = mvt;
             this.wkbHash = wkbHash;
             this.realType = realType;
             this.docCount = docCount;
             this.subAggregations = subAggregations;
             this.perimeter = perimeter;
-            this.collectedValues = collectedValues;
-            this.collectedDocsTruncated = collectedDocsTruncated;
+            this.collected = collected;
         }
 
         /**
          * Read from a stream.
-         *
-         * <p>Neither {@code collectFieldCount} nor {@code mvtOutput} is part of the bucket's own
-         * payload: both are properties of the request, carried once by the enclosing
-         * {@link InternalGeoShape}, and the writer uses those very same values.
          */
-        public InternalBucket(StreamInput in, int collectFieldCount, boolean mvtOutput) throws IOException {
+        public InternalBucket(StreamInput in) throws IOException {
             wkb = in.readBytesRef();
-            if (mvtOutput) {
-                mvt = in.readVIntArray();
-            }
+            mvt = in.readBoolean() ? in.readVIntArray() : null;
             wkbHash = in.readString();
             realType = in.readString();
             perimeter = in.readDouble();
             docCount = in.readLong();
             subAggregations = InternalAggregations.readFrom(in);
-            if (collectFieldCount > 0) {
-                int documents = in.readVInt();
-                collectedValues = new BytesRef[collectFieldCount][][];
-                for (int field = 0; field < collectFieldCount; field++) {
-                    BytesRef[][] perDocument = new BytesRef[documents][];
-                    for (int document = 0; document < documents; document++) {
-                        BytesRef[] values = new BytesRef[in.readVInt()];
-                        for (int value = 0; value < values.length; value++) {
-                            values[value] = in.readBytesRef();
-                        }
-                        perDocument[document] = values;
-                    }
-                    collectedValues[field] = perDocument;
-                }
-                collectedDocsTruncated = in.readBoolean();
-            }
+            collected = in.readOptionalWriteable(CollectedValues::new);
         }
 
         /**
@@ -134,49 +101,18 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
          */
         @Override
         public void writeTo(StreamOutput out) throws IOException {
-            writeTo(out, collectedValues == null ? 0 : collectedValues.length, mvt != null);
-        }
-
-        /**
-         * Write to a stream, emitting the payload of exactly {@code collectFieldCount} fields, and the
-         * command stream only when the request asked for it.
-         */
-        public void writeTo(StreamOutput out, int collectFieldCount, boolean mvtOutput) throws IOException {
             out.writeBytesRef(wkb);
-            if (mvtOutput) {
+            out.writeBoolean(mvt != null);
+            if (mvt != null) {
                 // Variable-width: the stream is mostly small zigzag deltas, which a vint fits in one byte.
-                out.writeVIntArray(mvt == null ? NO_MVT : mvt);
+                out.writeVIntArray(mvt);
             }
             out.writeString(wkbHash);
             out.writeString(realType);
             out.writeDouble(perimeter);
             out.writeLong(docCount);
             subAggregations.writeTo(out);
-            if (collectFieldCount > 0) {
-                out.writeVInt(getCollectedDocCount());
-                for (int field = 0; field < collectFieldCount; field++) {
-                    for (BytesRef[] values : collectedValuesOf(field)) {
-                        out.writeVInt(values.length);
-                        for (BytesRef value : values) {
-                            out.writeBytesRef(value);
-                        }
-                    }
-                }
-                out.writeBoolean(collectedDocsTruncated);
-            }
-        }
-
-        /** How many documents {@link #collectedValues} was read from. Identical for every field. */
-        int getCollectedDocCount() {
-            return collectedValues == null || collectedValues.length == 0 ? 0 : collectedValues[0].length;
-        }
-
-        private static final BytesRef[][] NO_COLLECTED_VALUES = new BytesRef[0][];
-
-        private static final int[] NO_MVT = new int[0];
-
-        BytesRef[][] collectedValuesOf(int field) {
-            return collectedValues == null ? NO_COLLECTED_VALUES : collectedValues[field];
+            out.writeOptionalWriteable(collected);
         }
 
         @Override
@@ -277,9 +213,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         requiredSize = readSize(in);
         shardSize = readSize(in);
         otherDocCount = in.readVLong();
-        final int collectFieldCount = getCollectFieldCount();
-        final boolean mvtOutput = isMvtOutput();
-        this.buckets = in.readCollectionAsList(streamInput -> new InternalBucket(streamInput, collectFieldCount, mvtOutput));
+        this.buckets = in.readCollectionAsList(InternalBucket::new);
         // Also needed here: doXContentBody uses it, and a deserialized instance can reach it.
         geoJsonWriter = GeoUtils.createGeoJsonWriter();
     }
@@ -294,9 +228,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         writeSize(requiredSize, out);
         writeSize(shardSize, out);
         out.writeVLong(otherDocCount);
-        final int collectFieldCount = getCollectFieldCount();
-        final boolean mvtOutput = isMvtOutput();
-        out.writeCollection(buckets, (streamOutput, bucket) -> bucket.writeTo(streamOutput, collectFieldCount, mvtOutput));
+        out.writeCollection(buckets);
     }
 
     @Override
@@ -320,28 +252,16 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
 
     @Override
     public InternalBucket createBucket(InternalAggregations aggregations, InternalBucket prototype) {
-        InternalBucket bucket = new InternalBucket(
+        return new InternalBucket(
             prototype.wkb,
+            prototype.mvt,
             prototype.wkbHash,
             prototype.realType,
             prototype.perimeter,
             prototype.docCount,
             aggregations,
-            prototype.collectedValues,
-            prototype.collectedDocsTruncated
+            prototype.collected
         );
-        bucket.mvt = prototype.mvt;
-        return bucket;
-    }
-
-    /** Number of fields whose values every bucket carries; {@code 0} when the param is absent. */
-    private int getCollectFieldCount() {
-        return collectFields == null ? 0 : collectFields.getFields().size();
-    }
-
-    /** Whether buckets carry an MVT command stream instead of a serialized geometry. */
-    private boolean isMvtOutput() {
-        return output_format == OutputFormat.MVT;
     }
 
     @Override
@@ -436,45 +356,14 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         }
         reduced.subAggregations = InternalAggregations.reduce(aggregationsList, context);
         if (collectFields != null && buckets.size() > 1) {
-            // A single contribution was already bounded by the shard that produced it, values and
-            // truncation flag alike, so there is nothing to redo for what is by far the common case:
-            // most shapes live on one shard.
-            mergeCollectedValues(reduced, buckets, getCollectFieldCount(), collectFields.getMaxDocsPerBucket());
+            // A single contribution was already bounded by its shard: the common case has nothing to redo.
+            List<CollectedValues> contributions = new ArrayList<>(buckets.size());
+            for (InternalBucket bucket : buckets) {
+                contributions.add(bucket.collected);
+            }
+            reduced.collected = CollectedValues.merge(contributions, collectFields.getMaxDocsPerBucket());
         }
         return reduced;
-    }
-
-    /**
-     * Concatenate the collected values of the buckets that describe the same shape, keeping the
-     * documents of the first shards to answer and re-applying {@code max_docs_per_bucket}.
-     *
-     * <p>Documents are cut, not values: a document either contributes all of its values or none of
-     * them, which is why the values are carried grouped by document.
-     */
-    static void mergeCollectedValues(InternalBucket reduced, List<InternalBucket> buckets, int fieldCount, int maxDocsPerBucket) {
-        int availableDocs = 0;
-        boolean truncated = false;
-        for (InternalBucket bucket : buckets) {
-            availableDocs += bucket.getCollectedDocCount();
-            truncated |= bucket.collectedDocsTruncated;
-        }
-        final int keptDocs = Math.min(availableDocs, maxDocsPerBucket);
-
-        BytesRef[][][] merged = new BytesRef[fieldCount][][];
-        for (int field = 0; field < fieldCount; field++) {
-            BytesRef[][] perDocument = new BytesRef[keptDocs][];
-            int document = 0;
-            for (InternalBucket bucket : buckets) {
-                BytesRef[][] contribution = bucket.collectedValuesOf(field);
-                for (int i = 0; i < contribution.length && document < keptDocs; i++) {
-                    perDocument[document++] = contribution[i];
-                }
-            }
-            merged[field] = perDocument;
-        }
-
-        reduced.collectedValues = merged;
-        reduced.collectedDocsTruncated = truncated || availableDocs > keptDocs;
     }
 
     @Override
@@ -499,17 +388,10 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         return builder;
     }
 
-    /**
-     * Render the bucket's geometry under {@code key}.
-     *
-     * <p>{@code mvt} is the one format that is not a string. The shard already turned the geometry
-     * into the integer stream an MVT feature carries, so it is written as a JSON array of unsigned
-     * integers, which a consumer can append to a protobuf {@code repeated uint32} without decoding
-     * anything.
-     */
+    /** Render the bucket's geometry under {@code key}: a string, or an array of integers under {@code mvt}. */
     private void keyToXContent(XContentBuilder builder, InternalBucket bucket) throws IOException, ParseException {
-        if (isMvtOutput()) {
-            builder.array(CommonFields.KEY.getPreferredName(), bucket.mvt == null ? InternalBucket.NO_MVT : bucket.mvt);
+        if (output_format == OutputFormat.MVT) {
+            builder.array(CommonFields.KEY.getPreferredName(), bucket.mvt);
             return;
         }
         builder.field(CommonFields.KEY.getPreferredName(), GeoUtils.exportWkbTo(bucket.wkb, output_format, geoJsonWriter));
@@ -527,7 +409,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         List<String> fields = collectFields.getFields();
         for (int field = 0; field < fields.size(); field++) {
             builder.startArray(fields.get(field));
-            for (BytesRef[] values : bucket.collectedValuesOf(field)) {
+            for (BytesRef[] values : bucket.collected.valuesOf(field)) {
                 for (BytesRef value : values) {
                     builder.value(value.utf8ToString());
                 }
@@ -535,7 +417,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
             builder.endArray();
         }
         builder.endObject();
-        builder.field("collected_docs_truncated", bucket.collectedDocsTruncated);
+        builder.field("collected_docs_truncated", bucket.collected.truncated());
     }
 
     @Override

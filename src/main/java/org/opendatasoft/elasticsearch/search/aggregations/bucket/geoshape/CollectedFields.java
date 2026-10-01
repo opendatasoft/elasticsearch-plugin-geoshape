@@ -61,10 +61,6 @@ class CollectedFields implements Releasable {
         return params.getMaxDocsPerBucket();
     }
 
-    int getFieldCount() {
-        return fieldContexts.length;
-    }
-
     Leaf forLeaf(LeafReaderContext ctx) throws IOException {
         SortedBinaryDocValues[] docValues = new SortedBinaryDocValues[fieldContexts.length];
         for (int i = 0; i < fieldContexts.length; i++) {
@@ -76,18 +72,18 @@ class CollectedFields implements Releasable {
     }
 
     /**
-     * The values collected for one bucket, as {@code [field][document][value]}.
+     * The values collected for one bucket, holding {@code docCount} documents.
      *
      * <p>Documents are in collection order, and the groups of every field describe the same
      * documents, so cutting every field at the same group index cuts them all at the same document.
      */
-    BytesRef[][][] valuesFor(long bucketOrd) {
+    CollectedValues valuesFor(long bucketOrd, long docCount) {
         BytesRef[][][] collected = new BytesRef[fieldContexts.length][][];
         List<BytesRef[]>[] bucket = bucketOrd < valuesPerBucket.size() ? valuesPerBucket.get(bucketOrd) : null;
         for (int f = 0; f < fieldContexts.length; f++) {
             collected[f] = bucket == null ? new BytesRef[0][] : bucket[f].toArray(new BytesRef[0][]);
         }
-        return collected;
+        return new CollectedValues(collected, docCount > params.getMaxDocsPerBucket());
     }
 
     @Override

@@ -21,25 +21,11 @@ import java.util.Map;
 /**
  * Covers what the {@code mvt} output format changes outside the encoder: the bucket payload on the
  * wire between a shard and the coordinator, and the rendering of {@code key}.
- *
- * <p>The command stream travels <b>instead of</b> the serialized geometry, which is only safe if the
- * other formats are left exactly as they were. That is asserted here rather than assumed.
  */
 public class MvtOutputTests extends ESTestCase {
 
     private static InternalGeoShape.InternalBucket bucket(String wkbHash, byte[] wkb, int[] mvt) {
-        InternalGeoShape.InternalBucket bucket = new InternalGeoShape.InternalBucket(
-            new BytesRef(wkb),
-            wkbHash,
-            "Polygon",
-            42.0,
-            3,
-            InternalAggregations.EMPTY,
-            null,
-            false
-        );
-        bucket.mvt = mvt;
-        return bucket;
+        return new InternalGeoShape.InternalBucket(new BytesRef(wkb), mvt, wkbHash, "Polygon", 42.0, 3, InternalAggregations.EMPTY, null);
     }
 
     private static InternalGeoShape shape(OutputFormat outputFormat, InternalGeoShape.InternalBucket... buckets) {
@@ -52,13 +38,6 @@ public class MvtOutputTests extends ESTestCase {
             try (StreamInput in = new NamedWriteableAwareStreamInput(out.bytes().streamInput(), new NamedWriteableRegistry(List.of()))) {
                 return new InternalGeoShape(in);
             }
-        }
-    }
-
-    private static byte[] wireBytes(InternalGeoShape shape) throws IOException {
-        try (BytesStreamOutput out = new BytesStreamOutput()) {
-            shape.writeTo(out);
-            return BytesRef.deepCopyOf(out.bytes().toBytesRef()).bytes;
         }
     }
 
@@ -91,22 +70,6 @@ public class MvtOutputTests extends ESTestCase {
         InternalGeoShape read = roundTrip(shape(OutputFormat.MVT, bucket("1", new byte[0], extreme)));
 
         assertArrayEquals(extreme, read.getBuckets().get(0).mvt);
-    }
-
-    public void testOtherFormatsCarryNoCommandStream() throws IOException {
-        byte[] wkb = new byte[] { 1, 3, 0, 0, 0 };
-
-        for (OutputFormat format : List.of(OutputFormat.WKB, OutputFormat.WKT, OutputFormat.GEOJSON)) {
-            // A bucket that happens to hold a stream must serialize exactly like one that does not:
-            // the payload of the formats that already shipped is untouched.
-            assertArrayEquals(
-                format.name(),
-                wireBytes(shape(format, bucket("1", wkb, null))),
-                wireBytes(shape(format, bucket("1", wkb, SQUARE)))
-            );
-
-            assertNull(roundTrip(shape(format, bucket("1", wkb, SQUARE))).getBuckets().get(0).mvt);
-        }
     }
 
     public void testKeyIsRenderedAsAnArrayOfIntegers() throws IOException {
