@@ -261,10 +261,16 @@ Moreover, compared to regular search results, results of an aggregation can be [
 - `simplify`:
   - `zoom`: the zoom level in range [0, 20]. 0 is the most simplified and 20 is the least. Default to 0.
   - `algorithm`: simplify algorithm in [`DOUGLAS_PEUCKER`, `TOPOLOGY_PRESERVING`]. Default to `DOUGLAS_PEUCKER`.
-- `tile` (optional): cut the returned shapes down to a bounding box and deliver them in that box's own coordinate space. See [Tile clipping and quantization](#tile-clipping-and-quantization) below.
-  - `bbox` (mandatory): the WGS84 window, as `[lon1, lat1, lon2, lat2]`. Longitude must increase (`lon1 < lon2`); latitude may be given in either order, so both mercantile's `(west, south, east, north)` and elasticsearch's envelope ordering `(west, north, east, south)` are accepted. Coordinates must be within +/-180 and +/-90. A box crossing the antimeridian cannot be expressed and is rejected rather than silently reinterpreted as its complement: split it into two requests. Latitudes beyond +/-85.0511, where web mercator ends, are accepted but squash the grid: on a `-90` to `90` box the data only fills a thin band of `[0, extent]`.
-  - `extent` (optional): rescale coordinates to the integer grid `[0, extent]` local to `bbox`, e.g. `4096`. Must be at least `1`. When omitted, shapes are returned in web mercator meters without being quantized.
-  - `buffer` (optional): fraction of the bounding box size kept on each side, so adjacent windows do not show a seam. Must be a number `>= 0`. Default to `0.0625` (6.25%, the PostGIS default).
+- `tile` (optional): cut the returned shapes down to an XYZ slippy-map tile and deliver them in that tile's own
+  coordinate space. See [Tile clipping and quantization](#tile-clipping-and-quantization) below.
+  - `z`, `x`, `y` (mandatory): the tile, in the XYZ scheme of web mercator (EPSG:3857), `y = 0` at the north
+    edge: mercantile's convention, not TMS. `z` must be within `[0, 29]`, the range of elasticsearch's own
+    `geotile_grid`, and `x` and `y` within `[0, 2^z - 1]`. The tile's WGS84 box is derived with the formulas of
+    `mercantile.bounds(x, y, z)`.
+  - `extent` (optional): rescale coordinates to the integer grid `[0, extent]` local to the tile, e.g. `4096`.
+    Must be at least `1`. When omitted, shapes are returned in web mercator meters without being quantized.
+  - `buffer` (optional): fraction of the tile size kept on each side, so adjacent tiles do not show a seam. Must
+    be a number `>= 0`. Default to `0.0625` (6.25%, the PostGIS default).
 - `collect_fields` (optional): return, per bucket, the values of some doc-values fields of the documents that bucket holds. See [Collecting document fields](#collecting-document-fields) below.
   - `fields` (mandatory): the field names to read, e.g. `["id"]`. Each must have doc values.
   - `max_docs_per_bucket` (optional): how many documents per bucket the values are read from. Default to `10`, maximum `100`.
@@ -282,7 +288,7 @@ The request determines the space the shapes come back in:
 |---|---|
 | no `tile` | WGS84 lon/lat (EPSG:4326) |
 | `tile` without `extent` | web mercator meters (EPSG:3857) |
-| `tile` with `extent` | integer grid local to `bbox`, `[0, extent]`, origin top-left, y downwards. No EPSG code describes this space. |
+| `tile` with `extent` | grid local to the tile, `[0, extent]`, origin top-left, y downwards. No EPSG code. |
 
 `output_format` decides how those coordinates are written, not what they are: `mvt` delivers the last
 line of the table as a command stream rather than as a geometry.
@@ -334,9 +340,9 @@ Note: because buckets are ranked by perimeter (an intrinsic property of each sha
 
 #### Tile clipping and quantization
 
-The `tile` parameter turns the aggregation's output into a purely local view of a bounding box. It applies, in order:
+The `tile` parameter turns the aggregation's output into a purely local view of a tile. It applies, in order:
 
-1. **clip** the shape to `bbox` widened by `buffer`, in WGS84;
+1. **clip** the shape to the tile widened by `buffer`, in WGS84;
 2. **simplify** it, if `simplify` was given (so simplification only ever runs on the part of the shape that can be seen);
 3. **reproject** to web mercator, and **rescale** to `[0, extent]` when an extent is given;
 4. **repair** whatever the rounding broke, dropping the pieces that collapsed;
@@ -350,15 +356,18 @@ after the ranking. A spatial filter on the query leaves those shapes out as well
 elasticsearch skip the out-of-window documents through its index rather than handing them to the
 aggregation, which on a country-wide index is the difference between visiting a few thousand
 documents and visiting all of them.
+That filter takes the tile's WGS84 corners, which a caller computes from z/x/y, e.g. `mercantile.bounds(x, y, z)`.
 
 This exists to keep per-coordinate work out of the client. Without it, a client rendering vector tiles reprojects, quantizes and re-winds every coordinate of every shape itself, and pays that cost on the *whole* shape even when only a sliver of it falls inside the tile being served. It is the same job as PostGIS' `ST_AsMVTGeom(geom, bounds, extent, buffer)`.
 
 Clipping in WGS84 is exact, not an approximation: web mercator is axis-separable (x depends on longitude only, y on latitude only), so a rectangle stays a rectangle through the projection.
 
 Things worth knowing about the output:
-- The grid origin is the **top-left** corner of `bbox` and **y grows downwards**, the usual tile-local pixel convention. Coordinates are rounded to integers.
+- The grid origin is the **top-left** corner of the tile and **y grows downwards**, the usual tile-local pixel
+  convention. Coordinates are rounded to integers.
 - Rings are oriented so that **exteriors have a positive signed area and holes a negative one**, under the surveyor's formula applied to the returned coordinates: on the y-down grid that is the winding the Mapbox Vector Tile spec requires (section 4.3.3.3), and in mercator meters it is the RFC 7946 right-hand rule. A client can encode the rings as they come. To check it, compare signed areas: libraries reading raw ordinates (JTS `Orientation.isCCW`, shapely's `is_ccw`) call these exteriors counter-clockwise, although they read as clockwise on screen once y points down.
-- Coordinates falling inside `buffer` land **outside** `[0, extent]`, on purpose: `extent` measures the box, not the buffered window.
+- Coordinates falling inside `buffer` land **outside** `[0, extent]`, on purpose: `extent` measures the tile, not
+  the buffered window.
 - A shape with nothing inside the window is **dropped from the response** rather than returned empty, and its documents are counted in `sum_other_doc_count`. Neighbouring windows that do cover the shape still return it.
 - **Returned geometry keeps the dimension of the stored shape.** A polygon merely tangent to the window intersects it along a line, or at a single point; such a result is dropped rather than returned, so a polygon layer never receives a linear feature. A `GeometryCollection` crossing the window edge keeps only its members of the highest dimension, as `ST_AsMVTGeom` does; one entirely inside the window comes back whole.
 - **Returned geometry is always valid.** Rounding onto the grid is destructive: sub-pixel holes and parts land on a single point, and a notch narrower than one grid unit closes into a zero-width spike that makes a ring touch itself. Those pieces are repaired away, keeping the visible area intact, and a shape left with nothing at all is dropped like a clipped-away one. A client does not need a geometry-validity repair pass of its own.
@@ -392,7 +401,9 @@ GET main/_search?size=0
           "algorithm": "douglas_peucker"
         },
         "tile": {
-          "bbox": [-5.625, 45.089035564831015, 0.0, 48.92249926375824],
+          "z": 6,
+          "x": 31,
+          "y": 22,
           "extent": 4096,
           "buffer": 0.0625
         },
@@ -419,7 +430,7 @@ GET main/_search?size=0
       "geoshape": {
         "field": "geoshape_0.wkb",
         "simplify": {"zoom": 5, "algorithm": "topology_preserving"},
-        "tile": {"bbox": [0.0, 40.9799, 22.5, 55.7766], "extent": 4096, "buffer": 0.0625},
+        "tile": {"z": 4, "x": 8, "y": 5, "extent": 4096, "buffer": 0.0625},
         "size": 20000,
         "output_format": "mvt"
       }

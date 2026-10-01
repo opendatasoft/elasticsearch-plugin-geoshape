@@ -1,3 +1,12 @@
+### 8.19.19.2
+
+* **Breaking**: the `tile` param names an XYZ slippy-map tile, `"z"`, `"x"` and `"y"`, instead of a WGS84
+  `bbox`, which is now rejected as an unknown field. The plugin derives the tile's box with mercantile's
+  formulas; `extent` and `buffer` are unchanged. The bbox validation goes with it: a tile cannot cross the
+  antimeridian, leave the latitude range or be degenerate
+* **Upgrade note**: the wire format of `tile` changes. A geoshape aggregation carrying `tile` cannot span nodes
+  on 8.19.19.1 and 8.19.19.2
+
 ### 8.19.19.1
 
 The README documents each param in full.
