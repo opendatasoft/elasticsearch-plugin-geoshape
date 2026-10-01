@@ -333,7 +333,9 @@ setup:
                 output_format: wkt
                 size: 10
                 tile:
-                  bbox: [0, 0, 10, 10]
+                  z: 5
+                  x: 16
+                  y: 15
                   extent: 4096
                   buffer: 0
                 collect_fields:
@@ -341,7 +343,7 @@ setup:
 
 # S2 lies outside the window and is dropped; the surviving bucket keeps its values.
   - length: { aggregations.g.buckets: 1 }
-  - match: { aggregations.g.buckets.0.key: "POLYGON ((4096 4096, 0 4096, 0 0, 4096 0, 4096 4096))" }
+  - match: { aggregations.g.buckets.0.key: "POLYGON ((3641 4096, 0 4096, 0 436, 3641 436, 3641 4096))" }
   - match: { aggregations.g.buckets.0.collected_fields.id: ["a", "c", "d"] }
   - match: { aggregations.g.sum_other_doc_count: 1 }
 

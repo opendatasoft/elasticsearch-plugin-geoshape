@@ -25,10 +25,9 @@ import java.util.Arrays;
 public class QuantizationCollapseTests extends ESTestCase {
 
     private static final int EXTENT = 4096;
+    // z=6/x=31/y=22 longitudes, as mercantile computes them.
     private static final double TILE_MIN_LON = -5.625;
-    private static final double TILE_MIN_LAT = 45.089035564831015;
     private static final double TILE_MAX_LON = 0.0;
-    private static final double TILE_MAX_LAT = 48.92249926375824;
 
     /** Area of the main 1x1 degree fixture ring once quantized, in grid units squared. */
     private static final double MAIN_RING_AREA = 770224.0;
@@ -36,7 +35,7 @@ public class QuantizationCollapseTests extends ESTestCase {
     private final GeometryFactory factory = new GeometryFactory();
 
     private TileParams tileParams() {
-        return new TileParams(TILE_MIN_LON, TILE_MIN_LAT, TILE_MAX_LON, TILE_MAX_LAT, EXTENT, TileParams.DEFAULT_BUFFER);
+        return new TileParams(6, 31, 22, EXTENT, TileParams.DEFAULT_BUFFER);
     }
 
     /** The production pipeline itself, so the step order under test is the shipped one. */

@@ -48,12 +48,16 @@ setup:
             }
           ]
 
-# id 1: exactly covers the [0,0,10,10] window
+# id 1: exactly covers tile z5/16/15, whose corners are mercantile.bounds(16, 15, 5)
   - do:
       index:
         index: test_index
         pipeline: "geo_extension"
-        body: { "id": 1, "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[10,0],[10,10],[0,10],[0,0]]] } }
+        body:
+          id: 1
+          geo_shape_0:
+            type: "Polygon"
+            coordinates: [[[0, 0], [11.25, 0], [11.25, 11.178401873711781], [0, 11.178401873711781], [0, 0]]]
 
 # id 2: straddles the eastern edge of the window
   - do:
@@ -69,7 +73,7 @@ setup:
         pipeline: "geo_extension"
         body: { "id": 3, "geo_shape_0": { "type": "Polygon", "coordinates": [[[50,50],[51,50],[51,51],[50,51],[50,50]]] } }
 
-# id 4: inside the window, but 0.0001 degrees across, well under one grid unit (10/4096 = 0.00244),
+# id 4: inside the window, but 0.0001 degrees across, well under one grid unit (11.25/4096 = 0.00275),
 # so it collapses to a single point once quantized
   - do:
       index:
@@ -110,7 +114,9 @@ setup:
                 field: "geo_shape_0.wkb"
                 output_format: wkt
                 tile:
-                  bbox: [0, 0, 10, 10]
+                  z: 5
+                  x: 16
+                  y: 15
                   extent: 4096
                   buffer: 0
 
@@ -137,12 +143,14 @@ setup:
                 field: "geo_shape_0.wkb"
                 output_format: wkt
                 tile:
-                  bbox: [0, 0, 10, 10]
+                  z: 5
+                  x: 16
+                  y: 15
                   extent: 4096
                   buffer: 0
 
-# Clipped at x=4096 (lon 10) instead of running out to lon 30.
-  - match: { aggregations.g.buckets.0.key: "POLYGON ((2048 2056, 4096 2056, 4096 4096, 2048 4096, 2048 2056))" }
+# Clipped at x=4096 (lon 11.25) instead of running out to lon 30.
+  - match: { aggregations.g.buckets.0.key: "POLYGON ((1820 2273, 4096 2273, 4096 4096, 1820 4096, 1820 2273))" }
   - match: { aggregations.g.sum_other_doc_count: 0 }
 
 ---
@@ -159,7 +167,9 @@ setup:
                 output_format: wkt
                 size: 10
                 tile:
-                  bbox: [0, 0, 10, 10]
+                  z: 5
+                  x: 16
+                  y: 15
                   extent: 4096
                   buffer: 0
 
@@ -185,7 +195,9 @@ setup:
                 output_format: wkt
                 size: 10
                 tile:
-                  bbox: [0, 0, 10, 10]
+                  z: 5
+                  x: 16
+                  y: 15
                   extent: 4096
                   buffer: 0
 
@@ -193,8 +205,8 @@ setup:
 # be merged: the coordinator keys buckets on the hash of the shape as stored, not on what it was
 # rescaled to. Merging them would sum their doc counts and make one of the two vanish.
   - length: { aggregations.g.buckets: 2 }
-  - match: { aggregations.g.buckets.0.key: "POLYGON ((819 3688, 410 3688, 410 3281, 819 3281, 819 3688))" }
-  - match: { aggregations.g.buckets.1.key: "POLYGON ((819 3688, 410 3688, 410 3281, 819 3281, 819 3688))" }
+  - match: { aggregations.g.buckets.0.key: "POLYGON ((728 3732, 364 3732, 364 3368, 728 3368, 728 3732))" }
+  - match: { aggregations.g.buckets.1.key: "POLYGON ((728 3732, 364 3732, 364 3368, 728 3368, 728 3732))" }
   - match: { aggregations.g.buckets.0.doc_count: 1 }
   - match: { aggregations.g.buckets.1.doc_count: 1 }
   - match: { aggregations.g.sum_other_doc_count: 0 }
@@ -215,7 +227,9 @@ setup:
                 field: "geo_shape_0.wkb"
                 output_format: wkt
                 tile:
-                  bbox: [0, 0, 10, 10]
+                  z: 5
+                  x: 16
+                  y: 15
                   extent: 4096
                   buffer: 0
 
@@ -239,7 +253,9 @@ setup:
                 field: "geo_shape_0.wkb"
                 output_format: wkt
                 tile:
-                  bbox: [0, 0, 10, 10]
+                  z: 5
+                  x: 16
+                  y: 15
                   buffer: 0
 
 # Without quantization there is no rounding, so the shape survives in mercator meters.
@@ -262,12 +278,14 @@ setup:
                 field: "geo_shape_0.wkb"
                 output_format: wkt
                 tile:
-                  bbox: [0, 0, 10, 10]
+                  z: 5
+                  x: 16
+                  y: 15
                   extent: 4096
                   buffer: 0.0625
 
-# With a 6.25% buffer the shape is kept out to lon 10.625, i.e. x = 4352 > extent.
-  - match: { aggregations.g.buckets.0.key: "POLYGON ((2048 4096, 2048 2056, 4352 2056, 4352 4096, 2048 4096))" }
+# With a 6.25% buffer the shape is kept out to lon 11.953125, i.e. x = 4352 > extent.
+  - match: { aggregations.g.buckets.0.key: "POLYGON ((1820 4096, 1820 2273, 4352 2273, 4352 4096, 1820 4096))" }
 
 ---
 "Without extent shapes come back in mercator meters":
@@ -285,10 +303,15 @@ setup:
                 field: "geo_shape_0.wkb"
                 output_format: wkt
                 tile:
-                  bbox: [0, 0, 10, 10]
+                  z: 5
+                  x: 16
+                  y: 15
                   buffer: 0
 
-  - match: { aggregations.g.buckets.0.key: "POLYGON ((1113194.9079327357 -0.0000000007081155, 1113194.9079327357 1118889.9748579597, 0 1118889.9748579597, 0 -0.0000000007081155, 1113194.9079327357 -0.0000000007081155))" }
+  - match:
+      aggregations.g.buckets.0.key: "POLYGON ((1252344.2714243277 -0.0000000007081155,
+        1252344.2714243277 1252344.2714243277, 0 1252344.2714243277, 0 -0.0000000007081155,
+        1252344.2714243277 -0.0000000007081155))"
 
 ---
 "Simplification runs on the clipped shape":
@@ -309,11 +332,13 @@ setup:
                   zoom: 6
                   algorithm: DOUGLAS_PEUCKER
                 tile:
-                  bbox: [0, 0, 10, 10]
+                  z: 5
+                  x: 16
+                  y: 15
                   extent: 4096
                   buffer: 0
 
-  - match: { aggregations.g.buckets.0.key: "POLYGON ((2048 2056, 4096 2056, 4096 4096, 2048 4096, 2048 2056))" }
+  - match: { aggregations.g.buckets.0.key: "POLYGON ((1820 2273, 4096 2273, 4096 4096, 1820 4096, 1820 2273))" }
 
 ---
 "Omitting tile leaves the previous behaviour untouched":
@@ -331,13 +356,15 @@ setup:
                 field: "geo_shape_0.wkb"
                 output_format: wkt
 
-  - match: { aggregations.g.buckets.0.key: "POLYGON ((10 0, 10 10, 0 10, 0 0, 10 0))" }
+  - match: { aggregations.g.buckets.0.key: "POLYGON ((11.25 0, 11.25 11.178401873711781, 0 11.178401873711781, 0 0, 11.25 0))" }
 
 ---
-"An incomplete bbox is rejected":
+"A bbox is rejected, alone or next to z/x/y":
 
+# bbox was the window before z/x/y. It is not declared any more, so it fails like any unknown field instead of
+# being ignored next to a tile, which a half-migrated client would otherwise never notice.
   - do:
-      catch: bad_request
+      catch: /unknown field \[bbox\]/
       search:
         body:
           size: 0
@@ -346,14 +373,14 @@ setup:
               geoshape:
                 field: "geo_shape_0.wkb"
                 tile:
-                  bbox: [0, 0, 10]
+                  z: 5
+                  x: 16
+                  y: 15
+                  bbox: [0, 0, 11.25, 11.178401873711781]
                   extent: 4096
 
----
-"A missing bbox is rejected":
-
   - do:
-      catch: bad_request
+      catch: /unknown field \[bbox\]/
       search:
         body:
           size: 0
@@ -362,8 +389,101 @@ setup:
               geoshape:
                 field: "geo_shape_0.wkb"
                 tile:
+                  bbox: [0, 0, 11.25, 11.178401873711781]
                   extent: 4096
 
+---
+"A missing z, x or y is rejected":
+
+  - do:
+      catch: /Required one of fields \[z\]/
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                tile:
+                  x: 16
+                  y: 15
+                  extent: 4096
+
+  - do:
+      catch: /Required one of fields \[x\]/
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                tile:
+                  z: 5
+                  y: 15
+                  extent: 4096
+
+  - do:
+      catch: /Required one of fields \[y\]/
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                tile:
+                  z: 5
+                  x: 16
+                  extent: 4096
+
+---
+"A tile index outside its zoom is rejected":
+
+  - do:
+      catch: /\[x\] must be within \[0, 31\] at \[z\] \[5\], got \[32\]/
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                tile:
+                  z: 5
+                  x: 32
+                  y: 15
+                  extent: 4096
+
+  - do:
+      catch: /\[y\] must be within \[0, 31\] at \[z\] \[5\], got \[-1\]/
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                tile:
+                  z: 5
+                  x: 16
+                  y: -1
+                  extent: 4096
+
+  - do:
+      catch: /\[z\] must be within \[0, 29\], got \[30\]/
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                tile:
+                  z: 30
+                  x: 0
+                  y: 0
+                  extent: 4096
 ---
 "A negative extent is rejected":
 
@@ -377,7 +497,9 @@ setup:
               geoshape:
                 field: "geo_shape_0.wkb"
                 tile:
-                  bbox: [0, 0, 10, 10]
+                  z: 5
+                  x: 16
+                  y: 15
                   extent: -1
 
 ---
@@ -394,7 +516,9 @@ setup:
               geoshape:
                 field: "geo_shape_0.wkb"
                 tile:
-                  bbox: [0, 0, 10, 10]
+                  z: 5
+                  x: 16
+                  y: 15
                   extent: 0
 
 ---
@@ -414,7 +538,9 @@ setup:
                 output_format: wkt
                 size: 1
                 tile:
-                  bbox: [1, 1, 2, 2]
+                  z: 8
+                  x: 128
+                  y: 127
                   extent: 4096
                   buffer: 0
 
@@ -432,7 +558,7 @@ setup:
               geo_shape_0.fixed_shape:
                 shape:
                   type: "envelope"
-                  coordinates: [[1, 2], [2, 1]]
+                  coordinates: [[0, 1.4061088354351565], [1.40625, 0]]
                 relation: "intersects"
           size: 0
           aggs:
@@ -442,7 +568,9 @@ setup:
                 output_format: wkt
                 size: 1
                 tile:
-                  bbox: [1, 1, 2, 2]
+                  z: 8
+                  x: 128
+                  y: 127
                   extent: 4096
                   buffer: 0
 
@@ -493,77 +621,10 @@ setup:
                 output_format: wkt
                 size: 1
                 tile:
-                  bbox: [100, 40, 101, 41]
+                  z: 8
+                  x: 199
+                  y: 96
                   extent: 4096
 
   - length: { aggregations.g.buckets: 1 }
   - match: { aggregations.g.buckets.0.type: "Point" }
-
----
-"A bbox crossing the antimeridian is rejected":
-
-  - do:
-      catch: bad_request
-      search:
-        body:
-          size: 0
-          aggs:
-            g:
-              geoshape:
-                field: "geo_shape_0.wkb"
-                tile:
-                  bbox: [170, 40, -170, 50]
-                  extent: 4096
-
----
-"Coordinates outside their range are rejected":
-
-  - do:
-      catch: bad_request
-      search:
-        body:
-          size: 0
-          aggs:
-            g:
-              geoshape:
-                field: "geo_shape_0.wkb"
-                tile:
-                  bbox: [0, 40, 181, 50]
-                  extent: 4096
-
-  - do:
-      catch: bad_request
-      search:
-        body:
-          size: 0
-          aggs:
-            g:
-              geoshape:
-                field: "geo_shape_0.wkb"
-                tile:
-                  bbox: [0, -91, 10, 50]
-                  extent: 4096
-
----
-"A bbox given with latitude decreasing is accepted":
-
-# Elasticsearch's own envelope ordering is (west, north, east, south). Latitude is not cyclic, so
-# this is unambiguous and must work exactly like the increasing form.
-  - do:
-      search:
-        body:
-          query:
-            term:
-              id: 1
-          size: 0
-          aggs:
-            g:
-              geoshape:
-                field: "geo_shape_0.wkb"
-                output_format: wkt
-                tile:
-                  bbox: [0, 10, 10, 0]
-                  extent: 4096
-                  buffer: 0
-
-  - match: { aggregations.g.buckets.0.key: "POLYGON ((4096 4096, 0 4096, 0 0, 4096 0, 4096 4096))" }

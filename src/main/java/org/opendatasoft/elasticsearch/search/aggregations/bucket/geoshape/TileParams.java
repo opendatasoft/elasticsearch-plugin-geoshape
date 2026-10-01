@@ -3,6 +3,7 @@ package org.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.io.stream.Writeable;
+import org.elasticsearch.search.aggregations.bucket.geogrid.GeoTileUtils;
 import org.elasticsearch.xcontent.ObjectParser;
 import org.elasticsearch.xcontent.ParseField;
 import org.elasticsearch.xcontent.ToXContentObject;
@@ -12,68 +13,72 @@ import org.locationtech.jts.geom.Envelope;
 import org.opendatasoft.elasticsearch.plugin.GeoUtils;
 
 import java.io.IOException;
-import java.util.List;
 import java.util.Objects;
 
 /**
- * The {@code tile} param: a WGS84 bounding box, the {@code buffer} widening it, and an optional
- * {@code extent} for the integer grid local to the box.
+ * The {@code tile} param: an XYZ slippy-map tile, the {@code buffer} widening it, and an optional
+ * {@code extent} for the integer grid local to the tile.
  */
 public class TileParams implements Writeable, ToXContentObject {
 
-    static final ParseField BBOX_FIELD = new ParseField("bbox");
+    static final ParseField Z_FIELD = new ParseField("z");
+    static final ParseField X_FIELD = new ParseField("x");
+    static final ParseField Y_FIELD = new ParseField("y");
     static final ParseField EXTENT_FIELD = new ParseField("extent");
     static final ParseField BUFFER_FIELD = new ParseField("buffer");
 
-    /** Fraction of the bounding box size added on each side. Matches PostGIS' 256/4096 default. */
+    /** Fraction of the tile size added on each side. Matches PostGIS' 256/4096 default. */
     public static final double DEFAULT_BUFFER = 0.0625;
 
     /** Sentinel for "no extent given": clip and reproject, but do not quantize. */
     public static final int NO_EXTENT = 0;
 
-    private double minLon = Double.NaN;
-    private double minLat = Double.NaN;
-    private double maxLon = Double.NaN;
-    private double maxLat = Double.NaN;
+    private int z;
+    private int x;
+    private int y;
     private int extent = NO_EXTENT;
     private double buffer = DEFAULT_BUFFER;
 
     private static final ObjectParser<TileParams, Void> PARSER = new ObjectParser<>("tile", TileParams::new);
     static {
-        PARSER.declareDoubleArray(TileParams::setBbox, BBOX_FIELD);
+        PARSER.declareInt((tile, value) -> tile.z = value, Z_FIELD);
+        PARSER.declareInt((tile, value) -> tile.x = value, X_FIELD);
+        PARSER.declareInt((tile, value) -> tile.y = value, Y_FIELD);
+        PARSER.declareRequiredFieldSet(Z_FIELD.getPreferredName());
+        PARSER.declareRequiredFieldSet(X_FIELD.getPreferredName());
+        PARSER.declareRequiredFieldSet(Y_FIELD.getPreferredName());
         PARSER.declareInt(TileParams::setExtent, EXTENT_FIELD);
         PARSER.declareDouble(TileParams::setBuffer, BUFFER_FIELD);
     }
 
     private TileParams() {}
 
-    public TileParams(double lon1, double lat1, double lon2, double lat2, int extent, double buffer) {
-        setBbox(List.of(lon1, lat1, lon2, lat2));
+    public TileParams(int z, int x, int y, int extent, double buffer) {
+        this.z = z;
+        this.x = x;
+        this.y = y;
         // NO_EXTENT is how code asks for no quantization; a request asks for it by leaving extent out.
         if (extent != NO_EXTENT) {
             setExtent(extent);
         }
         setBuffer(buffer);
-        // Same guard as the parser: a degenerate bbox gives an infinite scale factor and coordinates
-        // of Long.MAX_VALUE, so no entry point may skip it.
+        // Same guard as the parser: an index outside its zoom names no tile, so no entry point may skip it.
         validate();
     }
 
     public TileParams(StreamInput in) throws IOException {
-        minLon = in.readDouble();
-        minLat = in.readDouble();
-        maxLon = in.readDouble();
-        maxLat = in.readDouble();
+        z = in.readInt();
+        x = in.readInt();
+        y = in.readInt();
         extent = in.readInt();
         buffer = in.readDouble();
     }
 
     @Override
     public void writeTo(StreamOutput out) throws IOException {
-        out.writeDouble(minLon);
-        out.writeDouble(minLat);
-        out.writeDouble(maxLon);
-        out.writeDouble(maxLat);
+        out.writeInt(z);
+        out.writeInt(x);
+        out.writeInt(y);
         out.writeInt(extent);
         out.writeDouble(buffer);
     }
@@ -82,62 +87,6 @@ public class TileParams implements Writeable, ToXContentObject {
         TileParams tileParams = PARSER.parse(parser, null);
         tileParams.validate();
         return tileParams;
-    }
-
-    /**
-     * Read the bounding box. Longitude is cyclic, so a decreasing one is ambiguous ({@code [170, -170]}
-     * is either strip around the antimeridian) and rejected. Latitude is not, so either order is fine.
-     */
-    private void setBbox(List<Double> bbox) {
-        if (bbox.size() != 4) {
-            throw new IllegalArgumentException(
-                "[" + BBOX_FIELD.getPreferredName() + "] must hold exactly 4 values [lon1, lat1, lon2, lat2] in geoshape aggregation."
-            );
-        }
-
-        double lon1 = bbox.get(0);
-        double lat1 = bbox.get(1);
-        double lon2 = bbox.get(2);
-        double lat2 = bbox.get(3);
-
-        requireInRange(lon1, 180, "longitude");
-        requireInRange(lon2, 180, "longitude");
-        requireInRange(lat1, 90, "latitude");
-        requireInRange(lat2, 90, "latitude");
-
-        if (lon1 > lon2) {
-            throw new IllegalArgumentException(
-                "["
-                    + BBOX_FIELD.getPreferredName()
-                    + "] must have an increasing longitude, got ["
-                    + lon1
-                    + "] then ["
-                    + lon2
-                    + "] in geoshape aggregation. A box crossing the antimeridian cannot be expressed: "
-                    + "split it into two requests."
-            );
-        }
-
-        minLon = lon1;
-        maxLon = lon2;
-        minLat = Math.min(lat1, lat2);
-        maxLat = Math.max(lat1, lat2);
-    }
-
-    private static void requireInRange(double value, double limit, String what) {
-        if (Double.isNaN(value) || Math.abs(value) > limit) {
-            throw new IllegalArgumentException(
-                "["
-                    + BBOX_FIELD.getPreferredName()
-                    + "] "
-                    + what
-                    + " must be within +/-"
-                    + (long) limit
-                    + ", got ["
-                    + value
-                    + "] in geoshape aggregation."
-            );
-        }
     }
 
     private void setExtent(int extent) {
@@ -156,19 +105,42 @@ public class TileParams implements Writeable, ToXContentObject {
         this.buffer = buffer;
     }
 
+    /**
+     * Checked once all fields are read, since x and y are only bounded once z is known. z stops where
+     * elasticsearch's own geotile_grid does, which also keeps {@code 1 << z} and {@code 2 * y} inside an int.
+     */
     private void validate() {
-        if (Double.isNaN(minLon)) {
+        if (z < 0 || z > GeoTileUtils.MAX_ZOOM) {
             throw new IllegalArgumentException(
                 "["
-                    + BBOX_FIELD.getPreferredName()
-                    + "] is mandatory in the ["
-                    + GeoShapeBuilder.TILE_FIELD.getPreferredName()
-                    + "] "
-                    + "parameter of geoshape aggregation."
+                    + Z_FIELD.getPreferredName()
+                    + "] must be within [0, "
+                    + GeoTileUtils.MAX_ZOOM
+                    + "], got ["
+                    + z
+                    + "] in geoshape aggregation."
             );
         }
-        if (minLon == maxLon || minLat == maxLat) {
-            throw new IllegalArgumentException("[" + BBOX_FIELD.getPreferredName() + "] must not be degenerate in geoshape aggregation.");
+        requireTileIndex(x, X_FIELD);
+        requireTileIndex(y, Y_FIELD);
+    }
+
+    private void requireTileIndex(int index, ParseField field) {
+        int maxIndex = (1 << z) - 1;
+        if (index < 0 || index > maxIndex) {
+            throw new IllegalArgumentException(
+                "["
+                    + field.getPreferredName()
+                    + "] must be within [0, "
+                    + maxIndex
+                    + "] at ["
+                    + Z_FIELD.getPreferredName()
+                    + "] ["
+                    + z
+                    + "], got ["
+                    + index
+                    + "] in geoshape aggregation."
+            );
         }
     }
 
@@ -181,33 +153,62 @@ public class TileParams implements Writeable, ToXContentObject {
     }
 
     /**
-     * The WGS84 window shapes are clipped against: the bounding box widened by {@code buffer} on every
-     * side. Widened in degrees, so marginally more on the poleward edge than in mercator meters, which
-     * is harmless for a margin that only hides seams and saves an inverse projection.
+     * The tile's WGS84 box, with the expressions of {@code mercantile.bounds(x, y, z)}, operation for operation,
+     * so that it is the box a caller holding the tile computes. Longitude is plain arithmetic and matches it
+     * exactly. Latitude goes through sinh and atan, where Java and the caller's libm can differ by an ulp or two,
+     * far below a grid unit.
      */
-    public Envelope clipEnvelope() {
-        double bufferLon = buffer * (maxLon - minLon);
-        double bufferLat = buffer * (maxLat - minLat);
-        return new Envelope(minLon - bufferLon, maxLon + bufferLon, minLat - bufferLat, maxLat + bufferLat);
+    private Envelope bounds() {
+        double tiles = 1 << z;
+        return new Envelope(tileLon(x, tiles), tileLon(x + 1, tiles), tileLat(y + 1, tiles), tileLat(y, tiles));
+    }
+
+    private static double tileLon(int x, double tiles) {
+        return x / tiles * 360.0 - 180.0;
+    }
+
+    private static double tileLat(int y, double tiles) {
+        return Math.toDegrees(Math.atan(Math.sinh(Math.PI * (1 - 2 * y / tiles))));
     }
 
     /**
-     * The bounding box in web mercator meters. Quantization rescales against this, <b>not</b> against
-     * {@link #clipEnvelope()}: the buffered margin is meant to fall outside {@code [0, extent]}.
+     * The WGS84 window shapes are clipped against: the tile widened by {@code buffer} on every side. Widened
+     * in degrees, so marginally more on the poleward edge than in mercator meters, which is harmless for a
+     * margin that only hides seams and saves an inverse projection.
+     */
+    public Envelope clipEnvelope() {
+        Envelope bounds = bounds();
+        double bufferLon = buffer * bounds.getWidth();
+        double bufferLat = buffer * bounds.getHeight();
+        return new Envelope(
+            bounds.getMinX() - bufferLon,
+            bounds.getMaxX() + bufferLon,
+            bounds.getMinY() - bufferLat,
+            bounds.getMaxY() + bufferLat
+        );
+    }
+
+    /**
+     * The tile in web mercator meters, projected from its WGS84 corners like any other coordinate. Quantization
+     * rescales against this, <b>not</b> against {@link #clipEnvelope()}: the buffered margin is meant to fall
+     * outside {@code [0, extent]}.
      */
     public Envelope mercatorEnvelope() {
+        Envelope bounds = bounds();
         return new Envelope(
-            GeoUtils.lonToMercatorX(minLon),
-            GeoUtils.lonToMercatorX(maxLon),
-            GeoUtils.latToMercatorY(minLat),
-            GeoUtils.latToMercatorY(maxLat)
+            GeoUtils.lonToMercatorX(bounds.getMinX()),
+            GeoUtils.lonToMercatorX(bounds.getMaxX()),
+            GeoUtils.latToMercatorY(bounds.getMinY()),
+            GeoUtils.latToMercatorY(bounds.getMaxY())
         );
     }
 
     @Override
     public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
         builder.startObject();
-        builder.array(BBOX_FIELD.getPreferredName(), minLon, minLat, maxLon, maxLat);
+        builder.field(Z_FIELD.getPreferredName(), z);
+        builder.field(X_FIELD.getPreferredName(), x);
+        builder.field(Y_FIELD.getPreferredName(), y);
         if (hasExtent()) {
             builder.field(EXTENT_FIELD.getPreferredName(), extent);
         }
@@ -217,7 +218,7 @@ public class TileParams implements Writeable, ToXContentObject {
 
     @Override
     public int hashCode() {
-        return Objects.hash(minLon, minLat, maxLon, maxLat, extent, buffer);
+        return Objects.hash(z, x, y, extent, buffer);
     }
 
     @Override
@@ -226,11 +227,6 @@ public class TileParams implements Writeable, ToXContentObject {
         if (obj == null || getClass() != obj.getClass()) return false;
 
         TileParams other = (TileParams) obj;
-        return Double.compare(minLon, other.minLon) == 0
-            && Double.compare(minLat, other.minLat) == 0
-            && Double.compare(maxLon, other.maxLon) == 0
-            && Double.compare(maxLat, other.maxLat) == 0
-            && extent == other.extent
-            && Double.compare(buffer, other.buffer) == 0;
+        return z == other.z && x == other.x && y == other.y && extent == other.extent && Double.compare(buffer, other.buffer) == 0;
     }
 }

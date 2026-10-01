@@ -27,7 +27,7 @@ public class TilePipelineTests extends ESTestCase {
 
     private static final int EXTENT = 4096;
 
-    // z=6/x=31/y=22 bounds, as mercantile computes them.
+    // z=6/x=31/y=22 bounds, as mercantile computes them: the fixture shapes are placed against them.
     private static final double TILE_MIN_LON = -5.625;
     private static final double TILE_MIN_LAT = 45.089035564831015;
     private static final double TILE_MAX_LON = 0.0;
@@ -36,7 +36,7 @@ public class TilePipelineTests extends ESTestCase {
     private final GeometryFactory factory = new GeometryFactory();
 
     private TileParams tileParams() {
-        return new TileParams(TILE_MIN_LON, TILE_MIN_LAT, TILE_MAX_LON, TILE_MAX_LAT, EXTENT, TileParams.DEFAULT_BUFFER);
+        return new TileParams(6, 31, 22, EXTENT, TileParams.DEFAULT_BUFFER);
     }
 
     /** The production pipeline itself, not a copy of it. */
@@ -173,8 +173,8 @@ public class TilePipelineTests extends ESTestCase {
         assertTrue("lat 90 must project to a finite value", Double.isFinite(GeoUtils.latToMercatorY(90)));
     }
 
-    public void testWorldWideBboxStillQuantizesOntoTheGrid() {
-        TileParams world = new TileParams(-180, -90, 180, 90, EXTENT, 0);
+    public void testWholeWorldTileStillQuantizesOntoTheGrid() {
+        TileParams world = new TileParams(0, 0, 0, EXTENT, 0);
         Envelope mercator = world.mercatorEnvelope();
         assertTrue("envelope height must be finite", Double.isFinite(mercator.getHeight()));
         assertTrue("envelope height must not be zero", mercator.getHeight() > 0);
@@ -183,14 +183,6 @@ public class TilePipelineTests extends ESTestCase {
         GeoUtils.toTileGrid(point, mercator, EXTENT);
         assertTrue("x must land on the grid, got " + point.getX(), point.getX() >= 0 && point.getX() <= EXTENT);
         assertTrue("y must land on the grid, got " + point.getY(), point.getY() >= 0 && point.getY() <= EXTENT);
-    }
-
-    /** validate() must guard every entry point, not just the JSON parser. */
-    public void testDegenerateBboxIsRejectedByTheConstructor() {
-        IllegalArgumentException sameLon = expectThrows(IllegalArgumentException.class, () -> new TileParams(5, 45, 5, 48, EXTENT, 0));
-        assertTrue(sameLon.getMessage(), sameLon.getMessage().contains("degenerate"));
-
-        expectThrows(IllegalArgumentException.class, () -> new TileParams(0, 45, 5, 45, EXTENT, 0));
     }
 
     /**
@@ -355,14 +347,7 @@ public class TilePipelineTests extends ESTestCase {
     }
 
     public void testWithoutExtentShapesStayInMercatorMeters() {
-        TileParams tile = new TileParams(
-            TILE_MIN_LON,
-            TILE_MIN_LAT,
-            TILE_MAX_LON,
-            TILE_MAX_LAT,
-            TileParams.NO_EXTENT,
-            TileParams.DEFAULT_BUFFER
-        );
+        TileParams tile = new TileParams(6, 31, 22, TileParams.NO_EXTENT, TileParams.DEFAULT_BUFFER);
         assertFalse("extent must be optional", tile.hasExtent());
 
         Geometry geom = runPipeline(insideTileWithHole(), tile, false);
@@ -426,43 +411,6 @@ public class TilePipelineTests extends ESTestCase {
     }
 
     /**
-     * Latitude is not cyclic, so both orderings describe the same band and both are accepted. This is
-     * what lets a caller pass mercantile's (west, south, east, north) or elasticsearch's envelope
-     * ordering (west, north, east, south) interchangeably.
-     */
-    public void testEitherLatitudeOrderIsAccepted() {
-        TileParams southFirst = new TileParams(TILE_MIN_LON, TILE_MIN_LAT, TILE_MAX_LON, TILE_MAX_LAT, EXTENT, TileParams.DEFAULT_BUFFER);
-        TileParams northFirst = new TileParams(TILE_MIN_LON, TILE_MAX_LAT, TILE_MAX_LON, TILE_MIN_LAT, EXTENT, TileParams.DEFAULT_BUFFER);
-
-        assertEquals(southFirst.mercatorEnvelope(), northFirst.mercatorEnvelope());
-        assertEquals(southFirst.clipEnvelope(), northFirst.clipEnvelope());
-    }
-
-    /**
-     * Longitude is cyclic, so a decreasing pair is ambiguous: [170, -170] could be the 20 degree
-     * strip across the antimeridian or the 340 degree band the other way. Rejected rather than
-     * guessed at.
-     */
-    public void testDecreasingLongitudeIsRejected() {
-        IllegalArgumentException e = expectThrows(
-            IllegalArgumentException.class,
-            () -> new TileParams(170, 40, -170, 50, EXTENT, TileParams.DEFAULT_BUFFER)
-        );
-        assertTrue(e.getMessage(), e.getMessage().contains("antimeridian"));
-    }
-
-    public void testCoordinatesOutsideTheirRangeAreRejected() {
-        expectThrows(IllegalArgumentException.class, () -> new TileParams(-181, 40, 10, 50, EXTENT, 0));
-        expectThrows(IllegalArgumentException.class, () -> new TileParams(0, 40, 181, 50, EXTENT, 0));
-        expectThrows(IllegalArgumentException.class, () -> new TileParams(0, -91, 10, 50, EXTENT, 0));
-        expectThrows(IllegalArgumentException.class, () -> new TileParams(0, 40, 10, 91, EXTENT, 0));
-
-        // The poles themselves stay valid: the projection clamps rather than diverging.
-        TileParams world = new TileParams(-180, -90, 180, 90, EXTENT, 0);
-        assertTrue(Double.isFinite(world.mercatorEnvelope().getHeight()));
-    }
-
-    /**
      * Douglas-Peucker empties a shape small enough for its tolerance. Without a tile, the fallback
      * inherited from before tiles returns a point so the shape stays visible; under a tile, the shape
      * must be dropped instead, since a point would break the guarantee that the returned geometry
@@ -506,10 +454,7 @@ public class TilePipelineTests extends ESTestCase {
 
     /** NaN compares false to everything, so it would pass a plain "< 0" check and empty every tile. */
     public void testNanBufferIsRejected() {
-        IllegalArgumentException e = expectThrows(
-            IllegalArgumentException.class,
-            () -> new TileParams(TILE_MIN_LON, TILE_MIN_LAT, TILE_MAX_LON, TILE_MAX_LAT, EXTENT, Double.NaN)
-        );
+        IllegalArgumentException e = expectThrows(IllegalArgumentException.class, () -> new TileParams(6, 31, 22, EXTENT, Double.NaN));
         assertTrue(e.getMessage(), e.getMessage().contains("[buffer]"));
     }
 }

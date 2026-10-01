@@ -48,12 +48,16 @@ setup:
             }
           ]
 
-# id 1: exactly covers the [0,0,10,10] window
+# id 1: exactly covers tile z5/16/15, whose corners are mercantile.bounds(16, 15, 5)
   - do:
       index:
         index: test_index
         pipeline: "geo_extension"
-        body: { "id": 1, "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[10,0],[10,10],[0,10],[0,0]]] } }
+        body:
+          id: 1
+          geo_shape_0:
+            type: "Polygon"
+            coordinates: [[[0, 0], [11.25, 0], [11.25, 11.178401873711781], [0, 11.178401873711781], [0, 0]]]
 
 # id 2: straddles the eastern edge of the window
   - do:
@@ -62,7 +66,7 @@ setup:
         pipeline: "geo_extension"
         body: { "id": 2, "geo_shape_0": { "type": "Polygon", "coordinates": [[[5,0],[30,0],[30,5],[5,5],[5,0]]] } }
 
-# id 3: inside the window, but 0.0001 degrees across, well under one grid unit (10/4096 = 0.00244),
+# id 3: inside the window, but 0.0001 degrees across, well under one grid unit (11.25/4096 = 0.00275),
 # so every one of its vertices rounds onto the same cell and it draws nothing
   - do:
       index:
@@ -70,12 +74,12 @@ setup:
         pipeline: "geo_extension"
         body: { "id": 3, "geo_shape_0": { "type": "Polygon", "coordinates": [[[5,5],[5.0001,5],[5.0001,5.0001],[5,5.0001],[5,5]]] } }
 
-# id 4: a diagonal line across the window, to exercise the open-path form of the encoding
+# id 4: the diagonal of the window, to exercise the open-path form of the encoding
   - do:
       index:
         index: test_index
         pipeline: "geo_extension"
-        body: { "id": 4, "geo_shape_0": { "type": "LineString", "coordinates": [[0,0],[10,10]] } }
+        body: { "id": 4, "geo_shape_0": { "type": "LineString", "coordinates": [[0, 0], [11.25, 11.178401873711781]] } }
 
 # id 5: a square with a square hole, to exercise the shared cursor across rings
   - do:
@@ -88,8 +92,8 @@ setup:
             "geo_shape_0": {
               "type": "Polygon",
               "coordinates": [
-                [[0,0],[10,0],[10,10],[0,10],[0,0]],
-                [[2.5,2.5],[2.5,7.5],[7.5,7.5],[7.5,2.5],[2.5,2.5]]
+                [[0, 0], [11.25, 0], [11.25, 11.178401873711781], [0, 11.178401873711781], [0, 0]],
+                [[2.5, 2.5], [2.5, 7.5], [7.5, 7.5], [7.5, 2.5], [2.5, 2.5]]
               ]
             }
           }
@@ -121,7 +125,9 @@ setup:
                 field: "geo_shape_0.wkb"
                 output_format: mvt
                 tile:
-                  bbox: [0, 0, 10, 10]
+                  z: 5
+                  x: 16
+                  y: 15
                   extent: 4096
                   buffer: 0
 
@@ -149,12 +155,14 @@ setup:
                 field: "geo_shape_0.wkb"
                 output_format: mvt
                 tile:
-                  bbox: [0, 0, 10, 10]
+                  z: 5
+                  x: 16
+                  y: 15
                   extent: 4096
                   buffer: 0
 
-# "POLYGON ((2048 2056, 4096 2056, 4096 4096, 2048 4096, 2048 2056))" in the wkt test.
-  - match: { aggregations.g.buckets.0.key: [9, 4096, 4112, 26, 4096, 0, 0, 4080, 4095, 0, 15] }
+# "POLYGON ((1820 2273, 4096 2273, 4096 4096, 1820 4096, 1820 2273))" in the wkt test.
+  - match: { aggregations.g.buckets.0.key: [9, 3640, 4546, 26, 4552, 0, 0, 3646, 4551, 0, 15] }
 
 ---
 "A hole continues the cursor of its shell":
@@ -172,17 +180,19 @@ setup:
                 field: "geo_shape_0.wkb"
                 output_format: mvt
                 tile:
-                  bbox: [0, 0, 10, 10]
+                  z: 5
+                  x: 16
+                  y: 15
                   extent: 4096
                   buffer: 0
 
 # Shell, then hole, in one stream: two MoveTo/LineTo/ClosePath groups. The hole's first pair is a
-# delta from where the shell left the pen, at (4096,0), not from the origin: zigzag 6143 is -3072,
-# which lands on x=1024. Decoded, the hole runs (1024,1031) (1024,3077) (3072,3077) (3072,1031),
+# delta from where the shell left the pen, at (4096,0), not from the origin: zigzag 6371 is -3186,
+# which lands on x=910. Decoded, the hole runs (910,1358) (910,3185) (2731,3185) (2731,1358),
 # a negative signed area, which is what the MVT winding convention asks of an interior ring.
   - match:
       aggregations.g.buckets.0.key: [9, 8192, 8192, 26, 8191, 0, 0, 8191, 8192, 0, 15,
-                                     9, 6143, 2062, 26, 0, 4092, 4096, 0, 0, 4091, 15]
+                                     9, 6371, 2716, 26, 0, 3654, 3642, 0, 0, 3653, 15]
 
 ---
 "A linestring carries no ClosePath":
@@ -200,7 +210,9 @@ setup:
                 field: "geo_shape_0.wkb"
                 output_format: mvt
                 tile:
-                  bbox: [0, 0, 10, 10]
+                  z: 5
+                  x: 16
+                  y: 15
                   extent: 4096
                   buffer: 0
 
@@ -222,7 +234,9 @@ setup:
                 output_format: mvt
                 size: 10
                 tile:
-                  bbox: [0, 0, 10, 10]
+                  z: 5
+                  x: 16
+                  y: 15
                   extent: 4096
                   buffer: 0
 
@@ -248,7 +262,9 @@ setup:
                 field: "geo_shape_0.wkb"
                 output_format: wkb
                 tile:
-                  bbox: [0, 0, 10, 10]
+                  z: 5
+                  x: 16
+                  y: 15
                   extent: 4096
                   buffer: 0
 
@@ -269,7 +285,9 @@ setup:
                 field: "geo_shape_0.wkb"
                 output_format: mvt
                 tile:
-                  bbox: [0, 0, 10, 10]
+                  z: 5
+                  x: 16
+                  y: 15
 
 ---
 "mvt without a tile param at all is rejected":
@@ -288,7 +306,7 @@ setup:
 ---
 "A stored GeometryCollection is dropped from every tile":
 
-# id 7: a polygon and a point crossing the eastern edge of the [0,0,10,10] window, and inside [0,0,20,20]
+# id 7: a polygon and a point crossing the eastern edge of tile z5/16/15 (lon 11.25), and inside tile z4/8/7
   - do:
       index:
         index: test_index
@@ -320,7 +338,9 @@ setup:
                 field: "geo_shape_0.wkb"
                 output_format: mvt
                 tile:
-                  bbox: [0, 0, 10, 10]
+                  z: 5
+                  x: 16
+                  y: 15
                   extent: 4096
                   buffer: 0
   - length: { aggregations.g.buckets: 0 }
@@ -340,7 +360,9 @@ setup:
                 field: "geo_shape_0.wkb"
                 output_format: mvt
                 tile:
-                  bbox: [0, 0, 20, 20]
+                  z: 4
+                  x: 8
+                  y: 7
                   extent: 4096
                   buffer: 0
   - length: { aggregations.g.buckets: 0 }
