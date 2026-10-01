@@ -336,3 +336,106 @@
                 shard_size: 1
   - length: { aggregations.g.buckets: 1 }
   - match: { aggregations.g.sum_other_doc_count: 3 }
+
+---
+"Bucket sub-aggregations are computed per shape":
+
+  - do:
+      ingest.put_pipeline:
+        id: "geo_extension"
+        body:  >
+          {
+            "description": "Add extra geo fields to geo_shape fields.",
+            "processors": [
+              {
+                "geo_extension": {
+                  "field": "geo_shape_*"
+                }
+              }
+            ]
+          }
+  - match: { acknowledged: true }
+
+  - do:
+      indices.create:
+        index: test_index
+        body:
+          settings:
+            number_of_shards: 1
+
+  - do:
+      indices.put_mapping:
+        index: test_index
+        body:
+          properties:
+            tag: {"type": "keyword"}
+          dynamic_templates: [
+            {
+              "geo_shapes": {
+                "match": "geo_shape_*",
+                "mapping": {
+                  "properties": {
+                    "shape": {"enabled": false},
+                    "fixed_shape": {"type": "geo_shape"},
+                    "hash": {"type": "keyword"},
+                    "wkb": {"type": "binary", "doc_values": true},
+                    "type": {"type": "keyword"},
+                    "area": {"type": "half_float"},
+                    "bbox": {"type": "geo_point"},
+                    "centroid": {"type": "geo_point"}
+                  }
+                }
+              }
+            }
+          ]
+
+# 3 distinct shapes, ranked by perimeter: BIG, then MED (held by two docs), then SMALL
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "tag": "big", "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[1,0],[1,1],[0,1],[0,0]]] } }
+
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "tag": "med-1", "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[0.1,0],[0.1,0.1],[0,0.1],[0,0]]] } }
+
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "tag": "med-2", "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[0.1,0],[0.1,0.1],[0,0.1],[0,0]]] } }
+
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "tag": "small", "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[0.01,0],[0.01,0.01],[0,0.01],[0,0]]] } }
+
+  - do:
+      indices.refresh: {}
+
+# A terms sub-aggregation sees the documents of its own bucket only, in every bucket.
+  - do:
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+              aggs:
+                tags:
+                  terms:
+                    field: tag
+  - length: { aggregations.g.buckets: 3 }
+  - length: { aggregations.g.buckets.0.tags.buckets: 1 }
+  - match: { aggregations.g.buckets.0.tags.buckets.0.key: "big" }
+  - length: { aggregations.g.buckets.1.tags.buckets: 2 }
+  - match: { aggregations.g.buckets.1.tags.buckets.0.key: "med-1" }
+  - match: { aggregations.g.buckets.1.tags.buckets.1.key: "med-2" }
+  - length: { aggregations.g.buckets.2.tags.buckets: 1 }
+  - match: { aggregations.g.buckets.2.tags.buckets.0.key: "small" }

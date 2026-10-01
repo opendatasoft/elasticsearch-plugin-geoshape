@@ -15,6 +15,7 @@ The README documents each param in full.
 * Shapes that the clip empties, or that collapse under quantization or MVT encoding, are dropped from the
   response and counted in `sum_other_doc_count`
 * Fix bucket merging: two distinct shapes that simplified or quantized alike were merged into one
+* Fix bucket sub-aggregations, such as `terms`, which failed the search as soon as two shapes were returned
 * Fix a latent NPE when a bucket was skipped on unreadable WKB
 * A shape that JTS cannot process no longer fails the whole search; its bucket is dropped
 * **Upgrade note**: the aggregation's wire format changes, even for requests that use none of the new params.

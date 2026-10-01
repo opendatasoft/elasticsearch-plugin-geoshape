@@ -71,7 +71,9 @@ public class GeoShapeAggregator extends BucketsAggregator {
         CardinalityUpperBound cardinalityUpperBound,
         Map<String, Object> metaData
     ) throws IOException {
-        super(name, factories, context, parent, cardinalityUpperBound, metaData);
+        // Sub-aggregations collect into one ordinal per shape, so they must be built for many buckets,
+        // whatever the cardinality of this aggregation's own parent.
+        super(name, factories, context, parent, CardinalityUpperBound.MANY, metaData);
         this.valuesSource = valuesSource;
         this.output_format = output_format;
         this.tile = tile;
