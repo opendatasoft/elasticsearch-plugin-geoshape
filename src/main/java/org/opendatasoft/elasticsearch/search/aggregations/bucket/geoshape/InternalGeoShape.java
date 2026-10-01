@@ -381,19 +381,30 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
                 final long distinctShapes = buckets.size();
                 final int size = !isFinalReduce ? (int) distinctShapes : Math.min(requiredSize, (int) distinctShapes);
 
-                BucketPriorityQueue ordered = new BucketPriorityQueue(size);
+                // Rank first, reduce after: every copy of a shape carries the same perimeter, and only the doc
+                // count has to be summed to rank it, so the shapes `size` drops never have their
+                // sub-aggregations or collected values reduced.
+                PriorityQueue<List<InternalBucket>> ordered = new PriorityQueue<>(size) {
+                    @Override
+                    protected boolean lessThan(List<InternalBucket> a, List<InternalBucket> b) {
+                        return BucketPriorityQueue.ranksLower(a.get(0), b.get(0));
+                    }
+                };
                 long totalDocCount = 0;
                 for (LongObjectPagedHashMap.Cursor<List<InternalBucket>> cursor : buckets) {
-                    List<InternalBucket> sameCellBuckets = cursor.value;
-                    InternalBucket reducedBucket = reduceBucket(sameCellBuckets, reduceContext);
-                    totalDocCount += reducedBucket.docCount;
-                    ordered.insertWithOverflow(reducedBucket);
+                    List<InternalBucket> sameShapeBuckets = cursor.value;
+                    InternalBucket first = sameShapeBuckets.get(0);
+                    for (int i = 1; i < sameShapeBuckets.size(); i++) {
+                        first.docCount += sameShapeBuckets.get(i).docCount;
+                    }
+                    totalDocCount += first.docCount;
+                    ordered.insertWithOverflow(sameShapeBuckets);
                 }
                 buckets.close();
                 InternalBucket[] list = new InternalBucket[ordered.size()];
                 long returnedDocCount = 0;
                 for (int i = ordered.size() - 1; i >= 0; i--) {
-                    list[i] = ordered.pop();
+                    list[i] = reduceBucket(ordered.pop(), reduceContext);
                     returnedDocCount += list[i].docCount;
                 }
 
@@ -416,15 +427,11 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         };
     }
 
-    public InternalBucket reduceBucket(List<InternalBucket> buckets, AggregationReduceContext context) {
+    /** Merge the copies of one shape into the first, whose doc count the ranking has already summed. */
+    private InternalBucket reduceBucket(List<InternalBucket> buckets, AggregationReduceContext context) {
         List<InternalAggregations> aggregationsList = new ArrayList<>(buckets.size());
-        InternalBucket reduced = null;
+        InternalBucket reduced = buckets.get(0);
         for (InternalBucket bucket : buckets) {
-            if (reduced == null) {
-                reduced = bucket;
-            } else {
-                reduced.docCount += bucket.docCount;
-            }
             aggregationsList.add(bucket.subAggregations);
         }
         reduced.subAggregations = InternalAggregations.reduce(aggregationsList, context);
@@ -552,7 +559,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
     }
 
     // The priority queue is used to retain the top N buckets (i.e. shapes)
-    // Buckets are here ordered by area (!) then by hash
+    // Buckets are ordered by perimeter, longest first, then by doc count
     static class BucketPriorityQueue extends PriorityQueue<InternalBucket> {
 
         BucketPriorityQueue(int size) {
@@ -561,7 +568,10 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
 
         @Override
         protected boolean lessThan(InternalBucket o1, InternalBucket o2) {
+            return ranksLower(o1, o2);
+        }
 
+        static boolean ranksLower(InternalBucket o1, InternalBucket o2) {
             double i = o2.perimeter - o1.perimeter;
             if (i == 0) {
                 i = o2.compareTo(o1);

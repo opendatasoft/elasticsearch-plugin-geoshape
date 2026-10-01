@@ -439,3 +439,36 @@
   - match: { aggregations.g.buckets.1.tags.buckets.1.key: "med-2" }
   - length: { aggregations.g.buckets.2.tags.buckets: 1 }
   - match: { aggregations.g.buckets.2.tags.buckets.0.key: "small" }
+
+# Only the shapes `size` keeps have their sub-aggregations reduced: with size 1, the 3 terms buckets of MED and
+# SMALL are never built, so they cannot push the request over search.max_buckets.
+  - do:
+      cluster.put_settings:
+        body:
+          persistent:
+            search.max_buckets: 2
+
+  - do:
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                size: 1
+                shard_size: 10
+              aggs:
+                tags:
+                  terms:
+                    field: tag
+  - length: { aggregations.g.buckets: 1 }
+  - match: { aggregations.g.buckets.0.tags.buckets.0.key: "big" }
+  - match: { aggregations.g.sum_other_doc_count: 3 }
+
+  - do:
+      cluster.put_settings:
+        body:
+          persistent:
+            search.max_buckets: null

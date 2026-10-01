@@ -16,6 +16,8 @@ The README documents each param in full.
   response and counted in `sum_other_doc_count`
 * Fix bucket merging: two distinct shapes that simplified or quantized alike were merged into one
 * Fix bucket sub-aggregations, such as `terms`, which failed the search as soon as two shapes were returned
+* Reduce sub-aggregations and collected values only for the shapes `size` keeps: those of the dropped shapes
+  were computed anyway, and counted against `search.max_buckets`
 * Fix a latent NPE when a bucket was skipped on unreadable WKB
 * A shape that JTS cannot process no longer fails the whole search; its bucket is dropped
 * **Upgrade note**: the aggregation's wire format changes, even for requests that use none of the new params.
