@@ -14,7 +14,7 @@ You can find past releases [here](https://github.com/opendatasoft/elasticsearch-
 The first 3 digits of the plugin version is the corresponding Elasticsearch version. The last digit is used for plugin versioning.
 
 To install it, launch this command in Elasticsearch directory replacing the url by the correct link for your Elasticsearch version (see table)
-`bin/elasticsearch-plugin install https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v8.19.19.0/elasticsearch-plugin-geoshape-8.19.19.0.zip"`
+`bin/elasticsearch-plugin install https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v8.19.20.0/elasticsearch-plugin-geoshape-8.19.20.0.zip"`
 
 
 ## Build
@@ -257,12 +257,41 @@ Moreover, compared to regular search results, results of an aggregation can be [
 #### Params
 
 - `field` (mandatory): the field used for aggregating. Must be of wkb type. E.g.: "geoshape_0.wkb".
-- `output_format`: the output_format in [`geojson`, `wkt`, `wkb`]. Default to `geojson`.
+- `output_format`: the output_format in [`geojson`, `wkt`, `wkb`, `mvt`]. Default to `geojson`. `mvt` returns the MVT command stream instead of a serialized geometry and requires `tile`; see [MVT command stream output](#mvt-command-stream-output) below.
 - `simplify`:
-  - `zoom`: the zoom level in range [0, 20]. 0 is the most simplified and 20 is the least. Default to 0.
+  - `zoom`: the zoom level in range [0, 20]. 0 is the most simplified and 20 is the least. Default to `tile.z`
+    when `tile` is given, mandatory otherwise. It may differ from `tile.z`: the tolerance of a zoom is one pixel of
+    a 256-pixel tile, so tiles displayed at 512 pixels look best simplified at `z + 1`.
   - `algorithm`: simplify algorithm in [`DOUGLAS_PEUCKER`, `TOPOLOGY_PRESERVING`]. Default to `DOUGLAS_PEUCKER`.
+- `tile` (optional): cut the returned shapes down to an XYZ slippy-map tile and deliver them in that tile's own
+  coordinate space. See [Tile clipping and quantization](#tile-clipping-and-quantization) below.
+  - `z`, `x`, `y` (mandatory): the tile, in the XYZ scheme of web mercator (EPSG:3857), `y = 0` at the north
+    edge: mercantile's convention, not TMS. `z` must be within `[0, 29]`, the range of elasticsearch's own
+    `geotile_grid`, and `x` and `y` within `[0, 2^z - 1]`.
+  - `extent` (optional): size of the integer grid `[0, extent]` local to the tile that coordinates are rescaled
+    to. Must be at least `1`. Default to `4096`, as in PostGIS and elasticsearch's `_mvt` API.
+  - `buffer` (optional): fraction of the tile size kept on each side, so adjacent tiles do not show a seam. Must
+    be a number `>= 0`. Default to `0.0625` (6.25%, the PostGIS default).
+- `collect_fields` (optional): return, per bucket, the values of some doc-values fields of the documents that bucket holds. See [Collecting document fields](#collecting-document-fields) below.
+  - `fields` (mandatory): the field names to read, e.g. `["id"]`. Each must have doc values, or be a runtime field.
+  - `max_docs_per_bucket` (optional): how many documents per bucket the values are read from. Default to `10`, maximum `100`.
 - `size`: can be set to define how many buckets should be returned. See elasticsearch official terms aggregation documentation for more explanation. Buckets are ordered by the length (perimeter for polygons) of their shape, longer shapes first.
 - `shard_size`: can be used to minimize the extra work that comes with bigger requested `size`. See elasticsearch official terms aggregation documentation for more explanation.
+
+The aggregation must sit at the top level or under a single-bucket aggregation such as `filter`: under a
+multi-bucket one such as `terms`, it is rejected.
+
+#### Coordinate space of the returned shapes
+
+The request determines the space the shapes come back in:
+
+| Request | Coordinate space |
+|---|---|
+| no `tile` | WGS84 lon/lat (EPSG:4326) |
+| `tile` | grid local to the tile, `[0, extent]`, origin top-left, y downwards. No EPSG code. |
+
+`output_format` decides how those coordinates are written, not what they are: `mvt` delivers the last
+line of the table as a command stream rather than as a geometry.
 
 
 #### Example
@@ -309,6 +338,238 @@ Result:
 Note: because buckets are ranked by perimeter (an intrinsic property of each shape, identical on every shard), `shard_size` does not need to exceed `size` to return the exact top-`size` largest shapes (unlike `terms`, where `shard_size` trades off accuracy).
 
 
+#### Tile clipping and quantization
+
+The `tile` parameter turns the aggregation's output into a purely local view of a tile. It applies, in order:
+
+1. **clip** the shape to the tile widened by `buffer`, in WGS84;
+2. **simplify** it, if `simplify` was given (so simplification only ever runs on the part of the shape that can be seen);
+3. **reproject** to web mercator, and **rescale** to `[0, extent]`;
+4. **repair** whatever the rounding broke, dropping the pieces that collapsed;
+5. **orient** its rings, on the coordinates that are actually emitted.
+
+**Filter the query on the same window too.** Shapes whose bounding box misses the window are kept
+out of the `size`/`shard_size` ranking, so they never take a slot. That test is on the bounding box
+only: a shape whose box overlaps the window while the shape itself does not reach it (a long diagonal
+line, an L-shaped polygon wrapped around the window) still competes for a slot, and is only dropped
+after the ranking. A spatial filter on the query leaves those shapes out as well, and lets
+elasticsearch skip the out-of-window documents through its index rather than handing them to the
+aggregation, which on a country-wide index is the difference between visiting a few thousand
+documents and visiting all of them.
+That filter takes the tile's WGS84 corners, which a caller computes from z/x/y.
+
+This exists to keep per-coordinate work out of the client. Without it, a client rendering vector tiles reprojects, quantizes and re-winds every coordinate of every shape itself, and pays that cost on the *whole* shape even when only a sliver of it falls inside the tile being served. It is the same job as PostGIS' `ST_AsMVTGeom(geom, bounds, extent, buffer)`.
+
+Clipping in WGS84 is exact, not an approximation: web mercator is axis-separable (x depends on longitude only, y on latitude only), so a rectangle stays a rectangle through the projection.
+
+Things worth knowing about the output:
+- The grid origin is the **top-left** corner of the tile and **y grows downwards**, the usual tile-local pixel
+  convention. Coordinates are rounded to integers.
+- Rings are oriented so that **exteriors have a positive signed area and holes a negative one**, under the surveyor's formula applied to the returned coordinates: on the y-down grid that is the winding the Mapbox Vector Tile spec requires (section 4.3.3.3). A client can encode the rings as they come. To check it, compare signed areas: libraries reading raw ordinates (JTS `Orientation.isCCW`, shapely's `is_ccw`) call these exteriors counter-clockwise, although they read as clockwise on screen once y points down.
+- Coordinates falling inside `buffer` land **outside** `[0, extent]`, on purpose: `extent` measures the tile, not
+  the buffered window.
+- The buffer stops at the latitude limit of web mercator, about +/-85.0511: a shape reaching the pole is cut at
+  the edge of the world.
+- A shape with nothing inside the window is **dropped from the response** rather than returned empty, and its documents are counted in `sum_other_doc_count`. Neighbouring windows that do cover the shape still return it.
+- **Returned geometry keeps the dimension of the stored shape.** A polygon merely tangent to the window intersects it along a line, or at a single point; such a result is dropped rather than returned, so a polygon layer never receives a linear feature. A `GeometryCollection` crossing the window edge keeps only its members of the highest dimension, as `ST_AsMVTGeom` does; one entirely inside the window comes back whole.
+- **Returned geometry is always valid.** Rounding onto the grid is destructive: sub-pixel holes and parts land on a single point, and a notch narrower than one grid unit closes into a zero-width spike that makes a ring touch itself. Those pieces are repaired away, keeping the visible area intact, and a shape left with nothing at all is dropped like a clipped-away one. A client does not need a geometry-validity repair pass of its own.
+- `perimeter`, which orders the buckets, keeps measuring the whole WGS84 shape. Ranking therefore stays comparable across shards and does not depend on how much of a shape a given window happens to show.
+- `type` reports the type of the stored shape. A clip can turn a `Polygon` into a `MultiPolygon`; read the returned geometry itself if the effective type matters.
+
+
+#### Tile example
+
+```
+GET main/_search?size=0
+{
+  "query": {
+    "geo_shape": {
+      "geoshape_0.fixed_shape": {
+        "shape": {
+          "type": "envelope",
+          "coordinates": [[-5.625, 48.92249926375824], [0.0, 45.089035564831015]]
+        },
+        "relation": "intersects"
+      }
+    }
+  },
+  "aggs": {
+    "geo_preview": {
+      "geoshape": {
+        "field": "geoshape_0.wkb",
+        "output_format": "wkb",
+        "simplify": {
+          "algorithm": "douglas_peucker"
+        },
+        "tile": {
+          "z": 6,
+          "x": 31,
+          "y": 22,
+          "extent": 4096,
+          "buffer": 0.0625
+        },
+        "size": 100
+      }
+    }
+  }
+}
+```
+
+
+#### MVT command stream output
+
+`output_format: mvt` returns each shape as the integer stream a Mapbox Vector Tile feature carries,
+rather than as WKB, WKT or GeoJSON. It requires `tile`: the stream describes a pen moving over the
+tile grid. A request that asks for it without one is rejected.
+
+```
+GET main/_search?size=0
+{
+  "aggs": {
+    "geo_preview": {
+      "geoshape": {
+        "field": "geoshape_0.wkb",
+        "simplify": {"zoom": 5, "algorithm": "topology_preserving"},
+        "tile": {"z": 4, "x": 8, "y": 5, "extent": 4096, "buffer": 0.0625},
+        "size": 20000,
+        "output_format": "mvt"
+      }
+    }
+  }
+}
+```
+
+`key` then holds an array of unsigned integers instead of a string:
+
+```json
+{
+  "key": [9, 4102, 3560, 26, 5, 0, 0, 7, 2, 1, 15],
+  "digest": "3722138163066086183",
+  "type": "MultiPolygon",
+  "doc_count": 1
+}
+```
+
+That array is the value of an MVT feature's `geometry` field: it can be appended to a protobuf
+`repeated uint32` as it stands, with no decoding step. The plugin emits the geometry of one shape and
+nothing else; assembling layers, keys, values and the tile envelope around it stays the caller's job.
+
+Elasticsearch's own
+[vector tile search API](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-vector-tile-api.html)
+(`_mvt`) builds whole tiles, but from search hits: one feature per document, at most 10,000 of them.
+This aggregation returns each distinct shape once, however many documents share it, ranked by
+perimeter and without that cap. On a basic license, `_mvt` on a `geo_shape` field also needs
+`grid_precision: 0`, since its default aggregation layer runs `geotile_grid` on that field, a paid
+feature.
+
+The encoding follows section 4.3 of the MVT 2.1 spec:
+
+- a **command integer** packs a command id in its low 3 bits and a repeat count in the other 29, as
+  `count << 3 | id`. `MoveTo` is 1, `LineTo` is 2, `ClosePath` is 7;
+- a point is a pair of **deltas from the pen's current position**, zigzag encoded (`n << 1 ^ n >> 31`)
+  so that a small negative delta stays a small unsigned integer;
+- the **cursor is shared** across the rings of a polygon and the parts of a multi-geometry;
+- a ring is `MoveTo 1`, `LineTo n-1`, `ClosePath`, and does **not** repeat its first point, which
+  `ClosePath` already draws.
+
+What this format drops, compared to returning the same geometry as WKB:
+
+- vertices that quantization moved onto the **same grid cell** as their predecessor, and a last vertex
+  that landed on the ring's first one. They would draw nothing and cost two integers each;
+- a **ring left with fewer than two `LineTo` pairs**, which encloses no area. It is dropped whole,
+  header included, and a polygon whose exterior went this way is dropped with its holes;
+- a **shape whose every ring went this way**. Its bucket is left out of the response and its documents
+  are counted in `sum_other_doc_count`, exactly as for a shape the window emptied.
+
+A `GeometryCollection` has no MVT counterpart, since a feature carries a single geometry type, so a
+stored collection is dropped from the response under this format. The other output formats still
+return it.
+
+Rings come back already wound the way the spec asks, because `tile` orients them (see above). There is
+nothing left for the caller to do per coordinate.
+
+#### Collecting document fields
+
+A bucket groups the documents that share a shape, and `collect_fields` returns some of their field
+values alongside it, so a caller can resolve a returned shape back to the docs behind it:
+
+```
+GET main/_search?size=0
+{
+  "aggs": {
+    "geo_preview": {
+      "geoshape": {
+        "field": "geoshape_0.wkb",
+        "output_format": "wkb",
+        "size": 10000,
+        "collect_fields": {
+          "fields": ["id"],
+          "max_docs_per_bucket": 10
+        }
+      }
+    }
+  }
+}
+```
+
+Each bucket then carries two extra members:
+
+```
+{
+  "key": "AAAAAAMAAAAB...",
+  "digest": "-5012816342630707936",
+  "type": "Polygon",
+  "doc_count": 3,
+  "collected_fields": { "id": ["a7dfd900", "d5c8b04b", "a0210ba1"] },
+  "collected_docs_truncated": false
+}
+```
+
+This is the service a `top_hits` sub-aggregation or `docvalue_fields` provides, without their
+per-bucket collector and fetch phase: values are read in the pass that already walks the shape's doc
+values. Measured on two real datasets (34,746 polygons with one document each, and 7.1M documents on
+2,953 lines), reading a 40-character id from 10 documents per shape adds 0% to 66% to the
+aggregation's `took` over two runs. A `top_hits` sub-aggregation reading the same id from doc values
+adds 24% to 142% and returns about twice the payload. The ranges move between runs; the ranking does
+not. A `terms` sub-aggregation on the id multiplies the `took`
+by up to 16 when many documents share a shape, and its buckets count against `search.max_buckets`:
+with the 20,000 limit of the measured cluster, it failed on both full datasets. The figures are median
+`took` over 7 runs after 2 warm-ups, with `request_cache=false`, on one 8.19.20 node with a 1 GB heap
+and 3 shards.
+
+The two alternatives also behave differently. `top_hits` peaks lower in the request circuit breaker
+because its fetch phase is mostly not accounted: at `size: 100` it ran the 1 GB node out of heap, where
+`collect_fields` at `max_docs_per_bucket: 100` completed. `terms` returns the lexicographically smallest
+ids rather than the first documents, and needs one sub-aggregation per field, whose values are then no
+longer aligned on documents.
+
+Things worth knowing about the output:
+- **Values come back as their doc-values string representation.** A `keyword` gives its term; a
+  numeric, date or boolean field gives the number, as a string (an `unsigned_long` goes through a
+  double, so values above 2^53 lose precision). Other field types (`ip`, `binary`, geo fields...)
+  have no textual doc-values representation and are rejected, as is a field mapped without doc
+  values. A field that is not mapped at all returns an empty array, so a search spanning indices that
+  do not all carry it still works.
+- **Documents are neither sorted nor filtered.** A bucket returns the first `max_docs_per_bucket`
+  documents in collection order, which is index order within a shard and unspecified across shards.
+  Sorting is what makes `top_hits` expensive, and it is deliberately not done here.
+- **`max_docs_per_bucket` bounds documents, not values.** Every value of every collected document is
+  returned, so a multi-valued field can return more values than there are documents. The cut always
+  falls on a document boundary, including when the coordinator merges what several shards collected
+  for the same shape. The bound is checked against the bucket's `doc_count`, so on an index carrying
+  `_doc_count` (rollups, downsampled indices) a single document can exhaust it: fewer documents are
+  collected than the bound allows, and `collected_docs_truncated` is `true`.
+- **`collected_docs_truncated` is per bucket**, not per field, because the bound is on documents:
+  when it bites, it bites on every field at the same document. It is `true` when the bucket holds
+  more documents than the values came from, and it is the only thing that distinguishes a complete
+  bucket from a cut one.
+- A field the collected documents have no value for returns an empty array, not a missing key.
+- Memory is bounded by `distinct shapes on the shard x max_docs_per_bucket x value length`, is
+  allocated against the request circuit breaker and is released with the aggregation: about 360 bytes
+  per collected document for a 40-character id. Values are collected for every shape the shard sees,
+  including those `size`/`shard_size` later drops.
+
+
 
 
 ### Geoshape simplify script
@@ -321,7 +582,7 @@ Search script for simplifying shapes dynamically.
 - `field`: the field to apply the script to.
 - `zoom`: the zoom level in range [0, 20]. 0 is the most simplified and 20 is the least. Default to 0.
 - `algorithm`: simplify algorithm in [`DOUGLAS_PEUCKER`, `TOPOLOGY_PRESERVING`]. Default to `DOUGLAS_PEUCKER`.
-- `output_format`: the output_format in [`geojson`, `wkt`, `wkb`]. Default to `geojson`.
+- `output_format`: the output_format in [`geojson`, `wkt`, `wkb`]. Default to `geojson`. `mvt` is rejected: it is specific to the geoshape aggregation.
 
 
 #### Example
@@ -395,4 +656,4 @@ change before running `docker-compose` up again.
 
 ## License
 
-This software is under AGPL (GNU Affero General Public License)
+This software is under AGPL (GNU Affero General Public License).

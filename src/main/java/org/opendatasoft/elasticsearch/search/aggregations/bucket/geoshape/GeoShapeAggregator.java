@@ -25,16 +25,16 @@ import org.elasticsearch.search.aggregations.support.ValuesSource;
 import org.elasticsearch.xcontent.ToXContentFragment;
 import org.elasticsearch.xcontent.XContentBuilder;
 import org.locationtech.jts.geom.Geometry;
-import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKBReader;
 import org.locationtech.jts.io.WKBWriter;
-import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
-import org.locationtech.jts.simplify.TopologyPreservingSimplifier;
 import org.opendatasoft.elasticsearch.plugin.GeoUtils;
+import org.opendatasoft.elasticsearch.plugin.MvtEncoder;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -43,12 +43,16 @@ public class GeoShapeAggregator extends BucketsAggregator {
     private final BytesRefHash bucketOrds;
     private final BucketCountThresholds bucketCountThresholds;
     private GeoUtils.OutputFormat output_format;
-    private boolean must_simplify;
-    private int zoom;
-    private GeoShape.Algorithm algorithm;
+    private final TileParams tile;
+    // Optional: when null, no doc-values payload is collected and nothing changes in the hot loop.
+    private final CollectFieldsParams collectFieldsParams;
+    private final CollectedFields collectedFields;
+    private final GeoShapeTransform transform;
+    // The command stream replaces the serialized geometry, so the two are never both computed.
+    private final boolean mvtOutput;
 
     private WKBReader wkbReader;
-    private final GeometryFactory geometryFactory;
+    private final WKBWriter wkbWriter;
 
     public GeoShapeAggregator(
         String name,
@@ -59,22 +63,30 @@ public class GeoShapeAggregator extends BucketsAggregator {
         boolean must_simplify,
         int zoom,
         GeoShape.Algorithm algorithm,
+        TileParams tile,
+        CollectFieldsParams collectFields,
         BucketCountThresholds bucketCountThresholds,
         Aggregator parent,
-        CardinalityUpperBound cardinalityUpperBound,
         Map<String, Object> metaData
     ) throws IOException {
-        super(name, factories, context, parent, cardinalityUpperBound, metaData);
+        // Sub-aggregations collect into one ordinal per shape, so they must be built for many buckets,
+        // whatever the cardinality of this aggregation's own parent.
+        super(name, factories, context, parent, CardinalityUpperBound.MANY, metaData);
         this.valuesSource = valuesSource;
         this.output_format = output_format;
-        this.must_simplify = must_simplify;
-        this.zoom = zoom;
-        this.algorithm = algorithm;
+        this.tile = tile;
+        this.collectFieldsParams = collectFields;
+        this.collectedFields = collectFields == null
+            ? null
+            : new CollectedFields(context, collectFields, this::addRequestCircuitBreakerBytes);
         bucketOrds = new BytesRefHash(1, context.bigArrays());
         this.bucketCountThresholds = bucketCountThresholds;
 
+        this.transform = new GeoShapeTransform(must_simplify, zoom, algorithm, tile);
+        this.mvtOutput = output_format == GeoUtils.OutputFormat.MVT;
+
         this.wkbReader = new WKBReader();
-        this.geometryFactory = new GeometryFactory();
+        this.wkbWriter = new WKBWriter();
     }
 
     /**
@@ -89,6 +101,9 @@ public class GeoShapeAggregator extends BucketsAggregator {
             return LeafBucketCollector.NO_OP_COLLECTOR;
         }
         final SortedBinaryDocValues values = valuesSource.bytesValues(aggCtx.getLeafReaderContext());
+        final LeafReaderContext leafCtx = aggCtx.getLeafReaderContext();
+        final CollectedFields.Leaf collectLeaf = collectedFields == null ? null : collectedFields.forLeaf(leafCtx);
+        final int maxDocsPerBucket = collectedFields == null ? 0 : collectedFields.getMaxDocsPerBucket();
         return new LeafBucketCollectorBase(sub, values) {
             final BytesRefBuilder previous = new BytesRefBuilder();
 
@@ -114,6 +129,12 @@ public class GeoShapeAggregator extends BucketsAggregator {
                             collectExistingBucket(sub, doc, bucketOrdinal);
                         } else {
                             collectBucket(sub, doc, bucketOrdinal);
+                        }
+                        // The bucket's doc count has just been incremented, so it is the 1-based
+                        // rank of this document within the bucket: the bound stops the read and the
+                        // allocation, not just the output.
+                        if (collectLeaf != null && bucketDocCount(bucketOrdinal) <= maxDocsPerBucket) {
+                            collectLeaf.collect(doc, bucketOrdinal);
                         }
                         previous.copyBytes(bytesValue);
                     }
@@ -142,15 +163,18 @@ public class GeoShapeAggregator extends BucketsAggregator {
                 for (int i = 0; i < bucketOrds.size(); i++) {
                     totalDocCount += bucketDocCount(i);
                     if (spare == null) {
-                        spare = new InternalGeoShape.InternalBucket(new BytesRef(), null, null, 0, 0, null);
+                        spare = new InternalGeoShape.InternalBucket(new BytesRef(), null, 0, null, 0, 0, null, null);
                     }
                     bucketOrds.get(i, spare.wkb);
 
                     // FIXME: why do we need a deepCopy here ?
                     spare.wkb = BytesRef.deepCopyOf(spare.wkb);
-                    spare.wkbHash = String.valueOf(GeoUtils.getHashFromWKB(spare.wkb));
+                    spare.shapeHash = GeoUtils.getHashFromWKB(spare.wkb);
 
-                    if (GeoUtils.wkbIsPoint(spare.wkb.bytes)) {
+                    // A point is known from its header alone, unless a tile window is set: then it must
+                    // go through the window check below like any shape, or points outside the window
+                    // would take the size slots and be dropped afterwards.
+                    if (tile == null && GeoUtils.wkbIsPoint(spare.wkb.bytes)) {
                         spare.perimeter = 0;
                         spare.realType = "Point";
                     } else {
@@ -159,6 +183,18 @@ public class GeoShapeAggregator extends BucketsAggregator {
                         try {
                             geom = wkbReader.read(spare.wkb.bytes);
                         } catch (ParseException e) {
+                            continue;
+                        }
+
+                        if (transform.intersectsWindow(geom) == false) {
+                            // The clip would empty this shape: keep it from taking a slot a visible shape
+                            // needs. Its docs still count towards sum_other_doc_count.
+                            continue;
+                        }
+
+                        if (mvtOutput && Geometry.TYPENAME_GEOMETRYCOLLECTION.equals(geom.getGeometryType())) {
+                            // No MVT counterpart. Checked on the stored shape, before the clip can turn a
+                            // collection crossing the window edge into an encodable polygon.
                             continue;
                         }
 
@@ -172,39 +208,81 @@ public class GeoShapeAggregator extends BucketsAggregator {
                     spare = ordered.insertWithOverflow(spare);
                 }
 
-                // Once we get the top N results, we can compute a simplification
-                topBucketsPerOrd.set(ordIdx, new InternalGeoShape.InternalBucket[ordered.size()]);
-                for (int i = ordered.size() - 1; i >= 0; --i) {
-                    final InternalGeoShape.InternalBucket bucket = ordered.pop();
+                // Pop the queue first: it hands buckets back smallest-perimeter first, and the result
+                // has to stay ordered largest first.
+                final InternalGeoShape.InternalBucket[] popped = new InternalGeoShape.InternalBucket[ordered.size()];
+                for (int i = popped.length - 1; i >= 0; --i) {
+                    popped[i] = ordered.pop();
+                }
 
-                    Geometry geom;
-                    try {
-                        geom = wkbReader.read(bucket.wkb.bytes);
-                    } catch (ParseException e) {
+                // A shape can drop out here (unreadable or unprocessable WKB, or nothing of it left
+                // inside the tile window). Collect the survivors rather than leaving holes in the
+                // array: every bucket is later dereferenced by buildSubAggsForAllBuckets.
+                final List<InternalGeoShape.InternalBucket> keptBuckets = new ArrayList<>(popped.length);
+                for (InternalGeoShape.InternalBucket bucket : popped) {
+                    if (transform.isNoop()) {
+                        // Nothing to compute, so do not pay for parsing the WKB back.
+                        keptBuckets.add(bucket);
                         continue;
                     }
-                    if (must_simplify) {
-                        geom = simplifyGeoShape(geom);
-                        bucket.wkb = new BytesRef(new WKBWriter().write(geom));
-                        bucket.perimeter = geom.getLength();
 
+                    try {
+                        // Parsed again rather than kept from the ranking: holding shard_size parsed geometries
+                        // would take about three times the memory of their WKB, outside the circuit breaker.
+                        Geometry geom = transform.apply(wkbReader.read(bucket.wkb.bytes));
+                        if (geom.isEmpty()) {
+                            // Nothing of this shape falls inside the window; its docs go to sum_other_doc_count.
+                            continue;
+                        }
+                        if (mvtOutput) {
+                            // The stream replaces the WKB. The builder guarantees a tile, so the coordinates
+                            // are on the grid.
+                            bucket.mvt = MvtEncoder.encode(geom);
+                            if (bucket.mvt.length == 0) {
+                                // Every ring collapsed onto a single grid cell. The geometry is not
+                                // empty, but it draws nothing, so the bucket goes the same way as one
+                                // the window emptied.
+                                continue;
+                            }
+                            bucket.wkb = new BytesRef();
+                        } else {
+                            bucket.wkb = new BytesRef(wkbWriter.write(geom));
+                        }
+                        // perimeter is the ranking key, and the coordinator re-ranks buckets with it across
+                        // shards. Under a tile the returned length only says how much of the shape this
+                        // window shows, so the whole-shape WGS84 length assigned above is kept.
+                        if (tile == null) {
+                            bucket.perimeter = geom.getLength();
+                        }
+                        keptBuckets.add(bucket);
+                    } catch (ParseException | RuntimeException e) {
+                        // One shape JTS cannot process (a malformed ring, an overlay it cannot compute)
+                        // must not fail the shard. Drop it like an unreadable one. Not only a
+                        // TopologyException: OverlayNGRobust rethrows whatever its first strategy threw.
                     }
-
-                    topBucketsPerOrd.get(ordIdx)[i] = bucket;
                 }
+                // Values are collected for every ordinal, but only the survivors pay for a copy. Collecting for the
+                // survivors alone would take a deferring collector (what collect_mode: breadth_first uses), which a
+                // tile request filtered on its window does not need.
+                if (collectedFields != null) {
+                    for (InternalGeoShape.InternalBucket bucket : keptBuckets) {
+                        bucket.collected = collectedFields.valuesFor(bucket.bucketOrd, bucket.docCount);
+                    }
+                }
+
+                topBucketsPerOrd.set(ordIdx, keptBuckets.toArray(new InternalGeoShape.InternalBucket[0]));
 
                 // Docs carried by the shapes this shard actually returns; the rest is reported as "other".
                 long returnedDocCount = 0;
-                for (InternalGeoShape.InternalBucket bucket : topBucketsPerOrd.get(ordIdx)) {
-                    if (bucket != null) {
-                        returnedDocCount += bucket.docCount;
-                    }
+                for (InternalGeoShape.InternalBucket bucket : keptBuckets) {
+                    returnedDocCount += bucket.docCount;
                 }
 
                 results[Math.toIntExact(ordIdx)] = new InternalGeoShape(
                     name,
                     Arrays.asList(topBucketsPerOrd.get(ordIdx)),
                     output_format,
+                    collectFieldsParams,
                     bucketCountThresholds.getRequiredSize(),
                     bucketCountThresholds.getShardSize(),
                     totalDocCount - returnedDocCount,
@@ -222,8 +300,9 @@ public class GeoShapeAggregator extends BucketsAggregator {
     public InternalAggregation buildEmptyAggregation() {
         return new InternalGeoShape(
             name,
-            null,
+            List.of(),
             output_format,
+            collectFieldsParams,
             bucketCountThresholds.getRequiredSize(),
             bucketCountThresholds.getShardSize(),
             0,
@@ -231,28 +310,9 @@ public class GeoShapeAggregator extends BucketsAggregator {
         );
     }
 
-    private Geometry simplifyGeoShape(Geometry geom) {
-        Geometry polygonSimplified = getSimplifiedShape(geom);
-        if (polygonSimplified.isEmpty()) {
-            polygonSimplified = this.geometryFactory.createPoint(geom.getCoordinate());
-        }
-        return polygonSimplified;
-    }
-
-    private Geometry getSimplifiedShape(Geometry geometry) {
-        double tol = GeoUtils.getToleranceFromZoom(zoom);
-
-        switch (algorithm) {
-            case TOPOLOGY_PRESERVING:
-                return TopologyPreservingSimplifier.simplify(geometry, tol);
-            default:
-                return DouglasPeuckerSimplifier.simplify(geometry, tol);
-        }
-    }
-
     @Override
     protected void doClose() {
-        Releasables.close(bucketOrds);
+        Releasables.close(bucketOrds, collectedFields);
     }
 
     public static class BucketCountThresholds implements Writeable, ToXContentFragment {

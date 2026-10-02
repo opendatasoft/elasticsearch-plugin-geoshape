@@ -2,7 +2,6 @@ package org.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape;
 
 import org.elasticsearch.search.aggregations.Aggregator;
 import org.elasticsearch.search.aggregations.AggregatorFactories;
-import org.elasticsearch.search.aggregations.CardinalityUpperBound;
 import org.elasticsearch.search.aggregations.support.AggregationContext;
 import org.elasticsearch.search.aggregations.support.ValuesSource;
 import org.opendatasoft.elasticsearch.plugin.GeoUtils;
@@ -21,9 +20,10 @@ public interface GeoShapeAggregatorSupplier {
         boolean must_simplify,
         int zoom,
         GeoShape.Algorithm algorithm,
+        TileParams tile,
+        CollectFieldsParams collectFields,
         GeoShapeAggregator.BucketCountThresholds bucketCountThresholds,
         Aggregator parent,
-        CardinalityUpperBound cardinalityUpperBound,
         Map<String, Object> metadata
     ) throws IOException;
 }
