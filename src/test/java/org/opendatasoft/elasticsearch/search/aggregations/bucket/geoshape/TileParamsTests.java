@@ -56,9 +56,7 @@ public class TileParamsTests extends ESTestCase {
     }
 
     public void testExtentAndBufferKeepTheirDefaults() throws IOException {
-        TileParams tile = parse("{\"z\": 9, \"x\": 259, \"y\": 176}");
-        assertFalse(tile.hasExtent());
-        assertEquals(new TileParams(9, 259, 176, TileParams.NO_EXTENT, TileParams.DEFAULT_BUFFER), tile);
+        assertEquals(new TileParams(9, 259, 176, 4096, 0.0625), parse("{\"z\": 9, \"x\": 259, \"y\": 176}"));
     }
 
     public void testEachTileIndexIsMandatory() {
@@ -78,10 +76,7 @@ public class TileParamsTests extends ESTestCase {
         assertRejected("{\"z\": 9, \"x\": 259, \"y\": 512}", "[y] must be within [0, 511] at [z] [9], got [512]");
         assertRejected("{\"z\": 0, \"x\": 1, \"y\": 0}", "[x] must be within [0, 0] at [z] [0], got [1]");
         // The last index of a zoom is still a tile.
-        assertEquals(
-            new TileParams(9, 511, 511, TileParams.NO_EXTENT, TileParams.DEFAULT_BUFFER),
-            parse("{\"z\": 9, \"x\": 511, \"y\": 511}")
-        );
+        assertEquals(new TileParams(9, 511, 511, EXTENT, TileParams.DEFAULT_BUFFER), parse("{\"z\": 9, \"x\": 511, \"y\": 511}"));
     }
 
     /**
@@ -122,16 +117,12 @@ public class TileParamsTests extends ESTestCase {
     }
 
     public void testWireRoundTrip() throws IOException {
-        TileParams[] tiles = {
-            new TileParams(9, 259, 176, EXTENT, TileParams.DEFAULT_BUFFER),
-            // Without extent: a remote shard must not start quantizing.
-            new TileParams(22, 4194303, 0, TileParams.NO_EXTENT, 0) };
+        TileParams[] tiles = { new TileParams(9, 259, 176, EXTENT, TileParams.DEFAULT_BUFFER), new TileParams(22, 4194303, 0, 512, 0) };
         for (TileParams tile : tiles) {
             try (BytesStreamOutput out = new BytesStreamOutput()) {
                 tile.writeTo(out);
                 TileParams read = new TileParams(out.bytes().streamInput());
                 assertEquals(tile, read);
-                assertEquals(tile.hasExtent(), read.hasExtent());
             }
         }
     }

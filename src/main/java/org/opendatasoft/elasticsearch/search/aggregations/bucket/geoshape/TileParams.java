@@ -16,8 +16,8 @@ import java.io.IOException;
 import java.util.Objects;
 
 /**
- * The {@code tile} param: an XYZ slippy-map tile, the {@code buffer} widening it, and an optional
- * {@code extent} for the integer grid local to the tile.
+ * The {@code tile} param: an XYZ slippy-map tile, the {@code buffer} widening it, and the {@code extent} of the
+ * integer grid local to the tile.
  */
 public class TileParams implements Writeable, ToXContentObject {
 
@@ -30,13 +30,13 @@ public class TileParams implements Writeable, ToXContentObject {
     /** Fraction of the tile size added on each side. Matches PostGIS' 256/4096 default. */
     public static final double DEFAULT_BUFFER = 0.0625;
 
-    /** Sentinel for "no extent given": clip and reproject, but do not quantize. */
-    public static final int NO_EXTENT = 0;
+    /** Grid size of the tile. Matches the PostGIS and elasticsearch {@code _mvt} default. */
+    public static final int DEFAULT_EXTENT = 4096;
 
     private int z;
     private int x;
     private int y;
-    private int extent = NO_EXTENT;
+    private int extent = DEFAULT_EXTENT;
     private double buffer = DEFAULT_BUFFER;
 
     private static final ObjectParser<TileParams, Void> PARSER = new ObjectParser<>("tile", TileParams::new);
@@ -57,10 +57,7 @@ public class TileParams implements Writeable, ToXContentObject {
         this.z = z;
         this.x = x;
         this.y = y;
-        // NO_EXTENT is how code asks for no quantization; a request asks for it by leaving extent out.
-        if (extent != NO_EXTENT) {
-            setExtent(extent);
-        }
+        setExtent(extent);
         setBuffer(buffer);
         // Same guard as the parser: an index outside its zoom names no tile, so no entry point may skip it.
         validate();
@@ -90,7 +87,6 @@ public class TileParams implements Writeable, ToXContentObject {
     }
 
     private void setExtent(int extent) {
-        // 0 is not a size: it is the NO_EXTENT sentinel, which a request must not be able to send.
         if (extent < 1) {
             throw new IllegalArgumentException("[" + EXTENT_FIELD.getPreferredName() + "] must be >= 1 in geoshape aggregation.");
         }
@@ -142,10 +138,6 @@ public class TileParams implements Writeable, ToXContentObject {
                     + "] in geoshape aggregation."
             );
         }
-    }
-
-    public boolean hasExtent() {
-        return extent != NO_EXTENT;
     }
 
     public int getExtent() {
@@ -213,9 +205,7 @@ public class TileParams implements Writeable, ToXContentObject {
         builder.field(Z_FIELD.getPreferredName(), z);
         builder.field(X_FIELD.getPreferredName(), x);
         builder.field(Y_FIELD.getPreferredName(), y);
-        if (hasExtent()) {
-            builder.field(EXTENT_FIELD.getPreferredName(), extent);
-        }
+        builder.field(EXTENT_FIELD.getPreferredName(), extent);
         builder.field(BUFFER_FIELD.getPreferredName(), buffer);
         return builder.endObject();
     }

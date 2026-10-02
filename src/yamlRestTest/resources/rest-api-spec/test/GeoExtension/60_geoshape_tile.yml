@@ -238,7 +238,7 @@ setup:
   - match: { aggregations.g.sum_other_doc_count: 1 }
 
 ---
-"A shape that collapses is kept when no extent is requested":
+"Without an extent, shapes are quantized onto a 4096 grid":
 
   - do:
       search:
@@ -258,9 +258,9 @@ setup:
                   y: 15
                   buffer: 0
 
-# Without quantization there is no rounding, so the shape survives in mercator meters.
-  - length: { aggregations.g.buckets: 1 }
-  - match: { aggregations.g.sum_other_doc_count: 0 }
+# The same sub-pixel shape as above collapses on the default grid as it does on an explicit 4096 one.
+  - length: { aggregations.g.buckets: 0 }
+  - match: { aggregations.g.sum_other_doc_count: 1 }
 
 ---
 "Buffer widens the clip window past the extent":
@@ -286,32 +286,6 @@ setup:
 
 # With a 6.25% buffer the shape is kept out to lon 11.953125, i.e. x = 4352 > extent.
   - match: { aggregations.g.buckets.0.key: "POLYGON ((1820 4096, 1820 2273, 4352 2273, 4352 4096, 1820 4096))" }
-
----
-"Without extent shapes come back in mercator meters":
-
-  - do:
-      search:
-        body:
-          query:
-            term:
-              id: 1
-          size: 0
-          aggs:
-            g:
-              geoshape:
-                field: "geo_shape_0.wkb"
-                output_format: wkt
-                tile:
-                  z: 5
-                  x: 16
-                  y: 15
-                  buffer: 0
-
-  - match:
-      aggregations.g.buckets.0.key: "POLYGON ((1252344.2714243277 -0.0000000007081155,
-        1252344.2714243277 1252344.2714243277, 0 1252344.2714243277, 0 -0.0000000007081155,
-        1252344.2714243277 -0.0000000007081155))"
 
 ---
 "Simplification runs on the clipped shape":
@@ -507,7 +481,6 @@ setup:
 ---
 "A zero extent is rejected":
 
-# 0 is how the plugin itself means "no extent"; a request asks for that by leaving extent out.
   - do:
       catch: bad_request
       search:

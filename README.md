@@ -257,7 +257,7 @@ Moreover, compared to regular search results, results of an aggregation can be [
 #### Params
 
 - `field` (mandatory): the field used for aggregating. Must be of wkb type. E.g.: "geoshape_0.wkb".
-- `output_format`: the output_format in [`geojson`, `wkt`, `wkb`, `mvt`]. Default to `geojson`. `mvt` returns the MVT command stream instead of a serialized geometry and requires `tile.extent`; see [MVT command stream output](#mvt-command-stream-output) below.
+- `output_format`: the output_format in [`geojson`, `wkt`, `wkb`, `mvt`]. Default to `geojson`. `mvt` returns the MVT command stream instead of a serialized geometry and requires `tile`; see [MVT command stream output](#mvt-command-stream-output) below.
 - `simplify`:
   - `zoom`: the zoom level in range [0, 20]. 0 is the most simplified and 20 is the least. Default to 0.
   - `algorithm`: simplify algorithm in [`DOUGLAS_PEUCKER`, `TOPOLOGY_PRESERVING`]. Default to `DOUGLAS_PEUCKER`.
@@ -267,8 +267,8 @@ Moreover, compared to regular search results, results of an aggregation can be [
     edge: mercantile's convention, not TMS. `z` must be within `[0, 29]`, the range of elasticsearch's own
     `geotile_grid`, and `x` and `y` within `[0, 2^z - 1]`. The tile's WGS84 box is derived with the formulas of
     `mercantile.bounds(x, y, z)`.
-  - `extent` (optional): rescale coordinates to the integer grid `[0, extent]` local to the tile, e.g. `4096`.
-    Must be at least `1`. When omitted, shapes are returned in web mercator meters without being quantized.
+  - `extent` (optional): size of the integer grid `[0, extent]` local to the tile that coordinates are rescaled
+    to. Must be at least `1`. Default to `4096`, as in PostGIS and elasticsearch's `_mvt` API.
   - `buffer` (optional): fraction of the tile size kept on each side, so adjacent tiles do not show a seam. Must
     be a number `>= 0`. Default to `0.0625` (6.25%, the PostGIS default).
 - `collect_fields` (optional): return, per bucket, the values of some doc-values fields of the documents that bucket holds. See [Collecting document fields](#collecting-document-fields) below.
@@ -287,8 +287,7 @@ The request determines the space the shapes come back in:
 | Request | Coordinate space |
 |---|---|
 | no `tile` | WGS84 lon/lat (EPSG:4326) |
-| `tile` without `extent` | web mercator meters (EPSG:3857) |
-| `tile` with `extent` | grid local to the tile, `[0, extent]`, origin top-left, y downwards. No EPSG code. |
+| `tile` | grid local to the tile, `[0, extent]`, origin top-left, y downwards. No EPSG code. |
 
 `output_format` decides how those coordinates are written, not what they are: `mvt` delivers the last
 line of the table as a command stream rather than as a geometry.
@@ -344,7 +343,7 @@ The `tile` parameter turns the aggregation's output into a purely local view of 
 
 1. **clip** the shape to the tile widened by `buffer`, in WGS84;
 2. **simplify** it, if `simplify` was given (so simplification only ever runs on the part of the shape that can be seen);
-3. **reproject** to web mercator, and **rescale** to `[0, extent]` when an extent is given;
+3. **reproject** to web mercator, and **rescale** to `[0, extent]`;
 4. **repair** whatever the rounding broke, dropping the pieces that collapsed;
 5. **orient** its rings, on the coordinates that are actually emitted.
 
@@ -365,7 +364,7 @@ Clipping in WGS84 is exact, not an approximation: web mercator is axis-separable
 Things worth knowing about the output:
 - The grid origin is the **top-left** corner of the tile and **y grows downwards**, the usual tile-local pixel
   convention. Coordinates are rounded to integers.
-- Rings are oriented so that **exteriors have a positive signed area and holes a negative one**, under the surveyor's formula applied to the returned coordinates: on the y-down grid that is the winding the Mapbox Vector Tile spec requires (section 4.3.3.3), and in mercator meters it is the RFC 7946 right-hand rule. A client can encode the rings as they come. To check it, compare signed areas: libraries reading raw ordinates (JTS `Orientation.isCCW`, shapely's `is_ccw`) call these exteriors counter-clockwise, although they read as clockwise on screen once y points down.
+- Rings are oriented so that **exteriors have a positive signed area and holes a negative one**, under the surveyor's formula applied to the returned coordinates: on the y-down grid that is the winding the Mapbox Vector Tile spec requires (section 4.3.3.3). A client can encode the rings as they come. To check it, compare signed areas: libraries reading raw ordinates (JTS `Orientation.isCCW`, shapely's `is_ccw`) call these exteriors counter-clockwise, although they read as clockwise on screen once y points down.
 - Coordinates falling inside `buffer` land **outside** `[0, extent]`, on purpose: `extent` measures the tile, not
   the buffered window.
 - The buffer stops at the latitude limit of web mercator, about +/-85.0511: a shape reaching the pole is cut at
@@ -420,9 +419,8 @@ GET main/_search?size=0
 #### MVT command stream output
 
 `output_format: mvt` returns each shape as the integer stream a Mapbox Vector Tile feature carries,
-rather than as WKB, WKT or GeoJSON. It requires `tile.extent`: the stream describes a pen moving over
-the tile grid, so without a grid there is nothing to describe. A request that asks for it without one
-is rejected.
+rather than as WKB, WKT or GeoJSON. It requires `tile`: the stream describes a pen moving over the
+tile grid. A request that asks for it without one is rejected.
 
 ```
 GET main/_search?size=0

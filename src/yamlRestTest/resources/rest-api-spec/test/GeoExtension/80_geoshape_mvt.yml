@@ -272,12 +272,14 @@ setup:
   - match: { aggregations.g.buckets.0.key: "0000000003000000010000000540B000000000000040B0000000000000000000000000000040B00000000000000000000000000000000000000000000040B0000000000000000000000000000040B000000000000040B0000000000000" }
 
 ---
-"mvt without a tile extent is rejected":
+"mvt without a tile extent runs on the default 4096 grid":
 
   - do:
-      catch: /\[output_format\] \[mvt\] requires \[tile.extent\]/
       search:
         body:
+          query:
+            term:
+              id: 1
           size: 0
           aggs:
             g:
@@ -288,12 +290,15 @@ setup:
                   z: 5
                   x: 16
                   y: 15
+                  buffer: 0
+
+  - match: { aggregations.g.buckets.0.key: [9, 8192, 8192, 26, 8191, 0, 0, 8191, 8192, 0, 15] }
 
 ---
 "mvt without a tile param at all is rejected":
 
   - do:
-      catch: bad_request
+      catch: /\[output_format\] \[mvt\] requires \[tile\]/
       search:
         body:
           size: 0

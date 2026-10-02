@@ -3,10 +3,11 @@
 The README documents each param in full.
 
 * Add an optional `tile` param to the geoshape aggregation: name an XYZ slippy-map tile (`z`, `x`, `y`), clip
-  shapes to it (+ buffer), reproject them to web mercator and, with `extent`, quantize them to a tile-local
-  integer grid. Returned geometry is valid, keeps the dimension of the stored shape and follows the MVT winding
+  shapes to it (+ buffer), reproject them to web mercator and quantize them to a tile-local integer grid
+  (`extent`, default 4096). Returned geometry is valid, keeps the dimension of the stored shape and follows the
+  MVT winding
 * Add the `mvt` value to `output_format`: return each shape as the command stream of an MVT feature, an array of
-  unsigned integers, instead of a serialized geometry. Requires `tile.extent`; the `geo_simplify` script rejects it
+  unsigned integers, instead of a serialized geometry. Requires `tile`; the `geo_simplify` script rejects it
 * Add an optional `collect_fields` param: return, per bucket, the doc-values of some keyword, numeric, date or
   boolean fields of the documents it holds, read from at most `max_docs_per_bucket` documents (default 10,
   maximum 100)

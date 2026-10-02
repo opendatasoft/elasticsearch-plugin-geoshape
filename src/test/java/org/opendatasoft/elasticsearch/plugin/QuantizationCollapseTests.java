@@ -11,8 +11,6 @@ import org.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.GeoSha
 import org.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.GeoShapeTransform;
 import org.opendatasoft.elasticsearch.search.aggregations.bucket.geoshape.TileParams;
 
-import java.util.Arrays;
-
 /**
  * Rounding onto the integer grid is destructive: sub-pixel holes and parts land on a single point,
  * slivers flatten onto a line, and a notch narrower than one grid unit closes into a zero-width
@@ -208,13 +206,13 @@ public class QuantizationCollapseTests extends ESTestCase {
         GeoUtils.toTileGrid(quantized, tileParams().mercatorEnvelope(), EXTENT);
         assertTrue("fixture must already be valid", quantized.isValid());
 
-        assertSame("a valid geometry must be handed back as-is", quantized, GeoUtils.makeValid(quantized, true));
+        assertSame("a valid geometry must be handed back as-is", quantized, GeoUtils.makeValid(quantized));
     }
 
     /**
      * The repair nodes crossing edges at their true intersection, which is rarely on the grid. There,
      * its output must be snapped back, or the rounding the mvt encoder does later can make it invalid
-     * again. In mercator meters there is no grid, and the repair is left as it stands.
+     * again.
      */
     public void testRepairStaysOnTheGrid() {
         // A bow tie, whose edges cross at (3.5, 1), between two grid cells.
@@ -228,19 +226,12 @@ public class QuantizationCollapseTests extends ESTestCase {
         );
         assertFalse("fixture must be invalid", bowTie.isValid());
 
-        Geometry onGrid = GeoUtils.makeValid(bowTie, true);
+        Geometry onGrid = GeoUtils.makeValid(bowTie);
         assertTrue(onGrid.isValid());
         assertFalse(onGrid.isEmpty());
         for (Coordinate coordinate : onGrid.getCoordinates()) {
             assertEquals("x must be an integer", Math.rint(coordinate.x), coordinate.x, 0.0);
             assertEquals("y must be an integer", Math.rint(coordinate.y), coordinate.y, 0.0);
         }
-
-        Geometry inMeters = GeoUtils.makeValid(bowTie, false);
-        assertTrue(inMeters.isValid());
-        assertTrue(
-            "without a grid the crossing point is kept where it is",
-            Arrays.stream(inMeters.getCoordinates()).anyMatch(coordinate -> coordinate.x == 3.5)
-        );
     }
 }

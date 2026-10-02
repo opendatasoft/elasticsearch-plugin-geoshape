@@ -292,17 +292,15 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
         }
     }
 
-    /** Reject {@code output_format: mvt} without a {@code tile.extent}: the stream moves over that grid. */
+    /** Reject {@code output_format: mvt} without a {@code tile}: the stream moves over the tile grid. */
     private void validateOutputFormat() {
-        if (output_format == GeoUtils.OutputFormat.MVT && (tile == null || tile.hasExtent() == false)) {
+        if (output_format == GeoUtils.OutputFormat.MVT && tile == null) {
             throw new IllegalArgumentException(
                 "["
                     + OUTPUT_FORMAT_FIELD.getPreferredName()
                     + "] [mvt] requires ["
                     + TILE_FIELD.getPreferredName()
-                    + "."
-                    + TileParams.EXTENT_FIELD.getPreferredName()
-                    + "] to be set in geoshape aggregation."
+                    + "] in geoshape aggregation."
             );
         }
     }

@@ -244,13 +244,6 @@ public class TilePipelineTests extends ESTestCase {
         assertEquals(0.0, GeoUtils.latToMercatorY(0), 1e-7);
     }
 
-    public void testToWebMercatorMutatesInPlace() {
-        Point point = factory.createPoint(new Coordinate(2.3522219, 48.856614));
-        GeoUtils.toWebMercator(point);
-        assertEquals(261848.1441407865, point.getX(), 1e-7);
-        assertEquals(6250566.718238154, point.getY(), 1e-7);
-    }
-
     public void testGridOriginIsTopLeftCorner() {
         TileParams tile = tileParams();
 
@@ -330,22 +323,6 @@ public class TilePipelineTests extends ESTestCase {
             new Polygon[] { factory.createPolygon(ccwRing(-4.0, 46.0, -3.0, 47.0)), factory.createPolygon(cwRing(-2.5, 47.5, -1.5, 48.5)) }
         );
         assertMvtWinding(runPipeline(multiPolygon, tileParams(), false), "multipolygon");
-    }
-
-    public void testWithoutExtentShapesStayInMercatorMeters() {
-        TileParams tile = new TileParams(6, 31, 22, TileParams.NO_EXTENT, TileParams.DEFAULT_BUFFER);
-        assertFalse("extent must be optional", tile.hasExtent());
-
-        Geometry geom = runPipeline(insideTileWithHole(), tile, false);
-        assertFalse(geom.isEmpty());
-        // Mercator meters, not a 0-4096 grid.
-        assertTrue("coordinates should be mercator meters", geom.getEnvelopeInternal().getMinX() < -100000);
-        // Without the y flip the right-hand rule reads as counter-clockwise exteriors.
-        Polygon polygon = (Polygon) geom;
-        assertTrue(
-            "without quantization the exterior stays counter-clockwise",
-            Orientation.isCCW(polygon.getExteriorRing().getCoordinateSequence())
-        );
     }
 
     public void testTileGridIsWithinExtentForAShapeInsideTheTile() {

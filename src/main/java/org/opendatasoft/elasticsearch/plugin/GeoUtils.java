@@ -39,7 +39,7 @@ public class GeoUtils {
         WKT,
         WKB,
         GEOJSON,
-        /** The MVT command stream, an array of integers built by {@link MvtEncoder}; needs a {@code tile.extent}. */
+        /** The MVT command stream, an array of integers built by {@link MvtEncoder}; needs a {@code tile}. */
         MVT
     }
 
@@ -313,7 +313,7 @@ public class GeoUtils {
     /**
      * Force every ring of {@code geom}, in place, to a positive signed area for exteriors and a negative
      * one for holes, over the coordinates <b>as they currently stand</b>: the MVT winding on the y-down
-     * grid, the RFC 7946 right-hand rule in mercator meters.
+     * grid.
      *
      * <p>Apply this <b>after</b> any reprojection: flipping an axis flips the signed area. It cannot rely
      * on the input orientation either, since the overlay rebuilds the rings of a clipped shape with
@@ -360,16 +360,15 @@ public class GeoUtils {
      * {@link GeometryFixer} keeps the visible area of a pinched ring, which dropping invalid parts would
      * not, and a fully collapsed shape comes back empty. Only invalid geometry is rebuilt.
      *
-     * <p>On the integer grid, the repair is snapped back onto it: {@link GeometryFixer} nodes crossing
-     * edges at their true intersection, and rounding such a vertex later, as the mvt encoder has to,
-     * could make the geometry invalid again or flip a ring.
+     * <p>The repair is snapped back onto the grid: {@link GeometryFixer} nodes crossing edges at their true
+     * intersection, and rounding such a vertex later, as the mvt encoder has to, could make the geometry
+     * invalid again or flip a ring.
      */
-    public static Geometry makeValid(Geometry geom, boolean onIntegerGrid) {
+    public static Geometry makeValid(Geometry geom) {
         if (geom.isValid()) {
             return geom;
         }
-        Geometry fixed = GeometryFixer.fix(geom);
-        return onIntegerGrid ? GeometryPrecisionReducer.reduce(fixed, INTEGER_GRID) : fixed;
+        return GeometryPrecisionReducer.reduce(GeometryFixer.fix(geom), INTEGER_GRID);
     }
 
     /**
@@ -389,13 +388,6 @@ public class GeoUtils {
     }
 
     /**
-     * Reproject a WGS84 geometry to web mercator meters, in place.
-     */
-    public static void toWebMercator(Geometry geom) {
-        geom.apply(new MercatorFilter(null, 0));
-    }
-
-    /**
      * Reproject a WGS84 geometry, in place, to the integer grid {@code [0, extent]} local to
      * {@code mercatorBbox}, origin top-left, y downwards. The flip reverses the signed area of every
      * ring: call {@link #orientRings} afterwards, not before.
@@ -405,8 +397,8 @@ public class GeoUtils {
     }
 
     /**
-     * Projects WGS84 to web mercator and, when given a box and an extent, rescales to a tile-local
-     * integer grid. One pass over every coordinate, no intermediate geometry.
+     * Projects WGS84 to web mercator and rescales to a tile-local integer grid. One pass over every
+     * coordinate, no intermediate geometry.
      */
     private static final class MercatorFilter implements CoordinateSequenceFilter {
         private final Envelope mercatorBbox;
@@ -415,26 +407,17 @@ public class GeoUtils {
 
         MercatorFilter(Envelope mercatorBbox, int extent) {
             this.mercatorBbox = mercatorBbox;
-            if (mercatorBbox != null) {
-                this.scaleX = extent / mercatorBbox.getWidth();
-                this.scaleY = extent / mercatorBbox.getHeight();
-            } else {
-                this.scaleX = 0;
-                this.scaleY = 0;
-            }
+            this.scaleX = extent / mercatorBbox.getWidth();
+            this.scaleY = extent / mercatorBbox.getHeight();
         }
 
         @Override
         public void filter(CoordinateSequence sequence, int i) {
             double x = lonToMercatorX(sequence.getOrdinate(i, CoordinateSequence.X));
             double y = latToMercatorY(sequence.getOrdinate(i, CoordinateSequence.Y));
-
-            if (mercatorBbox != null) {
-                x = Math.round((x - mercatorBbox.getMinX()) * scaleX);
-                // Flip: the grid origin is the top-left corner, y grows downwards.
-                y = Math.round((mercatorBbox.getMaxY() - y) * scaleY);
-            }
-
+            x = Math.round((x - mercatorBbox.getMinX()) * scaleX);
+            // Flip: the grid origin is the top-left corner, y grows downwards.
+            y = Math.round((mercatorBbox.getMaxY() - y) * scaleY);
             sequence.setOrdinate(i, CoordinateSequence.X, x);
             sequence.setOrdinate(i, CoordinateSequence.Y, y);
         }

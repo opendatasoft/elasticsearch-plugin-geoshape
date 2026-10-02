@@ -235,8 +235,8 @@ public class GeoShapeAggregator extends BucketsAggregator {
                             continue;
                         }
                         if (mvtOutput) {
-                            // The stream replaces the WKB. The builder guarantees a tile extent, so the
-                            // coordinates are on the grid.
+                            // The stream replaces the WKB. The builder guarantees a tile, so the coordinates
+                            // are on the grid.
                             bucket.mvt = MvtEncoder.encode(geom);
                             if (bucket.mvt.length == 0) {
                                 // Every ring collapsed onto a single grid cell. The geometry is not

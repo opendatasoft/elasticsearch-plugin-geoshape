@@ -65,12 +65,8 @@ public class GeoShapeTransform {
         }
 
         if (tile != null) {
-            if (tile.hasExtent()) {
-                GeoUtils.toTileGrid(geom, mercatorEnvelope, tile.getExtent());
-            } else {
-                GeoUtils.toWebMercator(geom);
-            }
-            geom = GeoUtils.makeValid(geom, tile.hasExtent());
+            GeoUtils.toTileGrid(geom, mercatorEnvelope, tile.getExtent());
+            geom = GeoUtils.makeValid(geom);
             GeoUtils.orientRings(geom);
         }
 
