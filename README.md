@@ -274,7 +274,7 @@ Moreover, compared to regular search results, results of an aggregation can be [
   - `buffer` (optional): fraction of the tile size kept on each side, so adjacent tiles do not show a seam. Must
     be a number `>= 0`. Default to `0.0625` (6.25%, the PostGIS default).
 - `collect_fields` (optional): return, per bucket, the values of some doc-values fields of the documents that bucket holds. See [Collecting document fields](#collecting-document-fields) below.
-  - `fields` (mandatory): the field names to read, e.g. `["id"]`. Each must have doc values.
+  - `fields` (mandatory): the field names to read, e.g. `["id"]`. Each must have doc values, or be a runtime field.
   - `max_docs_per_bucket` (optional): how many documents per bucket the values are read from. Default to `10`, maximum `100`.
 - `size`: can be set to define how many buckets should be returned. See elasticsearch official terms aggregation documentation for more explanation. Buckets are ordered by the length (perimeter for polygons) of their shape, longer shapes first.
 - `shard_size`: can be used to minimize the extra work that comes with bigger requested `size`. See elasticsearch official terms aggregation documentation for more explanation.

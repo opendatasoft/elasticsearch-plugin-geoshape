@@ -410,6 +410,30 @@ setup:
                   fields: ["no_dv"]
 
 ---
+"A runtime field is collected like a mapped one":
+
+  - do:
+      search:
+        index: test_index
+        body:
+          size: 0
+          runtime_mappings:
+            id_upper:
+              type: keyword
+              script: "emit(doc['id'].value.toUpperCase())"
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                size: 10
+                collect_fields:
+                  fields: ["id_upper"]
+
+  - match: { aggregations.g.buckets.0.collected_fields.id_upper: ["A", "C", "D"] }
+  - match: { aggregations.g.buckets.1.collected_fields.id_upper: ["B"] }
+
+---
 "Numeric, date and boolean fields come back as their number":
 
   - do:

@@ -265,7 +265,8 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
             if (fieldType == null) {
                 continue;
             }
-            if (fieldType.hasDocValues() == false) {
+            // Not hasDocValues(): a runtime field has none, and is read through its script like any aggregation does.
+            if (fieldType.isAggregatable() == false) {
                 throw new IllegalArgumentException(
                     "["
                         + COLLECT_FIELDS_FIELD.getPreferredName()
