@@ -1,19 +1,10 @@
-### 8.19.19.2
-
-* **Breaking**: the `tile` param names an XYZ slippy-map tile, `"z"`, `"x"` and `"y"`, instead of a WGS84
-  `bbox`, which is now rejected as an unknown field. The plugin derives the tile's box with mercantile's
-  formulas; `extent` and `buffer` are unchanged. The bbox validation goes with it: a tile cannot cross the
-  antimeridian, leave the latitude range or be degenerate
-* **Upgrade note**: the wire format of `tile` changes. A geoshape aggregation carrying `tile` cannot span nodes
-  on 8.19.19.1 and 8.19.19.2
-
 ### 8.19.19.1
 
 The README documents each param in full.
 
-* Add an optional `tile` param to the geoshape aggregation: clip shapes to a bbox (+ buffer), reproject them to
-  web mercator and, with `extent`, quantize them to a tile-local integer grid. Returned geometry is valid, keeps
-  the dimension of the stored shape and follows the MVT winding. A bbox crossing the antimeridian is rejected
+* Add an optional `tile` param to the geoshape aggregation: name an XYZ slippy-map tile (`z`, `x`, `y`), clip
+  shapes to it (+ buffer), reproject them to web mercator and, with `extent`, quantize them to a tile-local
+  integer grid. Returned geometry is valid, keeps the dimension of the stored shape and follows the MVT winding
 * Add the `mvt` value to `output_format`: return each shape as the command stream of an MVT feature, an array of
   unsigned integers, instead of a serialized geometry. Requires `tile.extent`; the `geo_simplify` script rejects it
 * Add an optional `collect_fields` param: return, per bucket, the doc-values of some keyword, numeric, date or
