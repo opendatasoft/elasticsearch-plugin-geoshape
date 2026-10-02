@@ -24,7 +24,6 @@ import org.opendatasoft.elasticsearch.plugin.GeoUtils;
 
 import java.io.IOException;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -81,7 +80,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
         static class Parser {
             static List<Object> parseSimplifyParam(XContentParser parser) throws IOException {
                 XContentParser.Token token;
-                int zoom = -1;
+                int zoom = NO_ZOOM;
                 String algorithm = null;
 
                 String currentFieldName = null;
@@ -98,18 +97,18 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
                         }
                     }
                 }
-                if ((zoom != -1) && (algorithm != null)) return Arrays.asList(zoom, algorithm);
-                else return Collections.emptyList();
+                return Arrays.asList(zoom, algorithm);
             }
         }
     }
 
     public static final GeoUtils.OutputFormat DEFAULT_OUTPUT_FORMAT = GeoUtils.OutputFormat.GEOJSON;
     private boolean must_simplify = false;
-    public static final int DEFAULT_ZOOM = 0;
+    // simplify.zoom left out: the tile's zoom, see resolveSimplifyZoom.
+    private static final int NO_ZOOM = -1;
     public static final GeoShape.Algorithm DEFAULT_ALGORITHM = GeoShape.Algorithm.DOUGLAS_PEUCKER;
     private GeoUtils.OutputFormat output_format = DEFAULT_OUTPUT_FORMAT;
-    private int simplify_zoom = DEFAULT_ZOOM;
+    private int simplify_zoom = NO_ZOOM;
     private GeoShape.Algorithm simplify_algorithm = DEFAULT_ALGORITHM;
     // Optional: when null, shapes are returned whole, in WGS84, exactly as before.
     private TileParams tile = null;
@@ -181,10 +180,11 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
     @SuppressWarnings("unchecked")
     private GeoShapeBuilder simplify_keys(List<Object> simplify) {
         List<Object> simplify_keys = (List<Object>) simplify.get(0);
-        if (!simplify_keys.isEmpty()) {
-            this.must_simplify = true;
-            this.simplify_zoom = (int) simplify_keys.get(0);
-            this.simplify_algorithm = GeoShape.Algorithm.valueOf(((String) simplify_keys.get(1)).toUpperCase(Locale.getDefault()));
+        this.must_simplify = true;
+        this.simplify_zoom = (int) simplify_keys.get(0);
+        String algorithm = (String) simplify_keys.get(1);
+        if (algorithm != null) {
+            this.simplify_algorithm = GeoShape.Algorithm.valueOf(algorithm.toUpperCase(Locale.getDefault()));
         }
         return this;
     }
@@ -305,6 +305,23 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
         }
     }
 
+    /** The zoom simplification runs at: the one given, else the tile's, which a tile request almost always wants. */
+    int resolveSimplifyZoom() {
+        if (must_simplify == false || simplify_zoom != NO_ZOOM) {
+            return simplify_zoom;
+        }
+        if (tile == null) {
+            throw new IllegalArgumentException(
+                "["
+                    + SIMPLIFY_FIELD.getPreferredName()
+                    + "] requires a [zoom] when no ["
+                    + TILE_FIELD.getPreferredName()
+                    + "] is given, in geoshape aggregation."
+            );
+        }
+        return tile.getZ();
+    }
+
     @Override
     protected ValuesSourceAggregatorFactory innerBuild(
         AggregationContext queryShardContext,
@@ -319,7 +336,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
             config,
             output_format,
             must_simplify,
-            simplify_zoom,
+            resolveSimplifyZoom(),
             simplify_algorithm,
             tile,
             collectFields,
@@ -339,7 +356,9 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
 
         if (must_simplify) {
             builder.startObject(SIMPLIFY_FIELD.getPreferredName());
-            builder.field("zoom", simplify_zoom);
+            if (simplify_zoom != NO_ZOOM) {
+                builder.field("zoom", simplify_zoom);
+            }
             builder.field("algorithm", simplify_algorithm);
             builder.endObject();
         }

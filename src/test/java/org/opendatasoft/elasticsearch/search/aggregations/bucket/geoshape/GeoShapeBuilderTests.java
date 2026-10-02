@@ -59,4 +59,35 @@ public class GeoShapeBuilderTests extends ESTestCase {
 
         assertEquals(geoShape, parseRendered(render(geoShape)));
     }
+
+    public void testSimplifyRunsAtTheTileZoomByDefault() throws IOException {
+        GeoShapeBuilder geoShape = parse("""
+            {"field": "f", "simplify": {"algorithm": "topology_preserving"}, "tile": {"z": 6, "x": 31, "y": 22}}""");
+
+        assertEquals(6, geoShape.resolveSimplifyZoom());
+        assertEquals(geoShape, parseRendered(render(geoShape)));
+    }
+
+    /** z + 1 suits tiles displayed at 512 pixels, whose pixel is half the one the zoom tolerance assumes. */
+    public void testAnExplicitZoomOverridesTheTileZoom() throws IOException {
+        GeoShapeBuilder geoShape = parse("""
+            {"field": "f", "simplify": {"zoom": 7, "algorithm": "douglas_peucker"}, "tile": {"z": 6, "x": 31, "y": 22}}""");
+
+        assertEquals(7, geoShape.resolveSimplifyZoom());
+    }
+
+    /** It used to be ignored, so the request silently ran without simplification. */
+    public void testSimplifyWithoutZoomNeedsATile() throws IOException {
+        GeoShapeBuilder geoShape = parse("{\"field\": \"f\", \"simplify\": {\"algorithm\": \"douglas_peucker\"}}");
+
+        IllegalArgumentException e = expectThrows(IllegalArgumentException.class, geoShape::resolveSimplifyZoom);
+        assertEquals("[simplify] requires a [zoom] when no [tile] is given, in geoshape aggregation.", e.getMessage());
+    }
+
+    /** The documented default, which the request used to ignore along with the whole simplify param. */
+    public void testAlgorithmDefaultsToDouglasPeucker() throws IOException {
+        String rendered = render(parse("{\"field\": \"f\", \"simplify\": {\"zoom\": 5}}"));
+
+        assertTrue(rendered, rendered.contains("\"simplify\":{\"zoom\":5,\"algorithm\":\"DOUGLAS_PEUCKER\"}"));
+    }
 }

@@ -140,6 +140,10 @@ public class TileParams implements Writeable, ToXContentObject {
         }
     }
 
+    public int getZ() {
+        return z;
+    }
+
     public int getExtent() {
         return extent;
     }

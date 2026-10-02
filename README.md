@@ -259,7 +259,9 @@ Moreover, compared to regular search results, results of an aggregation can be [
 - `field` (mandatory): the field used for aggregating. Must be of wkb type. E.g.: "geoshape_0.wkb".
 - `output_format`: the output_format in [`geojson`, `wkt`, `wkb`, `mvt`]. Default to `geojson`. `mvt` returns the MVT command stream instead of a serialized geometry and requires `tile`; see [MVT command stream output](#mvt-command-stream-output) below.
 - `simplify`:
-  - `zoom`: the zoom level in range [0, 20]. 0 is the most simplified and 20 is the least. Default to 0.
+  - `zoom`: the zoom level in range [0, 20]. 0 is the most simplified and 20 is the least. Default to `tile.z`
+    when `tile` is given, mandatory otherwise. It may differ from `tile.z`: the tolerance of a zoom is one pixel of
+    a 256-pixel tile, so tiles displayed at 512 pixels look best simplified at `z + 1`.
   - `algorithm`: simplify algorithm in [`DOUGLAS_PEUCKER`, `TOPOLOGY_PRESERVING`]. Default to `DOUGLAS_PEUCKER`.
 - `tile` (optional): cut the returned shapes down to an XYZ slippy-map tile and deliver them in that tile's own
   coordinate space. See [Tile clipping and quantization](#tile-clipping-and-quantization) below.
@@ -398,7 +400,6 @@ GET main/_search?size=0
         "field": "geoshape_0.wkb",
         "output_format": "wkb",
         "simplify": {
-          "zoom": 6,
           "algorithm": "douglas_peucker"
         },
         "tile": {

@@ -5,12 +5,14 @@ The README documents each param in full.
 * Add an optional `tile` param to the geoshape aggregation: name an XYZ slippy-map tile (`z`, `x`, `y`), clip
   shapes to it (+ buffer), reproject them to web mercator and quantize them to a tile-local integer grid
   (`extent`, default 4096). Returned geometry is valid, keeps the dimension of the stored shape and follows the
-  MVT winding
+  MVT winding. `simplify.zoom` defaults to `tile.z`
 * Add the `mvt` value to `output_format`: return each shape as the command stream of an MVT feature, an array of
   unsigned integers, instead of a serialized geometry. Requires `tile`; the `geo_simplify` script rejects it
 * Add an optional `collect_fields` param: return, per bucket, the doc-values of some keyword, numeric, date or
   boolean fields of the documents it holds, read from at most `max_docs_per_bucket` documents (default 10,
   maximum 100)
+* **Breaking**: a `simplify` without `zoom` or without `algorithm` was silently ignored. `algorithm` now defaults
+  to `DOUGLAS_PEUCKER`, as documented, and a missing `zoom` is rejected unless a `tile` provides one
 * **Breaking**: geojson output no longer carries the `crs` member, which always announced `EPSG:0`. This affects
   every geojson response, with or without `tile`
 * Shapes that the clip empties, or that collapse under quantization or MVT encoding, are dropped from the

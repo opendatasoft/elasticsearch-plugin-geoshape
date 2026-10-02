@@ -205,6 +205,25 @@
   - length: {aggregations.g.buckets.1.key: 882}
 
 ---
+"A simplify without zoom is rejected when no tile gives one":
+
+  - do:
+      indices.create:
+        index: test_index
+
+  - do:
+      catch: /\[simplify\] requires a \[zoom\] when no \[tile\] is given/
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                simplify:
+                  algorithm: DOUGLAS_PEUCKER
+
+---
 "Test truncation reporting: sum_other_doc_count":
 
 # Create the pipeline
