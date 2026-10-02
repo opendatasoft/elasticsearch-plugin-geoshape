@@ -25,7 +25,6 @@ import org.elasticsearch.search.aggregations.support.ValuesSource;
 import org.elasticsearch.xcontent.ToXContentFragment;
 import org.elasticsearch.xcontent.XContentBuilder;
 import org.locationtech.jts.geom.Geometry;
-import org.locationtech.jts.geom.TopologyException;
 import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKBReader;
 import org.locationtech.jts.io.WKBWriter;
@@ -255,9 +254,10 @@ public class GeoShapeAggregator extends BucketsAggregator {
                             bucket.perimeter = geom.getLength();
                         }
                         keptBuckets.add(bucket);
-                    } catch (ParseException | IllegalArgumentException | TopologyException e) {
+                    } catch (ParseException | RuntimeException e) {
                         // One shape JTS cannot process (a malformed ring, an overlay it cannot compute)
-                        // must not fail the shard. Drop it like an unreadable one.
+                        // must not fail the shard. Drop it like an unreadable one. Not only a
+                        // TopologyException: OverlayNGRobust rethrows whatever its first strategy threw.
                     }
                 }
                 // Values are collected for every ordinal, but only the survivors pay for a copy.
