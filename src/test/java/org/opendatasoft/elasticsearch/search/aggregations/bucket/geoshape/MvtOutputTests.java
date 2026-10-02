@@ -24,8 +24,8 @@ import java.util.Map;
  */
 public class MvtOutputTests extends ESTestCase {
 
-    private static InternalGeoShape.InternalBucket bucket(String wkbHash, byte[] wkb, int[] mvt) {
-        return new InternalGeoShape.InternalBucket(new BytesRef(wkb), mvt, wkbHash, "Polygon", 42.0, 3, InternalAggregations.EMPTY, null);
+    private static InternalGeoShape.InternalBucket bucket(long shapeHash, byte[] wkb, int[] mvt) {
+        return new InternalGeoShape.InternalBucket(new BytesRef(wkb), mvt, shapeHash, "Polygon", 42.0, 3, InternalAggregations.EMPTY, null);
     }
 
     private static InternalGeoShape shape(OutputFormat outputFormat, InternalGeoShape.InternalBucket... buckets) {
@@ -54,7 +54,7 @@ public class MvtOutputTests extends ESTestCase {
 
     public void testCommandStreamSurvivesTheWire() throws IOException {
         InternalGeoShape read = roundTrip(
-            shape(OutputFormat.MVT, bucket("1", new byte[0], SQUARE), bucket("2", new byte[0], new int[] { 9, 2, 4 }))
+            shape(OutputFormat.MVT, bucket(1, new byte[0], SQUARE), bucket(2, new byte[0], new int[] { 9, 2, 4 }))
         );
 
         assertEquals(2, read.getBuckets().size());
@@ -67,13 +67,13 @@ public class MvtOutputTests extends ESTestCase {
         // Nothing real produces one, but the payload must not depend on that.
         int[] extreme = new int[] { (1 << 29) - 1 << 3 | 2, 0, 0 };
 
-        InternalGeoShape read = roundTrip(shape(OutputFormat.MVT, bucket("1", new byte[0], extreme)));
+        InternalGeoShape read = roundTrip(shape(OutputFormat.MVT, bucket(1, new byte[0], extreme)));
 
         assertArrayEquals(extreme, read.getBuckets().get(0).mvt);
     }
 
     public void testKeyIsRenderedAsAnArrayOfIntegers() throws IOException {
-        String json = render(shape(OutputFormat.MVT, bucket("1", new byte[0], SQUARE)));
+        String json = render(shape(OutputFormat.MVT, bucket(1, new byte[0], SQUARE)));
 
         assertTrue(json, json.contains("\"key\":[9,0,0,26,8,0,0,8,7,0,15]"));
         assertTrue(json, json.contains("\"digest\":\"1\""));
@@ -84,7 +84,7 @@ public class MvtOutputTests extends ESTestCase {
         // A one-point WKB, little endian, so the geometry is readable by the writers.
         byte[] point = new byte[] { 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
-        String json = render(shape(OutputFormat.WKB, bucket("1", point, null)));
+        String json = render(shape(OutputFormat.WKB, bucket(1, point, null)));
 
         assertTrue(json, json.contains("\"key\":\"0101000000"));
     }

@@ -165,13 +165,13 @@ public class GeoShapeAggregator extends BucketsAggregator {
                 for (int i = 0; i < bucketOrds.size(); i++) {
                     totalDocCount += bucketDocCount(i);
                     if (spare == null) {
-                        spare = new InternalGeoShape.InternalBucket(new BytesRef(), null, null, null, 0, 0, null, null);
+                        spare = new InternalGeoShape.InternalBucket(new BytesRef(), null, 0, null, 0, 0, null, null);
                     }
                     bucketOrds.get(i, spare.wkb);
 
                     // FIXME: why do we need a deepCopy here ?
                     spare.wkb = BytesRef.deepCopyOf(spare.wkb);
-                    spare.wkbHash = String.valueOf(GeoUtils.getHashFromWKB(spare.wkb));
+                    spare.shapeHash = GeoUtils.getHashFromWKB(spare.wkb);
 
                     // A point is known from its header alone, unless a tile window is set: then it must
                     // go through the window check below like any shape, or points outside the window

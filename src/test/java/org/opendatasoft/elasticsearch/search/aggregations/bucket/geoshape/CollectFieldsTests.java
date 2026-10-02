@@ -25,12 +25,12 @@ public class CollectFieldsTests extends ESTestCase {
     }
 
     /** One bucket holding {@code documents}, given as one array of values per document and per field. */
-    private static InternalGeoShape.InternalBucket bucket(String wkbHash, boolean truncated, String[][]... documentsPerField) {
+    private static InternalGeoShape.InternalBucket bucket(long shapeHash, boolean truncated, String[][]... documentsPerField) {
         CollectedValues collected = documentsPerField.length == 0 ? null : values(truncated, documentsPerField);
         return new InternalGeoShape.InternalBucket(
-            ref("wkb-" + wkbHash),
+            ref("wkb-" + shapeHash),
             null,
-            wkbHash,
+            shapeHash,
             "Polygon",
             42.0,
             documentsPerField.length == 0 ? 1 : documentsPerField[0].length,
@@ -85,8 +85,8 @@ public class CollectFieldsTests extends ESTestCase {
         CollectFieldsParams params = new CollectFieldsParams(List.of("id", "tags"), 10);
         InternalGeoShape shape = shape(
             params,
-            bucket("1", false, new String[][] { { "a" }, { "c" }, { "d" } }, new String[][] { { "x", "y" }, { "z" }, {} }),
-            bucket("2", true, new String[][] { { "b" } }, new String[][] { { "w" } })
+            bucket(1, false, new String[][] { { "a" }, { "c" }, { "d" } }, new String[][] { { "x", "y" }, { "z" }, {} }),
+            bucket(2, true, new String[][] { { "b" } }, new String[][] { { "w" } })
         );
 
         InternalGeoShape read = roundTrip(shape);
@@ -105,7 +105,7 @@ public class CollectFieldsTests extends ESTestCase {
     }
 
     public void testRoundTripWithoutCollectedValuesCarriesNothing() throws IOException {
-        InternalGeoShape read = roundTrip(shape(null, bucket("1", false)));
+        InternalGeoShape read = roundTrip(shape(null, bucket(1, false)));
 
         assertEquals(1, read.getBuckets().size());
         assertNull(read.getBuckets().get(0).collected);

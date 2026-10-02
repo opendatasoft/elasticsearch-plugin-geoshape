@@ -16,6 +16,8 @@ The README documents each param in full.
 * Shapes that the clip empties, or that collapse under quantization or MVT encoding, are dropped from the
   response and counted in `sum_other_doc_count`
 * Fix bucket merging: two distinct shapes that simplified or quantized alike were merged into one
+* Fix ranking ties: shapes of equal perimeter and doc count, such as points, were kept or dropped by `size` at
+  random, so two identical requests could return different shapes
 * Fix bucket sub-aggregations, such as `terms`, which failed the search as soon as two shapes were returned
 * Reduce sub-aggregations and collected values only for the shapes `size` keeps: those of the dropped shapes
   were computed anyway, and counted against `search.max_buckets`

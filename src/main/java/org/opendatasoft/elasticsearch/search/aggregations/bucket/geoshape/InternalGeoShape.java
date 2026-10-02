@@ -47,7 +47,11 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
             KeyComparable<InternalBucket> {
 
         protected BytesRef wkb;
-        protected String wkbHash;
+        /**
+         * Key the coordinator merges buckets on: the 64-bit hash of the shape <b>as stored</b>, not of
+         * {@link #wkb}, in which two distinct shapes that simplified or quantized alike would collide.
+         */
+        protected long shapeHash;
         protected String realType;
         protected double perimeter;
         long bucketOrd;
@@ -65,7 +69,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         public InternalBucket(
             BytesRef wkb,
             int[] mvt,
-            String wkbHash,
+            long shapeHash,
             String realType,
             double perimeter,
             long docCount,
@@ -74,7 +78,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         ) {
             this.wkb = wkb;
             this.mvt = mvt;
-            this.wkbHash = wkbHash;
+            this.shapeHash = shapeHash;
             this.realType = realType;
             this.docCount = docCount;
             this.subAggregations = subAggregations;
@@ -88,7 +92,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         public InternalBucket(StreamInput in) throws IOException {
             wkb = in.readBytesRef();
             mvt = in.readBoolean() ? in.readVIntArray() : null;
-            wkbHash = in.readString();
+            shapeHash = in.readLong();
             realType = in.readString();
             perimeter = in.readDouble();
             docCount = in.readLong();
@@ -107,7 +111,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
                 // Variable-width: the stream is mostly small zigzag deltas, which a vint fits in one byte.
                 out.writeVIntArray(mvt);
             }
-            out.writeString(wkbHash);
+            out.writeLong(shapeHash);
             out.writeString(realType);
             out.writeDouble(perimeter);
             out.writeLong(docCount);
@@ -130,24 +134,8 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
             return wkb.compareTo(other.wkb);
         }
 
-        /**
-         * Key the coordinator merges buckets on: the 64-bit hash of the shape <b>as stored</b>, not of
-         * {@link #wkb}, in which two distinct shapes that simplified or quantized alike would collide.
-         */
-        private long getShapeHash() {
-            return Long.parseLong(wkbHash);
-        }
-
         private String getType() {
             return realType;
-        }
-
-        private int compareTo(InternalBucket other) {
-            if (this.docCount > other.docCount) {
-                return 1;
-            } else if (this.docCount < other.docCount) {
-                return -1;
-            } else return 0;
         }
 
         @Override
@@ -255,7 +243,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         return new InternalBucket(
             prototype.wkb,
             prototype.mvt,
-            prototype.wkbHash,
+            prototype.shapeHash,
             prototype.realType,
             prototype.perimeter,
             prototype.docCount,
@@ -286,10 +274,10 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
                 }
 
                 for (InternalBucket bucket : shape.buckets) {
-                    List<InternalBucket> existingBuckets = buckets.get(bucket.getShapeHash());
+                    List<InternalBucket> existingBuckets = buckets.get(bucket.shapeHash);
                     if (existingBuckets == null) {
                         existingBuckets = new ArrayList<>();
-                        buckets.put(bucket.getShapeHash(), existingBuckets);
+                        buckets.put(bucket.shapeHash, existingBuckets);
                     }
                     existingBuckets.add(bucket);
                 }
@@ -374,7 +362,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
             builder.startObject();
             try {
                 keyToXContent(builder, bucket);
-                builder.field("digest", bucket.wkbHash);
+                builder.field("digest", String.valueOf(bucket.shapeHash));
                 builder.field("type", bucket.getType());
             } catch (ParseException e) {
                 continue;
@@ -441,7 +429,8 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
     }
 
     // The priority queue is used to retain the top N buckets (i.e. shapes)
-    // Buckets are ordered by perimeter, longest first, then by doc count
+    // Buckets are ordered by perimeter, longest first, then by doc count, then by shape hash, so that ties
+    // (every point has a perimeter of 0) resolve the same way on every request.
     static class BucketPriorityQueue extends PriorityQueue<InternalBucket> {
 
         BucketPriorityQueue(int size) {
@@ -454,14 +443,14 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         }
 
         static boolean ranksLower(InternalBucket o1, InternalBucket o2) {
-            double i = o2.perimeter - o1.perimeter;
-            if (i == 0) {
-                i = o2.compareTo(o1);
-                if (i == 0) {
-                    i = System.identityHashCode(o2) - System.identityHashCode(o1);
-                }
+            int c = Double.compare(o1.perimeter, o2.perimeter);
+            if (c == 0) {
+                c = Long.compare(o1.docCount, o2.docCount);
             }
-            return i > 0;
+            if (c == 0) {
+                c = Long.compare(o1.shapeHash, o2.shapeHash);
+            }
+            return c < 0;
         }
     }
 }
