@@ -171,10 +171,14 @@ public class TileParams implements Writeable, ToXContentObject {
         return Math.toDegrees(Math.atan(Math.sinh(Math.PI * (1 - 2 * y / tiles))));
     }
 
+    /** The north edge of the first tile row, about 85.0511: web mercator's latitude limit. */
+    private static final double MAX_LAT = tileLat(0, 1);
+
     /**
      * The WGS84 window shapes are clipped against: the tile widened by {@code buffer} on every side. Widened
      * in degrees, so marginally more on the poleward edge than in mercator meters, which is harmless for a
-     * margin that only hides seams and saves an inverse projection.
+     * margin that only hides seams and saves an inverse projection. Never past the latitude where web mercator
+     * stops, toward which the projection diverges: a shape reaching the pole is cut at the edge of the world.
      */
     public Envelope clipEnvelope() {
         Envelope bounds = bounds();
@@ -183,8 +187,8 @@ public class TileParams implements Writeable, ToXContentObject {
         return new Envelope(
             bounds.getMinX() - bufferLon,
             bounds.getMaxX() + bufferLon,
-            bounds.getMinY() - bufferLat,
-            bounds.getMaxY() + bufferLat
+            Math.max(bounds.getMinY() - bufferLat, -MAX_LAT),
+            Math.min(bounds.getMaxY() + bufferLat, MAX_LAT)
         );
     }
 

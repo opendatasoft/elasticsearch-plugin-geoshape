@@ -242,16 +242,9 @@ public class GeoUtils {
         return MERCATOR_EARTH_RADIUS * Math.toRadians(lon);
     }
 
-    /**
-     * Smallest tangent value the projection will take the logarithm of. Same guard, and same value, as
-     * elasticsearch's own {@code SphericalMercatorUtils.latToSphericalMercator}.
-     */
-    private static final double TAN_LOWER_LIMIT = Math.tan(Math.nextUp(0.0));
-
+    /** Diverges toward the poles: the tile clip window keeps every coordinate within +/-85.0511. */
     public static double latToMercatorY(double lat) {
-        // At lat -90 the tangent is exactly 0 and the logarithm would be -Infinity, which silently
-        // turns the whole tile envelope infinitely tall and flattens every y coordinate onto 0.
-        return MERCATOR_EARTH_RADIUS * Math.log(Math.max(TAN_LOWER_LIMIT, Math.tan(Math.PI / 4 + Math.toRadians(lat) / 2)));
+        return MERCATOR_EARTH_RADIUS * Math.log(Math.tan(Math.PI / 4 + Math.toRadians(lat) / 2));
     }
 
     /**

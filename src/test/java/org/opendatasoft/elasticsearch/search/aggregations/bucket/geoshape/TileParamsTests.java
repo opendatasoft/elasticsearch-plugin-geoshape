@@ -98,6 +98,15 @@ public class TileParamsTests extends ESTestCase {
         assertTrue("the box must not be degenerate", box.getWidth() > 0 && box.getHeight() > 0);
     }
 
+    /** Web mercator stops at +/-85.0511: the buffer widens an edge tile's window everywhere but past that limit. */
+    public void testBufferStopsAtTheMercatorLatitudeLimit() {
+        Envelope world = new TileParams(0, 0, 0, EXTENT, TileParams.DEFAULT_BUFFER).clipEnvelope();
+        assertEquals(-85.0511287798066, world.getMinY(), TOLERANCE);
+        assertEquals(85.0511287798066, world.getMaxY(), TOLERANCE);
+        assertEquals(-202.5, world.getMinX(), 0.0);
+        assertEquals(202.5, world.getMaxX(), 0.0);
+    }
+
     /** bbox was the window before z/x/y: it must fail like any unknown field, never be ignored next to a tile. */
     public void testABboxIsRejectedAsAnUnknownField() {
         String bbox = "\"bbox\": [2.109375, 48.45835188280866, 2.8125, 48.92249926375824]";

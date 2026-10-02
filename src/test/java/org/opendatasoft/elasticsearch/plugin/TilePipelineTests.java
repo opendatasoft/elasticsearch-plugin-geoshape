@@ -164,13 +164,11 @@ public class TilePipelineTests extends ESTestCase {
         assertMvtWinding(geom, "clipped polygon with a hole");
     }
 
-    /**
-     * At lat -90 the tangent is exactly zero, so an unguarded logarithm returns -Infinity, which
-     * makes the tile envelope infinitely tall and silently flattens every y coordinate onto 0.
-     */
-    public void testPolesDoNotProduceInfiniteMercator() {
-        assertTrue("lat -90 must project to a finite value", Double.isFinite(GeoUtils.latToMercatorY(-90)));
-        assertTrue("lat 90 must project to a finite value", Double.isFinite(GeoUtils.latToMercatorY(90)));
+    /** A shape reaching the pole, as Antarctica does in world datasets, is cut at the edge of the mercator world. */
+    public void testShapeReachingThePoleStopsAtTheTileEdge() {
+        TileParams world = new TileParams(0, 0, 0, EXTENT, TileParams.DEFAULT_BUFFER);
+        Geometry geom = runPipeline(factory.createPolygon(ccwRing(-170.0, -90.0, 170.0, -60.0)), world, false);
+        assertEquals(EXTENT, geom.getEnvelopeInternal().getMaxY(), 0.0);
     }
 
     /**
