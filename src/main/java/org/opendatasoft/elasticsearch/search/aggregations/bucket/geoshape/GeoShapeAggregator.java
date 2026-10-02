@@ -297,7 +297,7 @@ public class GeoShapeAggregator extends BucketsAggregator {
     public InternalAggregation buildEmptyAggregation() {
         return new InternalGeoShape(
             name,
-            null,
+            List.of(),
             output_format,
             collectFieldsParams,
             bucketCountThresholds.getRequiredSize(),

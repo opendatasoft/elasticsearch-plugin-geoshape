@@ -23,7 +23,8 @@ The README documents each param in full.
 * Fix bucket sub-aggregations, such as `terms`, which failed the search as soon as two shapes were returned
 * Reduce sub-aggregations and collected values only for the shapes `size` keeps: those of the dropped shapes
   were computed anyway, and counted against `search.max_buckets`
-* Fix a latent NPE when a bucket was skipped on unreadable WKB
+* Fix a latent NPE when a bucket was skipped on unreadable WKB, and an NPE under a parent that builds the
+  aggregation empty, such as a `nested` aggregation whose path is not mapped
 * Fix the rendering of the aggregation request, which threw wherever elasticsearch prints a search (slow log,
   task descriptions) and left out `simplify`, `size` and `shard_size`
 * Reject the geoshape aggregation under a multi-bucket parent such as `terms`, where every parent bucket

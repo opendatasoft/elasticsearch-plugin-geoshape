@@ -523,3 +523,33 @@
                     field: "geo_shape_0.wkb"
   - length: { aggregations.only_med.g.buckets: 1 }
   - match: { aggregations.only_med.g.buckets.0.doc_count: 2 }
+
+---
+"A parent that builds the aggregation empty gets no bucket rather than a failure":
+
+# An unmapped nested path never collects, and builds its sub-aggregations empty.
+  - do:
+      indices.create:
+        index: test_index
+        body:
+          mappings:
+            properties:
+              geo_shape_0:
+                properties:
+                  wkb: {"type": "binary", "doc_values": true}
+
+  - do:
+      search:
+        index: test_index
+        body:
+          size: 0
+          aggs:
+            n:
+              nested:
+                path: not_mapped
+              aggs:
+                g:
+                  geoshape:
+                    field: "geo_shape_0.wkb"
+
+  - length: { aggregations.n.g.buckets: 0 }
