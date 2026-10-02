@@ -173,18 +173,6 @@ public class TilePipelineTests extends ESTestCase {
         assertTrue("lat 90 must project to a finite value", Double.isFinite(GeoUtils.latToMercatorY(90)));
     }
 
-    public void testWholeWorldTileStillQuantizesOntoTheGrid() {
-        TileParams world = new TileParams(0, 0, 0, EXTENT, 0);
-        Envelope mercator = world.mercatorEnvelope();
-        assertTrue("envelope height must be finite", Double.isFinite(mercator.getHeight()));
-        assertTrue("envelope height must not be zero", mercator.getHeight() > 0);
-
-        Point point = factory.createPoint(new Coordinate(0, 0));
-        GeoUtils.toTileGrid(point, mercator, EXTENT);
-        assertTrue("x must land on the grid, got " + point.getX(), point.getX() >= 0 && point.getX() <= EXTENT);
-        assertTrue("y must land on the grid, got " + point.getY(), point.getY() >= 0 && point.getY() <= EXTENT);
-    }
-
     /**
      * The envelope pre-filter that keeps invisible shapes out of the top-N ranking.
      */

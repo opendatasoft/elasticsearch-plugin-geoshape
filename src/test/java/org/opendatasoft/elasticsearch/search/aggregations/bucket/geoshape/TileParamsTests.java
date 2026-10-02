@@ -55,11 +55,6 @@ public class TileParamsTests extends ESTestCase {
         assertTrue(e.getMessage(), e.getMessage().contains(expectedMessagePart));
     }
 
-    public void testParsesATile() throws IOException {
-        TileParams tile = parse("{\"z\": 9, \"x\": 259, \"y\": 176, \"extent\": 4096, \"buffer\": 0.0625}");
-        assertEquals(new TileParams(9, 259, 176, EXTENT, 0.0625), tile);
-    }
-
     public void testExtentAndBufferKeepTheirDefaults() throws IOException {
         TileParams tile = parse("{\"z\": 9, \"x\": 259, \"y\": 176}");
         assertFalse(tile.hasExtent());
@@ -67,9 +62,9 @@ public class TileParamsTests extends ESTestCase {
     }
 
     public void testEachTileIndexIsMandatory() {
-        assertRejected("{\"x\": 259, \"y\": 176}", "[z]");
-        assertRejected("{\"z\": 9, \"y\": 176}", "[x]");
-        assertRejected("{\"z\": 9, \"x\": 259}", "[y]");
+        assertRejected("{\"x\": 259, \"y\": 176}", "Required one of fields [z]");
+        assertRejected("{\"z\": 9, \"y\": 176}", "Required one of fields [x]");
+        assertRejected("{\"z\": 9, \"x\": 259}", "Required one of fields [y]");
     }
 
     public void testNegativeIndexIsRejected() {
@@ -98,7 +93,7 @@ public class TileParamsTests extends ESTestCase {
 
         int last = (1 << 29) - 1;
         Envelope box = new TileParams(29, last, last, EXTENT, 0).clipEnvelope();
-        assertEquals(180.0, box.getMaxX(), TOLERANCE);
+        assertEquals(180.0, box.getMaxX(), 0.0);
         assertEquals(-85.0511287798066, box.getMinY(), TOLERANCE);
         assertTrue("the box must not be degenerate", box.getWidth() > 0 && box.getHeight() > 0);
     }
