@@ -333,10 +333,15 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
 
     @Override
     protected XContentBuilder doXContentBody(XContentBuilder builder, Params params) throws IOException {
-        builder.startObject();
-
         if (!output_format.equals(DEFAULT_OUTPUT_FORMAT)) {
             builder.field(OUTPUT_FORMAT_FIELD.getPreferredName(), output_format);
+        }
+
+        if (must_simplify) {
+            builder.startObject(SIMPLIFY_FIELD.getPreferredName());
+            builder.field("zoom", simplify_zoom);
+            builder.field("algorithm", simplify_algorithm);
+            builder.endObject();
         }
 
         if (tile != null) {
@@ -347,7 +352,7 @@ public class GeoShapeBuilder extends ValuesSourceAggregationBuilder</*ValuesSour
             builder.field(COLLECT_FIELDS_FIELD.getPreferredName(), collectFields);
         }
 
-        return builder.endObject();
+        return bucketCountThresholds.toXContent(builder, params);
     }
 
     /**
