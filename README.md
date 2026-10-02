@@ -14,7 +14,7 @@ You can find past releases [here](https://github.com/opendatasoft/elasticsearch-
 The first 3 digits of the plugin version is the corresponding Elasticsearch version. The last digit is used for plugin versioning.
 
 To install it, launch this command in Elasticsearch directory replacing the url by the correct link for your Elasticsearch version (see table)
-`bin/elasticsearch-plugin install https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v8.19.19.1/elasticsearch-plugin-geoshape-8.19.19.1.zip"`
+`bin/elasticsearch-plugin install https://github.com/opendatasoft/elasticsearch-plugin-geoshape/releases/download/v8.19.20.0/elasticsearch-plugin-geoshape-8.19.20.0.zip"`
 
 
 ## Build
@@ -534,7 +534,7 @@ adds 24% to 142% and returns about twice the payload. The ranges move between ru
 not. A `terms` sub-aggregation on the id multiplies the `took`
 by up to 16 when many documents share a shape, and its buckets count against `search.max_buckets`:
 with the 20,000 limit of the measured cluster, it failed on both full datasets. The figures are median
-`took` over 7 runs after 2 warm-ups, with `request_cache=false`, on one 8.19.19 node with a 1 GB heap
+`took` over 7 runs after 2 warm-ups, with `request_cache=false`, on one 8.19.20 node with a 1 GB heap
 and 3 shards.
 
 The two alternatives also behave differently. `top_hits` peaks lower in the request circuit breaker
