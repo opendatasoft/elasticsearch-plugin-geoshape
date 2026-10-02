@@ -67,7 +67,6 @@ public class GeoShapeAggregator extends BucketsAggregator {
         CollectFieldsParams collectFields,
         BucketCountThresholds bucketCountThresholds,
         Aggregator parent,
-        CardinalityUpperBound cardinalityUpperBound,
         Map<String, Object> metaData
     ) throws IOException {
         // Sub-aggregations collect into one ordinal per shape, so they must be built for many buckets,

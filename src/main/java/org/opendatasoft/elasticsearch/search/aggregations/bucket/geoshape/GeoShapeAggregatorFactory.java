@@ -97,7 +97,6 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory {
             collectFields,
             bucketCountThresholds,
             parent,
-            cardinality,
             metadata
         );
     }
