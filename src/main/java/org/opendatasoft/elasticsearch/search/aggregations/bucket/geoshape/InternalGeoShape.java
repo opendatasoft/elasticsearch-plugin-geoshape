@@ -119,6 +119,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
             out.writeOptionalWriteable(collected);
         }
 
+        /** Empty under mvt, whose geometry is the command stream: shapes have no key worth ordering by anyway. */
         @Override
         public String getKey() {
             return wkb.toString();
@@ -365,6 +366,8 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
                 builder.field("digest", String.valueOf(bucket.shapeHash));
                 builder.field("type", bucket.getType());
             } catch (ParseException e) {
+                // Leaves the object open, but unreachable from stored data: on the shard, only a well-formed
+                // 21-byte point skips parsing, so an unreadable WKB never gets this far.
                 continue;
             }
             builder.field(CommonFields.DOC_COUNT.getPreferredName(), bucket.getDocCount());

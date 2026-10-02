@@ -39,7 +39,11 @@ public class GeoUtils {
         WKT,
         WKB,
         GEOJSON,
-        /** The MVT command stream, an array of integers built by {@link MvtEncoder}; needs a {@code tile}. */
+        /**
+         * The MVT command stream, an array of integers built by {@link MvtEncoder}; needs a {@code tile}. Shared
+         * with the geo_simplify script, which rejects it when parsing its params: an aggregation-only enum would
+         * need converting for this one value.
+         */
         MVT
     }
 

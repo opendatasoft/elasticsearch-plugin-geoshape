@@ -146,6 +146,9 @@ class CollectedFields implements Releasable {
                     bytes += VALUE_OVERHEAD_BYTES + value.length;
                 }
             }
+            // Once per collected document, not batched: a call costs about 225 ns, mostly the heap read of the
+            // real-memory breaker, and calls are bounded by distinct shapes x (1 + max_docs_per_bucket).
+            // Batching would only let the request run further past the limit before it trips.
             accountBytes.accept(bytes);
         }
 

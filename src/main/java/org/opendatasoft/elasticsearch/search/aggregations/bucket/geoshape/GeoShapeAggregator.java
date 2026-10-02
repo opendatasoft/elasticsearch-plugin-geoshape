@@ -227,6 +227,8 @@ public class GeoShapeAggregator extends BucketsAggregator {
                     }
 
                     try {
+                        // Parsed again rather than kept from the ranking: holding shard_size parsed geometries
+                        // would take about three times the memory of their WKB, outside the circuit breaker.
                         Geometry geom = transform.apply(wkbReader.read(bucket.wkb.bytes));
                         if (geom.isEmpty()) {
                             // Nothing of this shape falls inside the window; its docs go to sum_other_doc_count.
@@ -259,7 +261,9 @@ public class GeoShapeAggregator extends BucketsAggregator {
                         // TopologyException: OverlayNGRobust rethrows whatever its first strategy threw.
                     }
                 }
-                // Values are collected for every ordinal, but only the survivors pay for a copy.
+                // Values are collected for every ordinal, but only the survivors pay for a copy. Collecting for the
+                // survivors alone would take a deferring collector (what collect_mode: breadth_first uses), which a
+                // tile request filtered on its window does not need.
                 if (collectedFields != null) {
                     for (InternalGeoShape.InternalBucket bucket : keptBuckets) {
                         bucket.collected = collectedFields.valuesFor(bucket.bucketOrd, bucket.docCount);

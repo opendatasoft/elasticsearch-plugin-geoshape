@@ -87,6 +87,8 @@ public class TileParams implements Writeable, ToXContentObject {
     }
 
     private void setExtent(int extent) {
+        // No upper bound, here or on buffer: only a grid near 2^30 would overflow the int deltas of the mvt
+        // stream, far past the 4096 or 8192 renderers use.
         if (extent < 1) {
             throw new IllegalArgumentException("[" + EXTENT_FIELD.getPreferredName() + "] must be >= 1 in geoshape aggregation.");
         }

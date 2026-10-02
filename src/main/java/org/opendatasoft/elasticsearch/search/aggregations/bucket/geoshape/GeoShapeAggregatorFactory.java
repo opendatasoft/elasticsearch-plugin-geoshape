@@ -75,7 +75,8 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory {
     protected Aggregator doCreateInternal(Aggregator parent, CardinalityUpperBound cardinality, Map<String, Object> metadata)
         throws IOException {
         // The aggregator keys its buckets on the shape alone, so under a multi-bucket parent every parent
-        // bucket would come back with the shapes of all of them.
+        // bucket would come back with the shapes of all of them. createUnmapped does not repeat the check: a
+        // shard without the field contributes nothing either way.
         if (cardinality.map(parentBuckets -> parentBuckets > 1)) {
             throw new IllegalArgumentException("[geoshape] aggregation [" + name + "] cannot be nested under a multi-bucket aggregation");
         }

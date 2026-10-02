@@ -534,7 +534,15 @@ aggregation's `took` over two runs. A `top_hits` sub-aggregation reading the sam
 adds 24% to 142% and returns about twice the payload. The ranges move between runs; the ranking does
 not. A `terms` sub-aggregation on the id multiplies the `took`
 by up to 16 when many documents share a shape, and its buckets count against `search.max_buckets`:
-with the 20,000 limit of the measured cluster, it failed on both full datasets.
+with the 20,000 limit of the measured cluster, it failed on both full datasets. The figures are median
+`took` over 7 runs after 2 warm-ups, with `request_cache=false`, on one 8.19.19 node with a 1 GB heap
+and 3 shards.
+
+The two alternatives also behave differently. `top_hits` peaks lower in the request circuit breaker
+because its fetch phase is mostly not accounted: at `size: 100` it ran the 1 GB node out of heap, where
+`collect_fields` at `max_docs_per_bucket: 100` completed. `terms` returns the lexicographically smallest
+ids rather than the first documents, and needs one sub-aggregation per field, whose values are then no
+longer aligned on documents.
 
 Things worth knowing about the output:
 - **Values come back as their doc-values string representation.** A `keyword` gives its term; a
