@@ -99,6 +99,10 @@ public class ScriptGeoSimplify implements ScriptEngine {
                 if (string_output_format != null) output_format = GeoUtils.OutputFormat.valueOf(
                     string_output_format.toUpperCase(Locale.getDefault())
                 );
+                // Reject it here rather than on the first document with a value, which may be never.
+                if (output_format == GeoUtils.OutputFormat.MVT) {
+                    throw new IllegalArgumentException("[output_format] [mvt] is only supported by the geoshape aggregation");
+                }
             }
 
             algorithm = GeoUtils.SimplifyAlgorithm.DOUGLAS_PEUCKER;
@@ -110,7 +114,7 @@ public class ScriptGeoSimplify implements ScriptEngine {
             }
 
             // geojson_decimals = 20;
-            geoJsonWriter = new GeoJsonWriter();
+            geoJsonWriter = GeoUtils.createGeoJsonWriter();
         }
 
         @Override

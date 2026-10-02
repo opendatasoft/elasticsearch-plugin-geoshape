@@ -47,27 +47,43 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
             KeyComparable<InternalBucket> {
 
         protected BytesRef wkb;
-        protected String wkbHash;
+        /**
+         * Key the coordinator merges buckets on: the 64-bit hash of the shape <b>as stored</b>, not of
+         * {@link #wkb}, in which two distinct shapes that simplified or quantized alike would collide.
+         */
+        protected long shapeHash;
         protected String realType;
         protected double perimeter;
         long bucketOrd;
         protected long docCount;
         protected InternalAggregations subAggregations;
+        /** What {@code collect_fields} read from this bucket's documents, or {@code null} when it was not asked for. */
+        protected CollectedValues collected;
+        /**
+         * The MVT command stream drawing the returned geometry, or {@code null} unless
+         * {@code output_format} is {@code mvt}. When it is set, {@link #wkb} is left empty: the stream
+         * replaces the serialized geometry.
+         */
+        protected int[] mvt;
 
         public InternalBucket(
             BytesRef wkb,
-            String wkbHash,
+            int[] mvt,
+            long shapeHash,
             String realType,
             double perimeter,
             long docCount,
-            InternalAggregations subAggregations
+            InternalAggregations subAggregations,
+            CollectedValues collected
         ) {
             this.wkb = wkb;
-            this.wkbHash = wkbHash;
+            this.mvt = mvt;
+            this.shapeHash = shapeHash;
             this.realType = realType;
             this.docCount = docCount;
             this.subAggregations = subAggregations;
             this.perimeter = perimeter;
+            this.collected = collected;
         }
 
         /**
@@ -75,11 +91,13 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
          */
         public InternalBucket(StreamInput in) throws IOException {
             wkb = in.readBytesRef();
-            wkbHash = in.readString();
+            mvt = in.readBoolean() ? in.readVIntArray() : null;
+            shapeHash = in.readLong();
             realType = in.readString();
             perimeter = in.readDouble();
             docCount = in.readLong();
             subAggregations = InternalAggregations.readFrom(in);
+            collected = in.readOptionalWriteable(CollectedValues::new);
         }
 
         /**
@@ -88,13 +106,20 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         @Override
         public void writeTo(StreamOutput out) throws IOException {
             out.writeBytesRef(wkb);
-            out.writeString(wkbHash);
+            out.writeBoolean(mvt != null);
+            if (mvt != null) {
+                // Variable-width: the stream is mostly small zigzag deltas, which a vint fits in one byte.
+                out.writeVIntArray(mvt);
+            }
+            out.writeLong(shapeHash);
             out.writeString(realType);
             out.writeDouble(perimeter);
             out.writeLong(docCount);
             subAggregations.writeTo(out);
+            out.writeOptionalWriteable(collected);
         }
 
+        /** Empty under mvt, whose geometry is the command stream: shapes have no key worth ordering by anyway. */
         @Override
         public String getKey() {
             return wkb.toString();
@@ -110,20 +135,8 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
             return wkb.compareTo(other.wkb);
         }
 
-        private long getShapeHash() {
-            return wkb.hashCode();
-        }
-
         private String getType() {
             return realType;
-        }
-
-        private int compareTo(InternalBucket other) {
-            if (this.docCount > other.docCount) {
-                return 1;
-            } else if (this.docCount < other.docCount) {
-                return -1;
-            } else return 0;
         }
 
         @Override
@@ -154,12 +167,16 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
     // `shard_size` at the shard). Exact: each shard knows precisely how many docs it dropped.
     private final long otherDocCount;
     private OutputFormat output_format;
+    // Optional: when null, buckets carry no doc-values payload. Held here rather than on each bucket
+    // so the field names and the bound travel once per shard response, not once per shape.
+    private final CollectFieldsParams collectFields;
     private GeoJsonWriter geoJsonWriter;
 
     public InternalGeoShape(
         String name,
         List<InternalBucket> buckets,
         OutputFormat output_format,
+        CollectFieldsParams collectFields,
         int requiredSize,
         int shardSize,
         long otherDocCount,
@@ -168,10 +185,11 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         super(name, metadata);
         this.buckets = buckets;
         this.output_format = output_format;
+        this.collectFields = collectFields;
         this.requiredSize = requiredSize;
         this.shardSize = shardSize;
         this.otherDocCount = otherDocCount;
-        geoJsonWriter = new GeoJsonWriter();
+        geoJsonWriter = GeoUtils.createGeoJsonWriter();
     }
 
     /**
@@ -180,10 +198,13 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
     public InternalGeoShape(StreamInput in) throws IOException {
         super(in);
         output_format = OutputFormat.valueOf(in.readString());
+        collectFields = in.readOptionalWriteable(CollectFieldsParams::new);
         requiredSize = readSize(in);
         shardSize = readSize(in);
         otherDocCount = in.readVLong();
         this.buckets = in.readCollectionAsList(InternalBucket::new);
+        // Also needed here: doXContentBody uses it, and a deserialized instance can reach it.
+        geoJsonWriter = GeoUtils.createGeoJsonWriter();
     }
 
     /**
@@ -192,6 +213,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
     @Override
     protected void doWriteTo(StreamOutput out) throws IOException {
         out.writeString(output_format.name());
+        out.writeOptionalWriteable(collectFields);
         writeSize(requiredSize, out);
         writeSize(shardSize, out);
         out.writeVLong(otherDocCount);
@@ -205,18 +227,29 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
 
     @Override
     public InternalGeoShape create(List<InternalBucket> buckets) {
-        return new InternalGeoShape(this.name, buckets, output_format, requiredSize, shardSize, otherDocCount, this.metadata);
+        return new InternalGeoShape(
+            this.name,
+            buckets,
+            output_format,
+            collectFields,
+            requiredSize,
+            shardSize,
+            otherDocCount,
+            this.metadata
+        );
     }
 
     @Override
     public InternalBucket createBucket(InternalAggregations aggregations, InternalBucket prototype) {
         return new InternalBucket(
             prototype.wkb,
-            prototype.wkbHash,
+            prototype.mvt,
+            prototype.shapeHash,
             prototype.realType,
             prototype.perimeter,
             prototype.docCount,
-            aggregations
+            aggregations,
+            prototype.collected
         );
     }
 
@@ -242,10 +275,10 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
                 }
 
                 for (InternalBucket bucket : shape.buckets) {
-                    List<InternalBucket> existingBuckets = buckets.get(bucket.getShapeHash());
+                    List<InternalBucket> existingBuckets = buckets.get(bucket.shapeHash);
                     if (existingBuckets == null) {
                         existingBuckets = new ArrayList<>();
-                        buckets.put(bucket.getShapeHash(), existingBuckets);
+                        buckets.put(bucket.shapeHash, existingBuckets);
                     }
                     existingBuckets.add(bucket);
                 }
@@ -257,19 +290,30 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
                 final long distinctShapes = buckets.size();
                 final int size = !isFinalReduce ? (int) distinctShapes : Math.min(requiredSize, (int) distinctShapes);
 
-                BucketPriorityQueue ordered = new BucketPriorityQueue(size);
+                // Rank first, reduce after: every copy of a shape carries the same perimeter, and only the doc
+                // count has to be summed to rank it, so the shapes `size` drops never have their
+                // sub-aggregations or collected values reduced.
+                PriorityQueue<List<InternalBucket>> ordered = new PriorityQueue<>(size) {
+                    @Override
+                    protected boolean lessThan(List<InternalBucket> a, List<InternalBucket> b) {
+                        return BucketPriorityQueue.ranksLower(a.get(0), b.get(0));
+                    }
+                };
                 long totalDocCount = 0;
                 for (LongObjectPagedHashMap.Cursor<List<InternalBucket>> cursor : buckets) {
-                    List<InternalBucket> sameCellBuckets = cursor.value;
-                    InternalBucket reducedBucket = reduceBucket(sameCellBuckets, reduceContext);
-                    totalDocCount += reducedBucket.docCount;
-                    ordered.insertWithOverflow(reducedBucket);
+                    List<InternalBucket> sameShapeBuckets = cursor.value;
+                    InternalBucket first = sameShapeBuckets.get(0);
+                    for (int i = 1; i < sameShapeBuckets.size(); i++) {
+                        first.docCount += sameShapeBuckets.get(i).docCount;
+                    }
+                    totalDocCount += first.docCount;
+                    ordered.insertWithOverflow(sameShapeBuckets);
                 }
                 buckets.close();
                 InternalBucket[] list = new InternalBucket[ordered.size()];
                 long returnedDocCount = 0;
                 for (int i = ordered.size() - 1; i >= 0; i--) {
-                    list[i] = ordered.pop();
+                    list[i] = reduceBucket(ordered.pop(), reduceContext);
                     returnedDocCount += list[i].docCount;
                 }
 
@@ -282,6 +326,7 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
                     getName(),
                     Arrays.asList(list),
                     output_format,
+                    collectFields,
                     requiredSize,
                     shardSize,
                     reducedOtherDocCount,
@@ -291,18 +336,22 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         };
     }
 
-    public InternalBucket reduceBucket(List<InternalBucket> buckets, AggregationReduceContext context) {
+    /** Merge the copies of one shape into the first, whose doc count the ranking has already summed. */
+    private InternalBucket reduceBucket(List<InternalBucket> buckets, AggregationReduceContext context) {
         List<InternalAggregations> aggregationsList = new ArrayList<>(buckets.size());
-        InternalBucket reduced = null;
+        InternalBucket reduced = buckets.get(0);
         for (InternalBucket bucket : buckets) {
-            if (reduced == null) {
-                reduced = bucket;
-            } else {
-                reduced.docCount += bucket.docCount;
-            }
             aggregationsList.add(bucket.subAggregations);
         }
         reduced.subAggregations = InternalAggregations.reduce(aggregationsList, context);
+        if (collectFields != null && buckets.size() > 1) {
+            // A single contribution was already bounded by its shard: the common case has nothing to redo.
+            List<CollectedValues> contributions = new ArrayList<>(buckets.size());
+            for (InternalBucket bucket : buckets) {
+                contributions.add(bucket.collected);
+            }
+            reduced.collected = CollectedValues.merge(contributions, collectFields.getMaxDocsPerBucket());
+        }
         return reduced;
     }
 
@@ -313,13 +362,16 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         for (InternalBucket bucket : buckets) {
             builder.startObject();
             try {
-                builder.field(CommonFields.KEY.getPreferredName(), GeoUtils.exportWkbTo(bucket.wkb, output_format, geoJsonWriter));
-                builder.field("digest", bucket.wkbHash);
+                keyToXContent(builder, bucket);
+                builder.field("digest", String.valueOf(bucket.shapeHash));
                 builder.field("type", bucket.getType());
             } catch (ParseException e) {
+                // Leaves the object open, but unreachable from stored data: on the shard, only a well-formed
+                // 21-byte point skips parsing, so an unreadable WKB never gets this far.
                 continue;
             }
             builder.field(CommonFields.DOC_COUNT.getPreferredName(), bucket.getDocCount());
+            collectedFieldsToXContent(builder, bucket);
             bucket.getAggregations().toXContentInternal(builder, params);
             builder.endObject();
         }
@@ -327,9 +379,41 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         return builder;
     }
 
+    /** Render the bucket's geometry under {@code key}: a string, or an array of integers under {@code mvt}. */
+    private void keyToXContent(XContentBuilder builder, InternalBucket bucket) throws IOException, ParseException {
+        if (output_format == OutputFormat.MVT) {
+            builder.array(CommonFields.KEY.getPreferredName(), bucket.mvt);
+            return;
+        }
+        builder.field(CommonFields.KEY.getPreferredName(), GeoUtils.exportWkbTo(bucket.wkb, output_format, geoJsonWriter));
+    }
+
+    /**
+     * Render the collected values, flattened: the per-document grouping only exists so the merge can
+     * cut on a document boundary, and a caller asking for the values of a bucket has no use for it.
+     */
+    private void collectedFieldsToXContent(XContentBuilder builder, InternalBucket bucket) throws IOException {
+        if (collectFields == null) {
+            return;
+        }
+        builder.startObject("collected_fields");
+        List<String> fields = collectFields.getFields();
+        for (int field = 0; field < fields.size(); field++) {
+            builder.startArray(fields.get(field));
+            for (BytesRef[] values : bucket.collected.valuesOf(field)) {
+                for (BytesRef value : values) {
+                    builder.value(value.utf8ToString());
+                }
+            }
+            builder.endArray();
+        }
+        builder.endObject();
+        builder.field("collected_docs_truncated", bucket.collected.truncated());
+    }
+
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), buckets, output_format, requiredSize, shardSize, otherDocCount);
+        return Objects.hash(super.hashCode(), buckets, output_format, collectFields, requiredSize, shardSize, otherDocCount);
     }
 
     @Override
@@ -341,13 +425,15 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
         InternalGeoShape that = (InternalGeoShape) obj;
         return Objects.equals(buckets, that.buckets)
             && Objects.equals(output_format, that.output_format)
+            && Objects.equals(collectFields, that.collectFields)
             && Objects.equals(requiredSize, that.requiredSize)
             && Objects.equals(shardSize, that.shardSize)
             && Objects.equals(otherDocCount, that.otherDocCount);
     }
 
     // The priority queue is used to retain the top N buckets (i.e. shapes)
-    // Buckets are here ordered by area (!) then by hash
+    // Buckets are ordered by perimeter, longest first, then by doc count, then by shape hash, so that ties
+    // (every point has a perimeter of 0) resolve the same way on every request.
     static class BucketPriorityQueue extends PriorityQueue<InternalBucket> {
 
         BucketPriorityQueue(int size) {
@@ -356,15 +442,18 @@ public class InternalGeoShape extends InternalMultiBucketAggregation<InternalGeo
 
         @Override
         protected boolean lessThan(InternalBucket o1, InternalBucket o2) {
+            return ranksLower(o1, o2);
+        }
 
-            double i = o2.perimeter - o1.perimeter;
-            if (i == 0) {
-                i = o2.compareTo(o1);
-                if (i == 0) {
-                    i = System.identityHashCode(o2) - System.identityHashCode(o1);
-                }
+        static boolean ranksLower(InternalBucket o1, InternalBucket o2) {
+            int c = Double.compare(o1.perimeter, o2.perimeter);
+            if (c == 0) {
+                c = Long.compare(o1.docCount, o2.docCount);
             }
-            return i > 0;
+            if (c == 0) {
+                c = Long.compare(o1.shapeHash, o2.shapeHash);
+            }
+            return c < 0;
         }
     }
 }

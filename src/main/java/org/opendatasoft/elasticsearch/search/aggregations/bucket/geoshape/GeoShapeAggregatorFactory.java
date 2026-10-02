@@ -22,6 +22,8 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory {
     private boolean must_simplify;
     private int zoom;
     private GeoShape.Algorithm algorithm;
+    private final TileParams tile;
+    private final CollectFieldsParams collectFields;
     private final GeoShapeAggregator.BucketCountThresholds bucketCountThresholds;
 
     GeoShapeAggregatorFactory(
@@ -31,6 +33,8 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory {
         boolean must_simplify,
         int zoom,
         GeoShape.Algorithm algorithm,
+        TileParams tile,
+        CollectFieldsParams collectFields,
         GeoShapeAggregator.BucketCountThresholds bucketCountThresholds,
         AggregationContext context,
         AggregatorFactory parent,
@@ -42,6 +46,8 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory {
         this.must_simplify = must_simplify;
         this.zoom = zoom;
         this.algorithm = algorithm;
+        this.tile = tile;
+        this.collectFields = collectFields;
         this.bucketCountThresholds = bucketCountThresholds;
     }
 
@@ -51,6 +57,7 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory {
             name,
             new ArrayList<>(),
             output_format,
+            collectFields,
             bucketCountThresholds.getRequiredSize(),
             bucketCountThresholds.getShardSize(),
             0,
@@ -67,6 +74,12 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory {
     @Override
     protected Aggregator doCreateInternal(Aggregator parent, CardinalityUpperBound cardinality, Map<String, Object> metadata)
         throws IOException {
+        // The aggregator keys its buckets on the shape alone, so under a multi-bucket parent every parent
+        // bucket would come back with the shapes of all of them. createUnmapped does not repeat the check: a
+        // shard without the field contributes nothing either way.
+        if (cardinality.map(parentBuckets -> parentBuckets > 1)) {
+            throw new IllegalArgumentException("[geoshape] aggregation [" + name + "] cannot be nested under a multi-bucket aggregation");
+        }
         GeoShapeAggregator.BucketCountThresholds bucketCountThresholds = new GeoShapeAggregator.BucketCountThresholds(
             this.bucketCountThresholds
         );
@@ -81,9 +94,10 @@ class GeoShapeAggregatorFactory extends ValuesSourceAggregatorFactory {
             must_simplify,
             zoom,
             algorithm,
+            tile,
+            collectFields,
             bucketCountThresholds,
             parent,
-            cardinality,
             metadata
         );
     }

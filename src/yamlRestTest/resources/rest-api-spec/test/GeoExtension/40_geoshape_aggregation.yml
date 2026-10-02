@@ -148,7 +148,7 @@
                   algorithm: DOUGLAS_PEUCKER
                 size: 4
 
-  - match: {aggregations.g.buckets.0.key: "{\"type\":\"Point\",\"coordinates\":[-3.3889389,47.73770713],\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:0\"}}}" }
+  - match: {aggregations.g.buckets.0.key: "{\"type\":\"Point\",\"coordinates\":[-3.3889389,47.73770713]}" }
 
 # With topology preservation
   - do:
@@ -168,7 +168,7 @@
                   algorithm: TOPOLOGY_PRESERVING
                 size: 4
 
-  - match: {aggregations.g.buckets.0.key: "{\"type\":\"Polygon\",\"coordinates\":[[[-3.3889389,47.73770713],[-3.37778091,47.73851525],[-3.385849,47.74428718],[-3.3889389,47.73770713]]],\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:0\"}}}"}
+  - match: {aggregations.g.buckets.0.key: "{\"type\":\"Polygon\",\"coordinates\":[[[-3.3889389,47.73770713],[-3.37778091,47.73851525],[-3.385849,47.74428718],[-3.3889389,47.73770713]]]}"}
 
 # Test size restriction will return the largest shape
   - do:
@@ -185,7 +185,7 @@
                   algorithm: TOPOLOGY_PRESERVING
                 size: 1 # size restriction here
 
-  - match: {aggregations.g.buckets.0.key: "{\"type\":\"Polygon\",\"coordinates\":[[[-3.3889389,47.73770713],[-3.37778091,47.73851525],[-3.385849,47.74428718],[-3.3889389,47.73770713]]],\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:0\"}}}"}
+  - match: {aggregations.g.buckets.0.key: "{\"type\":\"Polygon\",\"coordinates\":[[[-3.3889389,47.73770713],[-3.37778091,47.73851525],[-3.385849,47.74428718],[-3.3889389,47.73770713]]]}"}
 
 # test with high zoom and TOPOLOGY_PRESERVING  (exact same test as 30_simplify_script.yml one!)
   - do:
@@ -202,7 +202,26 @@
                   algorithm: TOPOLOGY_PRESERVING
 
   # coordinates length must be 37. it's not possible to test this length because the shape is dumped as a text, so we're testing the full shape length here instead
-  - length: {aggregations.g.buckets.1.key: 935}
+  - length: {aggregations.g.buckets.1.key: 882}
+
+---
+"A simplify without zoom is rejected when no tile gives one":
+
+  - do:
+      indices.create:
+        index: test_index
+
+  - do:
+      catch: /\[simplify\] requires a \[zoom\] when no \[tile\] is given/
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                simplify:
+                  algorithm: DOUGLAS_PEUCKER
 
 ---
 "Test truncation reporting: sum_other_doc_count":
@@ -336,3 +355,201 @@
                 shard_size: 1
   - length: { aggregations.g.buckets: 1 }
   - match: { aggregations.g.sum_other_doc_count: 3 }
+
+---
+"Bucket sub-aggregations are computed per shape":
+
+  - do:
+      ingest.put_pipeline:
+        id: "geo_extension"
+        body:  >
+          {
+            "description": "Add extra geo fields to geo_shape fields.",
+            "processors": [
+              {
+                "geo_extension": {
+                  "field": "geo_shape_*"
+                }
+              }
+            ]
+          }
+  - match: { acknowledged: true }
+
+  - do:
+      indices.create:
+        index: test_index
+        body:
+          settings:
+            number_of_shards: 1
+
+  - do:
+      indices.put_mapping:
+        index: test_index
+        body:
+          properties:
+            tag: {"type": "keyword"}
+          dynamic_templates: [
+            {
+              "geo_shapes": {
+                "match": "geo_shape_*",
+                "mapping": {
+                  "properties": {
+                    "shape": {"enabled": false},
+                    "fixed_shape": {"type": "geo_shape"},
+                    "hash": {"type": "keyword"},
+                    "wkb": {"type": "binary", "doc_values": true},
+                    "type": {"type": "keyword"},
+                    "area": {"type": "half_float"},
+                    "bbox": {"type": "geo_point"},
+                    "centroid": {"type": "geo_point"}
+                  }
+                }
+              }
+            }
+          ]
+
+# 3 distinct shapes, ranked by perimeter: BIG, then MED (held by two docs), then SMALL
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "tag": "big", "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[1,0],[1,1],[0,1],[0,0]]] } }
+
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "tag": "med-1", "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[0.1,0],[0.1,0.1],[0,0.1],[0,0]]] } }
+
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "tag": "med-2", "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[0.1,0],[0.1,0.1],[0,0.1],[0,0]]] } }
+
+  - do:
+      index:
+        index: test_index
+        pipeline: "geo_extension"
+        body: { "tag": "small", "geo_shape_0": { "type": "Polygon", "coordinates": [[[0,0],[0.01,0],[0.01,0.01],[0,0.01],[0,0]]] } }
+
+  - do:
+      indices.refresh: {}
+
+# A terms sub-aggregation sees the documents of its own bucket only, in every bucket.
+  - do:
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+              aggs:
+                tags:
+                  terms:
+                    field: tag
+  - length: { aggregations.g.buckets: 3 }
+  - length: { aggregations.g.buckets.0.tags.buckets: 1 }
+  - match: { aggregations.g.buckets.0.tags.buckets.0.key: "big" }
+  - length: { aggregations.g.buckets.1.tags.buckets: 2 }
+  - match: { aggregations.g.buckets.1.tags.buckets.0.key: "med-1" }
+  - match: { aggregations.g.buckets.1.tags.buckets.1.key: "med-2" }
+  - length: { aggregations.g.buckets.2.tags.buckets: 1 }
+  - match: { aggregations.g.buckets.2.tags.buckets.0.key: "small" }
+
+# Only the shapes `size` keeps have their sub-aggregations reduced: with size 1, the 3 terms buckets of MED and
+# SMALL are never built, so they cannot push the request over search.max_buckets.
+  - do:
+      cluster.put_settings:
+        body:
+          persistent:
+            search.max_buckets: 2
+
+  - do:
+      search:
+        body:
+          size: 0
+          aggs:
+            g:
+              geoshape:
+                field: "geo_shape_0.wkb"
+                output_format: wkt
+                size: 1
+                shard_size: 10
+              aggs:
+                tags:
+                  terms:
+                    field: tag
+  - length: { aggregations.g.buckets: 1 }
+  - match: { aggregations.g.buckets.0.tags.buckets.0.key: "big" }
+  - match: { aggregations.g.sum_other_doc_count: 3 }
+
+  - do:
+      cluster.put_settings:
+        body:
+          persistent:
+            search.max_buckets: null
+
+# Under a multi-bucket parent, every parent bucket would get the shapes of all of them: rejected.
+  - do:
+      catch: /\[geoshape\] aggregation \[g\] cannot be nested under a multi-bucket aggregation/
+      search:
+        body:
+          size: 0
+          aggs:
+            tags:
+              terms:
+                field: tag
+              aggs:
+                g:
+                  geoshape:
+                    field: "geo_shape_0.wkb"
+
+# A single-bucket parent is fine.
+  - do:
+      search:
+        body:
+          size: 0
+          aggs:
+            only_med:
+              filter:
+                prefix:
+                  tag: "med"
+              aggs:
+                g:
+                  geoshape:
+                    field: "geo_shape_0.wkb"
+  - length: { aggregations.only_med.g.buckets: 1 }
+  - match: { aggregations.only_med.g.buckets.0.doc_count: 2 }
+
+---
+"A parent that builds the aggregation empty gets no bucket rather than a failure":
+
+# An unmapped nested path never collects, and builds its sub-aggregations empty.
+  - do:
+      indices.create:
+        index: test_index
+        body:
+          mappings:
+            properties:
+              geo_shape_0:
+                properties:
+                  wkb: {"type": "binary", "doc_values": true}
+
+  - do:
+      search:
+        index: test_index
+        body:
+          size: 0
+          aggs:
+            n:
+              nested:
+                path: not_mapped
+              aggs:
+                g:
+                  geoshape:
+                    field: "geo_shape_0.wkb"
+
+  - length: { aggregations.n.g.buckets: 0 }
