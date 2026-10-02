@@ -267,8 +267,7 @@ Moreover, compared to regular search results, results of an aggregation can be [
   coordinate space. See [Tile clipping and quantization](#tile-clipping-and-quantization) below.
   - `z`, `x`, `y` (mandatory): the tile, in the XYZ scheme of web mercator (EPSG:3857), `y = 0` at the north
     edge: mercantile's convention, not TMS. `z` must be within `[0, 29]`, the range of elasticsearch's own
-    `geotile_grid`, and `x` and `y` within `[0, 2^z - 1]`. The tile's WGS84 box is derived with the formulas of
-    `mercantile.bounds(x, y, z)`.
+    `geotile_grid`, and `x` and `y` within `[0, 2^z - 1]`.
   - `extent` (optional): size of the integer grid `[0, extent]` local to the tile that coordinates are rescaled
     to. Must be at least `1`. Default to `4096`, as in PostGIS and elasticsearch's `_mvt` API.
   - `buffer` (optional): fraction of the tile size kept on each side, so adjacent tiles do not show a seam. Must
@@ -357,7 +356,7 @@ after the ranking. A spatial filter on the query leaves those shapes out as well
 elasticsearch skip the out-of-window documents through its index rather than handing them to the
 aggregation, which on a country-wide index is the difference between visiting a few thousand
 documents and visiting all of them.
-That filter takes the tile's WGS84 corners, which a caller computes from z/x/y, e.g. `mercantile.bounds(x, y, z)`.
+That filter takes the tile's WGS84 corners, which a caller computes from z/x/y.
 
 This exists to keep per-coordinate work out of the client. Without it, a client rendering vector tiles reprojects, quantizes and re-winds every coordinate of every shape itself, and pays that cost on the *whole* shape even when only a sliver of it falls inside the tile being served. It is the same job as PostGIS' `ST_AsMVTGeom(geom, bounds, extent, buffer)`.
 

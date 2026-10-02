@@ -237,8 +237,7 @@ public class GeoUtils {
     }
 
     /**
-     * Earth radius used by the web mercator projection (EPSG:3857). Same value as the one used by
-     * python's {@code mercantile.xy}, so both produce identical coordinates.
+     * Earth radius used by the web mercator projection (EPSG:3857).
      */
     public static final double MERCATOR_EARTH_RADIUS = 6378137.0;
 
